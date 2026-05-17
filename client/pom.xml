@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- SPDX-FileCopyrightText: Copyright 2025-2026 Diridium Technologies Inc. -->
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <artifactId>rbac</artifactId>
+        <groupId>com.diridium</groupId>
+        <version>${revision}</version>
+    </parent>
+
+    <artifactId>rbac-client</artifactId>
+    <name>RBAC Client</name>
+
+    <properties>
+        <swingx-core.version>1.6.2-2</swingx-core.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.diridium</groupId>
+            <artifactId>rbac-shared</artifactId>
+            <version>${revision}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.mirth.connect</groupId>
+            <artifactId>mirth-client</artifactId>
+            <version>${mc.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <!-- Required: Mirth's Frame extends SwingX JXFrame — needed for type resolution -->
+        <dependency>
+            <groupId>org.swinglabs</groupId>
+            <artifactId>swingx-core</artifactId>
+            <version>${swingx-core.version}</version>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+</project>

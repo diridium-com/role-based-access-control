@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- SPDX-FileCopyrightText: Copyright 2025-2026 Diridium Technologies Inc. -->
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "conf/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="Rbac">
+
+    <!-- ========== Result Maps ========== -->
+
+    <resultMap id="roleResult" type="map">
+        <result property="id" column="id" javaType="Integer" />
+        <result property="name" column="name" javaType="String" />
+        <result property="description" column="description" javaType="String" />
+        <result property="isAdmin" column="is_admin" />
+    </resultMap>
+
+    <!-- ========== Role CRUD ========== -->
+
+    <select id="getAllRoles" resultMap="roleResult">
+        SELECT id, name, description, is_admin FROM rbac_role ORDER BY id
+    </select>
+
+    <select id="getRoleById" parameterType="int" resultMap="roleResult">
+        SELECT id, name, description, is_admin FROM rbac_role WHERE id = #{value}
+    </select>
+
+    <!-- No keyColumn: passing keyColumn="id" makes MyBatis request a generated-keys column
+         named literally "id", which fails on databases that fold unquoted identifiers to
+         upper case (Derby, Oracle, SQL Server) with "table does not have an auto-generated
+         column named 'id'". Relying on keyProperty alone reads the generated key positionally
+         and works across all supported databases (id is the first/only auto-generated column). -->
+    <insert id="insertRole" parameterType="map" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO rbac_role (name, description, is_admin) VALUES (#{name}, #{description}, #{isAdmin})
+    </insert>
+
+    <select id="getRoleIdByName" parameterType="String" resultType="Integer">
+        SELECT id FROM rbac_role WHERE name = #{value}
+    </select>
+
+    <update id="updateRole" parameterType="map">
+        UPDATE rbac_role SET name = #{name}, description = #{description} WHERE id = #{id}
+    </update>
+
+    <delete id="deleteRole" parameterType="int">
+        DELETE FROM rbac_role WHERE id = #{value}
+    </delete>
+
+    <!-- ========== Admin Role Identification ========== -->
+
+    <select id="getAdminRoleId" parameterType="map" resultType="Integer">
+        SELECT id FROM rbac_role WHERE is_admin = #{flag}
+    </select>
+
+    <update id="setRoleIsAdmin" parameterType="map">
+        UPDATE rbac_role SET is_admin = #{isAdmin} WHERE id = #{id}
+    </update>
+
+    <!-- Count only assignment rows whose user still exists in the engine PERSON table.
+         rbac_user_role has no FK to PERSON, and the engine deletes users without notifying
+         RBAC, leaving orphaned rows. Counting those orphans inflated the admin-floor guard,
+         which could refuse to let the last LIVE admin's role change and lock everyone out.
+         The IN-subquery against PERSON.ID is DB-agnostic (Derby/Postgres/MySQL/Oracle/SQLServer). -->
+    <select id="countUsersByRoleId" parameterType="int" resultType="Integer">
+        SELECT COUNT(*) FROM rbac_user_role
+        WHERE role_id = #{value} AND user_id IN (SELECT ID FROM PERSON)
+    </select>
+
+    <!-- ========== Role Permissions ========== -->
+
+    <select id="getPermissionsForRole" parameterType="int" resultType="String">
+        SELECT permission FROM rbac_role_permission WHERE role_id = #{value}
+    </select>
+
+    <delete id="deletePermissionsForRole" parameterType="int">
+        DELETE FROM rbac_role_permission WHERE role_id = #{value}
+    </delete>
+
+    <insert id="insertPermission" parameterType="map">
+        INSERT INTO rbac_role_permission (role_id, permission) VALUES (#{roleId}, #{permission})
+    </insert>
+
+    <!-- ========== Role Channel Restrictions ========== -->
+
+    <select id="getChannelIdsForRole" parameterType="int" resultType="String">
+        SELECT channel_id FROM rbac_role_channel WHERE role_id = #{value}
+    </select>
+
+    <delete id="deleteChannelIdsForRole" parameterType="int">
+        DELETE FROM rbac_role_channel WHERE role_id = #{value}
+    </delete>
+
+    <insert id="insertChannelId" parameterType="map">
+        INSERT INTO rbac_role_channel (role_id, channel_id) VALUES (#{roleId}, #{channelId})
+    </insert>
+
+    <!-- ========== User-Role Assignment ========== -->
+
+    <select id="getUserRoleId" parameterType="int" resultType="Integer">
+        SELECT role_id FROM rbac_user_role WHERE user_id = #{value}
+    </select>
+
+    <delete id="deleteUserRole" parameterType="int">
+        DELETE FROM rbac_user_role WHERE user_id = #{value}
+    </delete>
+
+    <insert id="insertUserRole" parameterType="map">
+        INSERT INTO rbac_user_role (user_id, role_id) VALUES (#{userId}, #{roleId})
+    </insert>
+
+    <!-- Startup orphan sweep: remove assignment rows for users the engine no longer
+         knows about (no FK to PERSON, no user-deletion hook). PERSON-driven, so it needs
+         no parameters. The AND EXISTS guard is essential: NOT IN (SELECT ID FROM PERSON)
+         evaluates TRUE for every row when PERSON is empty, which would delete EVERY
+         assignment. The guard makes an empty PERSON a no-op instead. -->
+    <delete id="deleteOrphanUserRoles">
+        DELETE FROM rbac_user_role
+        WHERE user_id NOT IN (SELECT ID FROM PERSON)
+          AND EXISTS (SELECT 1 FROM PERSON)
+    </delete>
+
+</mapper>

@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- SPDX-FileCopyrightText: Copyright 2025-2026 Diridium Technologies Inc. -->
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
+<pluginMetaData path="rbac">
+    <name>Role-Based Access Control</name>
+    <author>Diridium Technologies Inc.</author>
+    <pluginVersion>${project.version}</pluginVersion>
+    <mirthVersion>${plugin.supported.mc.versions}</mirthVersion>
+    <url>https://diridium.com</url>
+    <description>Enforces role-based access control with dynamic roles, per-permission grants, and channel-level restrictions.</description>
+
+    <serverClasses>
+        <string>com.diridium.rbac.RbacServicePlugin</string>
+    </serverClasses>
+
+    <clientClasses>
+        <string>com.diridium.rbac.RbacClientPlugin</string>
+    </clientClasses>
+
+    <controllerClasses>
+        <string>com.diridium.rbac.RbacAuthorizationController</string>
+    </controllerClasses>
+
+    <migratorClass>com.diridium.rbac.RbacMigrator</migratorClass>
+
+    <sqlMapConfigs>
+        <entry>
+            <string>all</string>
+            <string>sqlmap.xml</string>
+        </entry>
+    </sqlMapConfigs>
+
+    <library type="SERVER" path="rbac-server-${project.version}.jar" />
+    <library type="SHARED" path="rbac-shared-${project.version}.jar" />
+    <library type="CLIENT" path="rbac-client-${project.version}.jar" />
+
+    <apiProvider type="SERVLET_INTERFACE" name="com.diridium.rbac.RbacServletInterface" />
+    <apiProvider type="SERVER_CLASS" name="com.diridium.rbac.RbacServlet" />
+</pluginMetaData>

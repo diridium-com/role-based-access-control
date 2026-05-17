@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- SPDX-FileCopyrightText: Copyright 2025-2026 Diridium Technologies Inc. -->
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <artifactId>rbac</artifactId>
+        <groupId>com.diridium</groupId>
+        <version>${revision}</version>
+    </parent>
+
+    <artifactId>rbac-shared</artifactId>
+    <name>RBAC Shared</name>
+
+    <properties>
+        <!-- Match the version the engine ships at runtime (engine gradle/libs.versions.toml
+             pins 2.0.10; server-lib/swagger/swagger-annotations-2.0.10.jar). Compiling
+             against a newer line risks referencing annotations absent at runtime. -->
+        <swagger-annotations.version>2.0.10</swagger-annotations.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>io.swagger.core.v3</groupId>
+            <artifactId>swagger-annotations</artifactId>
+            <version>${swagger-annotations.version}</version>
+            <!-- Provided by the engine at runtime; do not stage into to-be-packed. -->
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+</project>
