@@ -17,3 +17,6 @@ node/
 # Playwright e2e artifacts
 webadmin/test-results/
 webadmin/playwright-report/
+
+# Local wiki working copy (lives in the .wiki.git repo, not here)
+wiki/
