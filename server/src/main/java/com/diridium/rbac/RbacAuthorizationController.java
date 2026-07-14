@@ -106,6 +106,11 @@ public class RbacAuthorizationController extends AuthorizationController {
     // task pane buttons and settings tabs without us hardcoding their names.
     private final Map<String, String> extensionTaskToPermission = new ConcurrentHashMap<>();
 
+    // Maps extension permission display name -> the publishing plugin's name.
+    // Exposed to the role editors so each plugin's permissions render under the
+    // plugin's own header (e.g. "Thread Viewer") instead of a generic bucket.
+    private final Map<String, String> extensionPermissionToPlugin = new ConcurrentHashMap<>();
+
     // Cache: userId -> cached auth info
     private final ConcurrentHashMap<Integer, UserAuthCache> cache = new ConcurrentHashMap<>();
 
@@ -378,6 +383,9 @@ public class RbacAuthorizationController extends AuthorizationController {
         // the admin role. Keying by the composite name makes the lookup match and is
         // collision-free across plugins (a null/blank extensionName falls back to bare).
         String extensionName = extensionPermission.getExtensionName();
+        if (permissionDisplayName != null && extensionName != null && !extensionName.isEmpty()) {
+            extensionPermissionToPlugin.put(permissionDisplayName, extensionName);
+        }
         String prefix = (extensionName != null && !extensionName.isEmpty()) ? extensionName + "#" : "";
         String[] operationNames = extensionPermission.getOperationNames();
         if (operationNames != null) {
@@ -559,7 +567,23 @@ public class RbacAuthorizationController extends AuthorizationController {
      *         map is concurrent)
      */
     public Set<String> getExtensionPermissionNames() {
-        return new LinkedHashSet<>(extensionOperationToPermission.values());
+        // Union both sources: a permission declared with only taskNames (no
+        // operationNames) still belongs in the catalog.
+        Set<String> names = new LinkedHashSet<>(extensionOperationToPermission.values());
+        names.addAll(extensionPermissionToPlugin.keySet());
+        return names;
+    }
+
+    /**
+     * Returns each registered extension permission's publishing plugin, keyed
+     * by permission display name. The role editors use this to render plugin
+     * permissions under the plugin's own header (e.g. "Thread Viewer") instead
+     * of a generic bucket.
+     *
+     * @return a fresh copy of the current map; never {@code null}
+     */
+    public Map<String, String> getExtensionPermissionGroups() {
+        return new LinkedHashMap<>(extensionPermissionToPlugin);
     }
 
     /**

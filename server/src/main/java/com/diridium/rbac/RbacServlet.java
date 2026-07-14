@@ -282,6 +282,26 @@ public class RbacServlet extends MirthServlet implements RbacServletInterface {
         }
     }
 
+    /**
+     * {@inheritDoc}
+     * <p>Pulls the live map from the auth controller; returns an empty map
+     * if the RBAC controller is not currently registered (a state that
+     * should not occur in production).</p>
+     */
+    @Override
+    public Map<String, String> getExtensionPermissionGroups() throws ClientException {
+        requireMigrationOk();
+        try {
+            RbacAuthorizationController rbac = getRbacController();
+            return rbac != null ? rbac.getExtensionPermissionGroups() : new LinkedHashMap<>();
+        } catch (MirthApiException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Failed to get extension permission groups", e);
+            throw new MirthApiException(e);
+        }
+    }
+
     // ========== Helpers ==========
 
     private Set<String> getAllPermissions() {

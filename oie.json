@@ -1,0 +1,19 @@
+{
+    "schemaVersion": 1,
+    "id": "rbac",
+    "name": "Role-Based Access Control",
+    "description": "Enforces role-based access control with dynamic roles, per-permission grants, and channel-level restrictions.",
+    "type": "plugin",
+    "ui": ["web", "swing"],
+    "version": "1.1.2",
+    "minEngineVersion": "4.6.0",
+    "maxEngineVersion": null,
+    "filename": "rbac-{version}.zip",
+    "restartRequired": true,
+    "homepage": "https://github.com/diridium-com/role-based-access-control",
+    "documentation": "https://github.com/diridium-com/role-based-access-control#readme",
+    "license": "MPL-2.0",
+    "authors": ["Diridium Technologies Inc."],
+    "keywords": ["rbac", "security", "roles", "permissions", "access-control", "authorization"],
+    "deprecated": false
+}

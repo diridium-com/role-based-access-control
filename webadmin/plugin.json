@@ -1,0 +1,9 @@
+{
+    "id": "rbac",
+    "name": "Role-Based Access Control",
+    "version": "1.1.2",
+    "author": "Diridium Technologies Inc.",
+    "description": "Role management and role-based UI hiding for the web administrator: a Role-Based Access Control settings tab (roles, permission grants, channel restrictions, user assignments) plus task-permission enforcement that hides navigation and task buttons the user's role does not grant. Web administrator UI for the role-based-access-control engine plugin.",
+    "oie": { "apiMin": "4.6" },
+    "client": { "entry": "web/plugin.js" }
+}

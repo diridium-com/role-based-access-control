@@ -59,7 +59,7 @@ Output: `package/target/rbac-1.1.0.zip`
 - Path: `/extensions/rbac`
 - Roles: GET/POST `/roles`, GET/PUT/DELETE `/roles/{roleId}`
 - Users: GET `/users/{userId}/role`, POST `/users/{userId}/role/{roleId}`, DELETE `/users/{userId}/role`
-- Permissions: GET `/permissions` (all available), GET `/my-permissions` (current user's granted permissions)
+- Permissions: GET `/permissions` (all available), GET `/my-permissions` (current user's granted permissions), GET `/permissions/extensions` (extension permission → publishing plugin, for the role editors' per-plugin headers), GET `/task-permissions` (extension task → permission, whitelisted for all users)
 - `@MirthOperation` annotations with `PERMISSION_VIEW = "View Roles"` and `PERMISSION_MANAGE = "Manage Roles"`
 
 ### XStream Serialization (CRITICAL)

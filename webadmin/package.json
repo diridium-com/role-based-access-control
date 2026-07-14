@@ -1,0 +1,15 @@
+{
+    "name": "rbac-webadmin",
+    "version": "1.1.2",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "build": "node build.mjs",
+        "test": "node --test 'web/*.test.mjs'",
+        "e2e": "playwright test"
+    },
+    "devDependencies": {
+        "@playwright/test": "^1.61.0",
+        "esbuild": "^0.21.0"
+    }
+}
