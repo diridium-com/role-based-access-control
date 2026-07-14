@@ -2,7 +2,7 @@
 
 Role Based Access Control (RBAC) plugin for [Open Integration Engine](https://github.com/OpenIntegrationEngine/engine) 4.6.0. Enforces dynamic roles with per-permission grants and channel-level restrictions, replacing the engine's default always-allow authorization controller.
 
-Web admin ready: the same zip ships both UIs. Role management and role-based task gating work in the desktop (Swing) Administrator and in the [OIE Web Administrator](https://github.com/diridium-com/role-based-access-control/wiki/Web-Administrator), with matching behavior in each. On servers where the Web Administrator isn't used, the web module is inert.
+Web admin ready: the same zip ships both UIs. Role management and role-based task gating work in the desktop (Swing) Administrator and in the [OIE Web Administrator](https://github.com/diridium-com/role-based-access-control/wiki/Web-Administrator), with matching behavior in each. The web UI's permission gating is also more complete than Swing's, which cannot hide buttons inside panel bodies (an engine limitation that applies to all plugins); either way, denied operations always fail server-side. On servers where the Web Administrator isn't used, the web module is inert.
 
 Full documentation is in the [wiki](https://github.com/diridium-com/role-based-access-control/wiki).
 
