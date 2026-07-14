@@ -6,6 +6,10 @@ Web admin ready: the same zip ships both UIs. Role management and role-based tas
 
 Full documentation is in the [wiki](https://github.com/diridium-com/role-based-access-control/wiki).
 
+<img src="https://raw.githubusercontent.com/wiki/diridium-com/role-based-access-control/images/1.png" width="800" alt="Role-Based Access Control settings tab in the OIE Administrator">
+
+<img src="https://raw.githubusercontent.com/wiki/diridium-com/role-based-access-control/images/2.png" width="600" alt="Role editor with grouped permission checkboxes and preset buttons">
+
 ## Prerequisites
 
 - JDK 17
