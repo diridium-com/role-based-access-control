@@ -7,6 +7,7 @@ Role Based Access Control (RBAC) plugin for [Open Integration Engine](https://gi
 - JDK 17
 - Maven 3.x
 - A local checkout of the OIE engine source at version 4.6.0, built with its Gradle build (the plugin compiles against engine jars that are not published to a public Maven repository)
+- Network access on the first build: the packaging step downloads Node.js v20.18.0 (via frontend-maven-plugin) to build the web administrator UI in `webadmin/`
 
 ## Build
 
@@ -29,7 +30,7 @@ Use `install`, not `package`. The multi-module build requires the shared module 
 The distributable zip lands at:
 
 ```
-package/target/rbac-1.1.0.zip
+package/target/rbac-1.1.2.zip
 ```
 
 ## Install

@@ -23,9 +23,10 @@ ENGINE_DIR=/path/to/engine ./scripts/install-engine-jars.sh
 ```
 Then:
 ```bash
-mvn clean install    # NOT 'package' — install is required for multi-module
+mvn clean install    # 'mvn package' at the root also works (verified on a fresh repo; the release workflow uses it) — install additionally puts the jars in ~/.m2
 ```
-Output: `package/target/rbac-1.1.0.zip`
+The packaging step downloads Node.js v20.18.0 (frontend-maven-plugin) to build the `webadmin/` web-administrator UI, so the first build needs network access beyond Maven Central.
+Output: `package/target/rbac-1.1.2.zip`
 
 ## Architecture
 
