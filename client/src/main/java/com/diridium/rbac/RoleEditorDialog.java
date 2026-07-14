@@ -12,11 +12,13 @@ import java.awt.Insets;
 import java.awt.event.KeyEvent;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.TreeSet;
 
 import javax.swing.BorderFactory;
@@ -130,16 +132,22 @@ public class RoleEditorDialog extends JDialog {
      *                            should offer as a checkbox; this is the
      *                            union of core + extension permissions
      *                            fetched from the server. Permissions not in
-     *                            {@link #PERMISSION_GROUPS} get bucketed
-     *                            under "Other"
+     *                            {@link #PERMISSION_GROUPS} render under their
+     *                            publishing plugin's header (or "Other" when
+     *                            the plugin is unknown)
+     * @param extensionGroups     permission display name → publishing plugin
+     *                            name (from {@code GET /permissions/extensions});
+     *                            {@code null} tolerated — every uncategorized
+     *                            permission then falls back to "Other"
      * @param channelIdsAndNames  ordered map of channel id → display name;
      *                            populates the channel-restriction checklist
      */
-    public RoleEditorDialog(Frame parent, Role existingRole, Set<String> allPermissions, Map<String, String> channelIdsAndNames) {
+    public RoleEditorDialog(Frame parent, Role existingRole, Set<String> allPermissions,
+            Map<String, String> extensionGroups, Map<String, String> channelIdsAndNames) {
         super(parent, existingRole == null ? "Add Role" : "Edit Role", true);
         this.existingRole = existingRole;
         this.permissionCatalogEmpty = (allPermissions == null || allPermissions.isEmpty());
-        initComponents(allPermissions, channelIdsAndNames);
+        initComponents(allPermissions, extensionGroups, channelIdsAndNames);
         if (existingRole != null) {
             populateFromRole(existingRole);
         }
@@ -152,7 +160,8 @@ public class RoleEditorDialog extends JDialog {
         setLocationRelativeTo(parent);
     }
 
-    private void initComponents(Set<String> allPermissions, Map<String, String> channelIdsAndNames) {
+    private void initComponents(Set<String> allPermissions, Map<String, String> extensionGroups,
+            Map<String, String> channelIdsAndNames) {
         setLayout(new BorderLayout());
 
         // ========== Top: Name & Description ==========
@@ -229,23 +238,41 @@ public class RoleEditorDialog extends JDialog {
             }
         }
 
-        // Add any uncategorized permissions (extension permissions, etc.)
+        // Uncategorized catalog entries are plugin-published (ExtensionPermission
+        // display names): render one titled panel per publishing plugin, in
+        // plugin-name order, with anything unattributed in a trailing "Other".
         Set<String> uncategorized = new TreeSet<>(allPermsSet);
         uncategorized.removeAll(categorized);
         if (!uncategorized.isEmpty()) {
-            JPanel otherPanel = new JPanel();
-            otherPanel.setLayout(new BoxLayout(otherPanel, BoxLayout.Y_AXIS));
-            otherPanel.setBorder(BorderFactory.createTitledBorder(
-                    BorderFactory.createEtchedBorder(), "Other",
-                    TitledBorder.DEFAULT_JUSTIFICATION, TitledBorder.DEFAULT_POSITION));
-
+            Map<String, String> extGroups = extensionGroups != null ? extensionGroups : new HashMap<>();
+            Map<String, List<String>> byPlugin = new TreeMap<>();
+            List<String> other = new ArrayList<>();
             for (String perm : uncategorized) {
-                JCheckBox cb = new JCheckBox(perm);
-                applyPermissionWarning(cb, perm);
-                permissionCheckboxes.put(perm, cb);
-                otherPanel.add(cb);
+                String plugin = extGroups.get(perm);
+                if (plugin != null && !plugin.isEmpty()) {
+                    byPlugin.computeIfAbsent(plugin, k -> new ArrayList<>()).add(perm);
+                } else {
+                    other.add(perm);
+                }
             }
-            groupPanels.add(otherPanel);
+            if (!other.isEmpty()) {
+                byPlugin.put("Other", other);
+            }
+            for (Map.Entry<String, List<String>> pluginGroup : byPlugin.entrySet()) {
+                JPanel pluginPanel = new JPanel();
+                pluginPanel.setLayout(new BoxLayout(pluginPanel, BoxLayout.Y_AXIS));
+                pluginPanel.setBorder(BorderFactory.createTitledBorder(
+                        BorderFactory.createEtchedBorder(), pluginGroup.getKey(),
+                        TitledBorder.DEFAULT_JUSTIFICATION, TitledBorder.DEFAULT_POSITION));
+
+                for (String perm : pluginGroup.getValue()) {
+                    JCheckBox cb = new JCheckBox(perm);
+                    applyPermissionWarning(cb, perm);
+                    permissionCheckboxes.put(perm, cb);
+                    pluginPanel.add(cb);
+                }
+                groupPanels.add(pluginPanel);
+            }
         }
 
         // Lay out group panels in a 2-column grid

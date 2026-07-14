@@ -9,3 +9,11 @@ target
 # Signing configuration (machine-specific, contains secrets)
 yubikey-pkcs11.cfg
 certchain.pem
+
+# Web administrator UI build tooling
+webadmin/node_modules/
+node/
+
+# Playwright e2e artifacts
+webadmin/test-results/
+webadmin/playwright-report/

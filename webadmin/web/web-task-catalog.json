@@ -1,0 +1,185 @@
+{
+    "$comment": "Snapshot of the OIE web administrator's RBAC task catalog (oie-web-client web-administrator/RBAC.md section 3, captured 2026-07-14) - every (taskGroup, taskName) the host's checkTask hook can be asked about. Generated ONCE from that document so this repo's map-completeness test is self-contained; when the host catalog changes, regenerate this file from RBAC.md section 3 and re-run map-completeness.test.mjs to surface the drift.",
+    "groups": {
+        "view": [
+            "doShowDashboard",
+            "doShowChannel",
+            "doShowUsers",
+            "doShowSettings",
+            "doShowAlerts",
+            "doShowEvents",
+            "doShowExtensions"
+        ],
+        "dashboard": [
+            "doRefreshStatuses",
+            "doSendMessage",
+            "doShowMessages",
+            "doRemoveAllMessages",
+            "doClearStats",
+            "doStart",
+            "doPause",
+            "doStop",
+            "doHalt",
+            "doUndeployChannel",
+            "doStartConnector",
+            "doStopConnector"
+        ],
+        "channel": [
+            "doRefreshChannels",
+            "doRedeployAll",
+            "doDeployInDebug",
+            "doDeployChannel",
+            "doEditGlobalScripts",
+            "doEditCodeTemplates",
+            "doNewChannel",
+            "doImportChannel",
+            "doExportAllChannels",
+            "doExportChannel",
+            "doDeleteChannel",
+            "doCloneChannel",
+            "doEditChannel",
+            "doEnableChannel",
+            "doDisableChannel",
+            "doViewMessages"
+        ],
+        "channelGroup": [
+            "doSaveGroups",
+            "doAssignChannelToGroup",
+            "doNewGroup",
+            "doEditGroupDetails",
+            "doImportGroup",
+            "doExportAllGroups",
+            "doExportGroup",
+            "doDeleteGroup"
+        ],
+        "channelEdit": [
+            "doSaveChannel",
+            "doValidate",
+            "doNewDestination",
+            "doDeleteDestination",
+            "doCloneDestination",
+            "doEnableDestination",
+            "doDisableDestination",
+            "doMoveDestinationUp",
+            "doMoveDestinationDown",
+            "doImportConnector",
+            "doExportConnector",
+            "doExportChannel",
+            "doValidateChannelScripts",
+            "doDebugDeployFromChannelView",
+            "doDeployFromChannelView",
+            "doEditFilter",
+            "doEditTransformer",
+            "doEditResponseTransformer"
+        ],
+        "message": [
+            "doRefreshMessages",
+            "doSendMessage",
+            "doImportMessages",
+            "doExportMessages",
+            "doRemoveAllMessages",
+            "doRemoveFilteredMessages",
+            "doRemoveMessage",
+            "doReprocessFilteredMessages",
+            "doReprocessMessage",
+            "viewImage",
+            "doExportAttachment"
+        ],
+        "alert": [
+            "doRefreshAlerts",
+            "doNewAlert",
+            "doImportAlert",
+            "doExportAlerts",
+            "doExportAlert",
+            "doDeleteAlert",
+            "doEditAlert",
+            "doEnableAlert",
+            "doDisableAlert"
+        ],
+        "alertEdit": [
+            "doSaveAlerts",
+            "doExportAlert"
+        ],
+        "user": [
+            "doRefreshUser",
+            "doNewUser",
+            "doEditUser",
+            "doDeleteUser"
+        ],
+        "event": [
+            "doRefreshEvents",
+            "doExportAllEvents"
+        ],
+        "codeTemplate": [
+            "doRefreshCodeTemplates",
+            "doSaveCodeTemplates",
+            "doNewCodeTemplate",
+            "doNewLibrary",
+            "doImportCodeTemplates",
+            "doImportLibraries",
+            "doExportCodeTemplate",
+            "doExportLibrary",
+            "doExportAllLibraries",
+            "doDeleteCodeTemplate",
+            "doDeleteLibrary",
+            "doValidateCodeTemplate"
+        ],
+        "script": [
+            "doSaveGlobalScripts",
+            "doValidateCurrentGlobalScript",
+            "doImportGlobalScripts",
+            "doExportGlobalScripts"
+        ],
+        "extensions": [
+            "doRefreshExtensions",
+            "doEnableExtension",
+            "doDisableExtension",
+            "doShowExtensionProperties",
+            "doUninstallExtension"
+        ],
+        "other": [
+            "goToUserAPI",
+            "goToClientAPI",
+            "doHelp",
+            "goToAbout",
+            "goToMirth",
+            "doReportIssue",
+            "doLogout"
+        ],
+        "settings_Server": [
+            "doRefresh",
+            "doSave",
+            "doBackup",
+            "doRestore",
+            "doClearAllStats"
+        ],
+        "settings_Administrator": [
+            "doRefresh",
+            "doSave",
+            "doSetAdminDefaults"
+        ],
+        "settings_Tags": [
+            "doRefresh",
+            "doSave"
+        ],
+        "settings_Configuration Map": [
+            "doRefresh",
+            "doSave",
+            "doImportMap",
+            "doExportMap"
+        ],
+        "settings_Database Tasks": [
+            "doRefresh",
+            "doSave",
+            "doRunDatabaseTask",
+            "doCancelDatabaseTask"
+        ],
+        "settings_Resources": [
+            "doRefresh",
+            "doSave",
+            "doAddResource",
+            "doRemoveResource",
+            "doReloadResource"
+        ]
+    }
+}

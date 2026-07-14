@@ -240,4 +240,23 @@ public interface RbacServletInterface extends BaseServletInterface {
     @MirthOperation(name = "getExtensionTaskPermissions", display = "Get extension task permissions",
             permission = PERMISSION_VIEW, type = ExecuteType.ASYNC, auditable = false)
     Map<String, String> getExtensionTaskPermissions() throws ClientException;
+
+    /**
+     * Returns each extension permission's publishing plugin, keyed by
+     * permission display name (e.g. {@code "View Thread Dump" → "Thread
+     * Viewer"}).
+     *
+     * <p>The role editors use this to render plugin permissions under the
+     * plugin's own header instead of a generic bucket. An empty map is
+     * returned if no installed plugin has declared permissions.</p>
+     *
+     * @return immutable snapshot of permission → plugin-name mappings
+     * @throws ClientException on internal failure
+     */
+    @GET
+    @Path("/permissions/extensions")
+    @Operation(summary = "Returns extension-permission to publishing-plugin mappings")
+    @MirthOperation(name = "getExtensionPermissionGroups", display = "Get extension permission groups",
+            permission = PERMISSION_VIEW, type = ExecuteType.ASYNC, auditable = false)
+    Map<String, String> getExtensionPermissionGroups() throws ClientException;
 }

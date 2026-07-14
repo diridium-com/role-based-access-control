@@ -70,6 +70,7 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
     private List<Role> cachedRoles = new ArrayList<>();
     private List<User> cachedUsers = new ArrayList<>();
     private Set<String> cachedPermissions;
+    private Map<String, String> cachedExtensionGroups = new LinkedHashMap<>();
     private Map<String, String> cachedChannelMap = new LinkedHashMap<>();
 
     /**
@@ -198,6 +199,7 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
                 private List<User> users;
                 private Set<String> permissions;
                 private Map<String, String> channelMap;
+                private Map<String, String> extensionGroups;
                 private ClientException error;
 
                 @Override
@@ -207,6 +209,13 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
                         users = parent.mirthClient.getServlet(UserServletInterface.class).getAllUsers();
                         permissions = parent.mirthClient.getServlet(RbacServletInterface.class).getAvailablePermissions();
                         channelMap = parent.mirthClient.getServlet(ChannelServletInterface.class).getChannelIdsAndNames();
+                        try {
+                            // Grouping is cosmetic — a pre-1.1.2 server (404) just
+                            // leaves plugin permissions under "Other".
+                            extensionGroups = parent.mirthClient.getServlet(RbacServletInterface.class).getExtensionPermissionGroups();
+                        } catch (ClientException ignore) {
+                            extensionGroups = new LinkedHashMap<>();
+                        }
                     } catch (ClientException e) {
                         error = e;
                     }
@@ -229,6 +238,9 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
                         }
                         if (permissions != null) {
                             cachedPermissions = permissions;
+                        }
+                        if (extensionGroups != null) {
+                            cachedExtensionGroups = extensionGroups;
                         }
                         if (channelMap != null) {
                             cachedChannelMap = channelMap;
@@ -329,7 +341,7 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
         if (permissionCatalogNotLoaded()) {
             return;
         }
-        RoleEditorDialog dialog = new RoleEditorDialog(parent, null, cachedPermissions, cachedChannelMap);
+        RoleEditorDialog dialog = new RoleEditorDialog(parent, null, cachedPermissions, cachedExtensionGroups, cachedChannelMap);
         dialog.setVisible(true);
 
         Role result = dialog.getResult();
@@ -355,7 +367,7 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
             return;
         }
 
-        RoleEditorDialog dialog = new RoleEditorDialog(parent, existingRole, cachedPermissions, cachedChannelMap);
+        RoleEditorDialog dialog = new RoleEditorDialog(parent, existingRole, cachedPermissions, cachedExtensionGroups, cachedChannelMap);
         dialog.setVisible(true);
 
         Role result = dialog.getResult();

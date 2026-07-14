@@ -192,6 +192,12 @@ public class SecureAuthorizationController implements AuthorizationController {
      * catches permission strings that don't exist at all; it cannot catch a
      * mapping to a real-but-wrong permission, which is what this manual pass is
      * for.</p>
+     *
+     * <p><b>Web twin:</b> the web administrator ships the same map in
+     * {@code webadmin/web/task-permission-map.js}, with
+     * {@code webadmin/web/task-permission-map.json} as the checked-in parity
+     * artifact both sides can diff against. When a mapping here changes,
+     * change all three.</p>
      */
     private void buildPermissionMaps() {
         // ========== View Navigation ==========
