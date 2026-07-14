@@ -68,6 +68,27 @@ jobs:
         with:
           node-version: '20'
 
+      # The catalog requires a meta.json beside the version manifests; generate
+      # it from the tagged oie.json so identity fields stay current per release.
+      # (Fetched to /tmp — the catalog checkout above wiped the workspace.)
+      - name: Write the package meta.json (from the plugin's oie.json)
+        run: |
+          mkdir -p "manifests/plugins/${PLUGIN_ID}"
+          curl -fsSL "https://raw.githubusercontent.com/${{ github.repository }}/$TAG/oie.json" -o /tmp/oie.json
+          node -e '
+            const o = JSON.parse(require("fs").readFileSync("/tmp/oie.json","utf8"));
+            const meta = {
+              id: o.id, name: o.name, description: o.description, type: o.type,
+              publisher: (o.authors && o.authors[0]) || o.id,
+              repository: o.homepage, homepage: o.homepage, documentation: o.documentation,
+              license: o.license, authors: o.authors || [], keywords: o.keywords || [],
+              deprecated: !!o.deprecated
+            };
+            require("fs").writeFileSync(process.env.META_PATH, JSON.stringify(meta, null, 4) + "\n");
+          '
+        env:
+          META_PATH: manifests/plugins/${{ env.PLUGIN_ID }}/meta.json
+
       - name: Write the version manifest
         run: |
           mkdir -p "manifests/plugins/${PLUGIN_ID}"
