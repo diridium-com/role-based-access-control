@@ -14,6 +14,9 @@ certchain.pem
 webadmin/node_modules/
 node/
 
+# Built by the package step from webadmin/web/plugin.jsx (see webadmin/build.mjs)
+webadmin/web/plugin.js
+
 # Playwright e2e artifacts
 webadmin/test-results/
 webadmin/playwright-report/

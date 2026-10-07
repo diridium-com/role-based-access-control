@@ -258,14 +258,14 @@ public class RbacAuthorizationController extends AuthorizationController {
                         }
                     } else {
                         // Unknown operation — neither a core nor extension permission mapping was
-                        // registered for it. Possible causes: (a) an engine endpoint added in a
-                        // future version without updating our knowledge; (b) a plugin endpoint
-                        // declared without a @MirthOperation permission; (c) an edge case we missed.
+                        // registered for it. Possible causes: (a) an engine endpoint whose
+                        // @MirthOperation declares no permission (dozens in 4.6.0, getTables among
+                        // them); (b) a plugin endpoint declared without one; (c) a case we missed.
                         //
                         // Policy: allow. Defense-in-depth (deny) would break plugin operations
                         // whose permission we have not seen, which is a worse failure mode than
-                        // letting an authenticated user with any role through. Log at debug so
-                        // operators auditing the server can see what's slipping through.
+                        // letting an authenticated user with any role through. Logged as a warning
+                        // so operators auditing the server can see what's slipping through.
                         log.warn("RBAC: allowing unknown operation '{}' for user {} (no permission mapping)",
                                 operationName, userId);
                         authorized = true;
