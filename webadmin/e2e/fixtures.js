@@ -96,6 +96,8 @@ export const DEFAULT_FIXTURES = {
         return { list: { message: offset > 0 ? [] : [SAMPLE_MESSAGE] } };
     },
     'GET /channels/c-started/messages/count': { long: 1 },
+    // The browser bounds each search at the channel's current maximum message id.
+    'GET /channels/c-started/messages/maxMessageId': { long: 12345 },
     'GET /channels/c-started/messages/12345': SAMPLE_MESSAGE,
     'GET /channels/c-started/messages/12345/attachments': '',
     'GET /channels/c-started/connectorNames': { map: { entry: [{ int: 0, string: 'Source' }] } },

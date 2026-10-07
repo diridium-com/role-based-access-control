@@ -49,17 +49,22 @@ test.describe('P4 my-permissions 500 (fail closed)', () => {
 
         // The account chip is untagged; its untagged self-service items remain.
         await page.locator('button.user-chip').click();
-        const menu = page.locator('.ctx-menu');
-        await expect(menu.getByRole('button', { name: 'Edit Account', exact: true })).toBeVisible();
-        await expect(menu.getByRole('button', { name: 'Change Password', exact: true })).toBeVisible();
+        const menu = page.getByRole('menu');
+        await expect(menu.getByRole('menuitem', { name: 'Edit Account', exact: true })).toBeVisible();
+        await expect(menu.getByRole('menuitem', { name: 'Change Password', exact: true })).toBeVisible();
         // Its tagged items (view/doShowSettings, other/doLogout) are hidden.
-        await expect(menu.getByRole('button', { name: 'Settings', exact: true })).toHaveCount(0);
-        await expect(menu.getByRole('button', { name: 'Sign out', exact: true })).toHaveCount(0);
+        await expect(menu.getByRole('menuitem', { name: 'Settings', exact: true })).toHaveCount(0);
+        await expect(menu.getByRole('menuitem', { name: 'Sign out', exact: true })).toHaveCount(0);
     });
 
-    test('the RBAC settings tab is skipped on a failed permission load', async ({ page }) => {
+    // fixme: web client 1.0.1 gates the built-in settings tabs too, so failing
+    // closed leaves no tab at all, and the Settings view then crashes on
+    // defs[0].label ("This view failed to render") before any tab renders.
+    // Re-enable once the web client handles an empty tab list
+    // (https://github.com/gibson9583/oie-web-client/issues/97).
+    test.fixme('the RBAC settings tab is skipped on a failed permission load', async ({ page }) => {
         await page.goto('/settings');
-        await expect(page.getByRole('button', { name: 'Server', exact: true })).toBeVisible();
-        await expect(page.getByRole('button', { name: 'Role-Based Access Control', exact: true })).toHaveCount(0);
+        await expect(page.getByRole('tab', { name: 'Server', exact: true })).toBeVisible();
+        await expect(page.getByRole('tab', { name: 'Role-Based Access Control', exact: true })).toHaveCount(0);
     });
 });
