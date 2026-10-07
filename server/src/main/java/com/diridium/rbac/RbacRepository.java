@@ -154,6 +154,11 @@ public class RbacRepository {
             // useGeneratedKeys writes the assigned id back into params["id"]
             session.insert(stmt("insertRole"), params);
             Integer roleId = toInteger(params.get("id"));
+            
+            // Fallback if the JDBC driver (e.g. Oracle) returns a ROWID instead of the generated numeric ID
+            if (roleId == null) {
+            	roleId = session.selectOne(stmt("getRoleIdByName"), role.getName());
+            }
 
             savePermissionsForRole(session, roleId, role.getPermissions());
             saveChannelIdsForRole(session, roleId, role.getChannelIds());
@@ -507,7 +512,11 @@ public class RbacRepository {
         if (value instanceof Number n) {
             return n.intValue();
         }
-        return Integer.valueOf(value.toString().trim());
+        try {
+        	return Integer.valueOf(value.toString().trim());
+        } catch (Exception e) {
+        	return null;
+        }
     }
 
     // ========== Administrator Role Seeding ==========
