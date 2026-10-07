@@ -37,7 +37,7 @@ test.describe('P5 extension task-permissions merge', () => {
 
         // The Administrator tab's Save is now gated behind the missing
         // "Save Settings"; its sibling tasks stay (unmapped → allowed).
-        await page.getByRole('button', { name: 'Administrator', exact: true }).click();
+        await page.getByRole('tab', { name: 'Administrator', exact: true }).click();
         await expect(page.getByRole('button', { name: 'Restore Defaults', exact: true })).toBeVisible();
         await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeVisible();
         await expect(page.getByRole('button', { name: 'Save', exact: true })).toHaveCount(0);

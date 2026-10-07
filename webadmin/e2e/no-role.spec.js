@@ -39,11 +39,11 @@ test.describe('P3 no-role user (empty permission set)', () => {
     test('Settings still opens; the Administrator tab renders; no RBAC tab', async ({ page }) => {
         await page.goto('/settings');
         // The Administrator tab (self-scoped preferences) is deliberately unmapped.
-        await page.getByRole('button', { name: 'Administrator', exact: true }).click();
+        await page.getByRole('tab', { name: 'Administrator', exact: true }).click();
         await expect(page.getByText('System Preferences', { exact: true })).toBeVisible();
         await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeVisible();
 
         // No "View Roles" → the plugin never registered its settings panel.
-        await expect(page.getByRole('button', { name: 'Role-Based Access Control', exact: true })).toHaveCount(0);
+        await expect(page.getByRole('tab', { name: 'Role-Based Access Control', exact: true })).toHaveCount(0);
     });
 });

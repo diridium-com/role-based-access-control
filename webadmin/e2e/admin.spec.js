@@ -34,9 +34,9 @@ test.describe('P1 admin (full catalog)', () => {
         await expect(page.getByRole('button', { name: 'Delete Channel', exact: true })).toBeVisible();
 
         await page.getByText('Demo Started', { exact: true }).click({ button: 'right' });
-        const menu = page.locator('.ctx-menu');
-        await expect(menu.getByRole('button', { name: 'Deploy Channel', exact: true })).toBeVisible();
-        await expect(menu.getByRole('button', { name: 'Delete Channel', exact: true })).toBeVisible();
+        const menu = page.getByRole('menu');
+        await expect(menu.getByRole('menuitem', { name: 'Deploy Channel', exact: true })).toBeVisible();
+        await expect(menu.getByRole('menuitem', { name: 'Delete Channel', exact: true })).toBeVisible();
     });
 
     test('Settings Server tab keeps its Save; the RBAC tab lists the mocked roles', async ({ page }) => {
@@ -44,7 +44,7 @@ test.describe('P1 admin (full catalog)', () => {
         await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeVisible();
 
         // The plugin registered its settings panel (user holds "View Roles").
-        const rbacTab = page.getByRole('button', { name: 'Role-Based Access Control', exact: true });
+        const rbacTab = page.getByRole('tab', { name: 'Role-Based Access Control', exact: true });
         await expect(rbacTab).toBeVisible();
         await rbacTab.click();
 
@@ -76,6 +76,6 @@ test.describe('P1 admin (full catalog)', () => {
         // allows the admin everything and the settings panel is registered.
         await expect(page.getByRole('button', { name: 'Users', exact: true })).toBeVisible();
         await page.goto('/settings');
-        await expect(page.getByRole('button', { name: 'Role-Based Access Control', exact: true })).toBeVisible();
+        await expect(page.getByRole('tab', { name: 'Role-Based Access Control', exact: true })).toBeVisible();
     });
 });

@@ -6,8 +6,10 @@
  * host (Node server; /api is mocked in-browser by e2e/mock.js, so no engine is
  * needed) and loads the REAL built web/plugin.js the way an engine would serve
  * it. Point WEBADMIN_DIR at your oie-web-client checkout if it is not the
- * sibling of this repository.
+ * sibling of this repository. The checkout must be built first (CI pins the
+ * release tag in .github/workflows/build.yml):
  *
+ *   (cd ~/src/oie-web-client && npm ci && npm run build -w web-administrator)
  *   WEBADMIN_DIR=~/src/oie-web-client npx playwright test
  */
 

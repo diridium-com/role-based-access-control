@@ -3,7 +3,8 @@
 #
 # Builds and tests every push to main and every pull request. The Maven build
 # runs the Java tests and, in the package module, the web administrator's JS
-# unit tests (npm test).
+# unit tests (npm test). The e2e job runs the Playwright suite in webadmin/e2e
+# against a pinned OIE web client release.
 #
 # The engine jars this plugin compiles against are not on the public repsy
 # mirror at 4.6.0, so they come from the published OIE distribution, the same
@@ -103,3 +104,57 @@ jobs:
             exit 1
           fi
           echo "surefire report files: $reports"
+
+  # Browser tests: the real built plugin.js loaded into the OIE web client, with
+  # the engine's REST API mocked in the browser (webadmin/e2e/mock.js), so no
+  # engine is needed. The web client is pinned to a release tag; bump it when a
+  # new web client release ships and the suite passes against it.
+  e2e:
+    runs-on: ubuntu-latest
+    env:
+      OIE_WEB_CLIENT_REF: v1.0.1
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: gibson9583/oie-web-client
+          ref: ${{ env.OIE_WEB_CLIENT_REF }}
+          path: oie-web-client
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+
+      - name: Build the web client
+        working-directory: oie-web-client
+        run: |
+          npm ci
+          npm run build -w web-administrator
+
+      - name: Build the plugin's web bundle
+        working-directory: webadmin
+        run: |
+          npm ci
+          npm run build
+
+      - name: Install Chromium
+        working-directory: webadmin
+        run: npx playwright install --with-deps chromium
+
+      - name: Run the e2e suite
+        working-directory: webadmin
+        env:
+          WEBADMIN_DIR: ${{ github.workspace }}/oie-web-client
+        run: npx playwright test
+
+      - name: Keep the report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            webadmin/playwright-report
+            webadmin/test-results
+          retention-days: 7

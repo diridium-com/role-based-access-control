@@ -56,11 +56,11 @@ test.describe('P2 read-only role', () => {
         await expect(page.getByRole('button', { name: 'Edit Channel', exact: true })).toHaveCount(0);
 
         await page.getByText('Demo Started', { exact: true }).click({ button: 'right' });
-        const menu = page.locator('.ctx-menu');
-        await expect(menu.getByRole('button', { name: 'Export Channel', exact: true })).toBeVisible();
-        await expect(menu.getByRole('button', { name: 'Refresh', exact: true })).toBeVisible();
-        await expect(menu.getByRole('button', { name: 'Deploy Channel', exact: true })).toHaveCount(0);
-        await expect(menu.getByRole('button', { name: 'Delete Channel', exact: true })).toHaveCount(0);
+        const menu = page.getByRole('menu');
+        await expect(menu.getByRole('menuitem', { name: 'Export Channel', exact: true })).toBeVisible();
+        await expect(menu.getByRole('menuitem', { name: 'Refresh', exact: true })).toBeVisible();
+        await expect(menu.getByRole('menuitem', { name: 'Deploy Channel', exact: true })).toHaveCount(0);
+        await expect(menu.getByRole('menuitem', { name: 'Delete Channel', exact: true })).toHaveCount(0);
     });
 
     test('Settings Server tab keeps Refresh but loses Save; Config Map loses Add Row', async ({ page }) => {
@@ -72,7 +72,7 @@ test.describe('P2 read-only role', () => {
         await expect(page.getByRole('button', { name: 'Restore Config', exact: true })).toHaveCount(0);
 
         // Configuration Map tab: Add Row rides doSave → editConfigurationMap.
-        await page.getByRole('button', { name: 'Configuration Map', exact: true }).click();
+        await page.getByRole('tab', { name: 'Configuration Map', exact: true }).click();
         await expect(page.getByRole('button', { name: 'Export Map', exact: true })).toBeVisible();
         await expect(page.getByRole('button', { name: 'Add Row', exact: true })).toHaveCount(0);
         await expect(page.getByRole('button', { name: 'Save', exact: true })).toHaveCount(0);
@@ -109,8 +109,8 @@ test.describe('P2 read-only role', () => {
 
     test('the Role-Based Access Control settings tab is absent without "View Roles"', async ({ page }) => {
         await page.goto('/settings');
-        await expect(page.getByRole('button', { name: 'Server', exact: true })).toBeVisible();
-        await expect(page.getByRole('button', { name: 'Role-Based Access Control', exact: true })).toHaveCount(0);
+        await expect(page.getByRole('tab', { name: 'Server', exact: true })).toBeVisible();
+        await expect(page.getByRole('tab', { name: 'Role-Based Access Control', exact: true })).toHaveCount(0);
     });
 });
 
@@ -151,7 +151,7 @@ test.describe('P2b read-only + View Roles (no Manage Roles)', () => {
 
     test('the RBAC tab appears, listing roles, with every mutating button hidden', async ({ page }) => {
         await page.goto('/settings');
-        const rbacTab = page.getByRole('button', { name: 'Role-Based Access Control', exact: true });
+        const rbacTab = page.getByRole('tab', { name: 'Role-Based Access Control', exact: true });
         await expect(rbacTab).toBeVisible();
         await rbacTab.click();
 
