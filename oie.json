@@ -12,6 +12,7 @@
     "restartRequired": true,
     "homepage": "https://github.com/diridium-com/role-based-access-control",
     "documentation": "https://github.com/diridium-com/role-based-access-control#readme",
+    "storeDocs": "docs/store.md",
     "license": "MPL-2.0",
     "authors": ["Diridium Technologies Inc."],
     "keywords": ["rbac", "security", "roles", "permissions", "access-control", "authorization"],

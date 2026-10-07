@@ -1,34 +1,29 @@
 # SPDX-FileCopyrightText: Copyright 2025-2026 Diridium Technologies Inc.
 # SPDX-License-Identifier: MPL-2.0
 #
-# Builds and tests the plugin on a semver tag and stages a DRAFT GitHub Release
-# with the unsigned zip + .sha256 sidecar:
+# Builds and tests every push to main and every pull request. The Maven build
+# runs the Java tests and, in the package module, the web administrator's JS
+# unit tests (npm test).
 #
-#   git tag v1.1.3 && git push origin v1.1.3
-#
-# The draft is never published by CI. Release flow from here (see RELEASING.md):
-# build and sign locally (YubiKey, -Psigning), replace the draft's zip AND
-# regenerate its .sha256 sidecar from the signed zip, publish by hand, then
-# submit the published release to the community catalog.
-#
-# The tag drives the Maven version via -Drevision, so plugin.xml's pluginVersion
-# (what the engine reports as "installed") matches oie.json, keeping the store's
-# update detection accurate. oie.json is verified to match the tag. The engine
-# version comes from the POM's mc.version (see build.yml for why it is not
-# hardcoded here).
+# The engine jars this plugin compiles against are not on the public repsy
+# mirror at 4.6.0, so they come from the published OIE distribution, the same
+# tarball scripts/install-engine-jars.sh uses for local builds. The tarball is
+# cached by tag, so it is downloaded once and reused until the pinned version
+# changes.
 
-name: Release
+name: Build
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - main
+  pull_request:
 
 permissions:
-  contents: write        # required to create the GitHub Release
+  contents: read
 
 jobs:
-  release:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -40,17 +35,12 @@ jobs:
           java-version: '17'
           cache: maven
 
-      - name: Resolve and verify version
-        id: ver
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          MANIFEST_VERSION="$(jq -r .version oie.json)"; MANIFEST_VERSION="${MANIFEST_VERSION#v}"
-          if [ "$VERSION" != "$MANIFEST_VERSION" ]; then
-            echo "::error::Tag ${GITHUB_REF_NAME} implies version $VERSION but oie.json says $MANIFEST_VERSION"
-            exit 1
-          fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
+      # The engine version lives in exactly one place, the POM's mc.version. Hardcoding
+      # it here as well meant a future engine bump could leave CI installing 4.6.0 jars
+      # while the build compiled against something else, with nothing to catch it.
+      # The release tag and tarball name are mechanical transforms of that version, so
+      # if OIE ever changes its asset naming the download 404s loudly rather than
+      # resolving something stale.
       - name: Resolve the engine version from the POM
         id: engine
         run: |
@@ -99,15 +89,12 @@ jobs:
             mvn -q install:install-file -Dfile="$p" -DgroupId=com.mirth.connect -DartifactId="$a" -Dversion="$MC_VERSION" -Dpackaging=jar
           done
 
-      # Keep the (cosmetic) web plugin.json version in step with the release too.
-      - name: Stamp web plugin version
-        run: |
-          VERSION="${{ steps.ver.outputs.version }}"
-          sed -i "s|\"version\":[[:space:]]*\"[^\"]*\"|\"version\": \"${VERSION}\"|" webadmin/plugin.json
-
       - name: Build and test
-        run: mvn -B -ntp -Drevision="${{ steps.ver.outputs.version }}" package
+        run: mvn -B -ntp clean verify
 
+      # A green build with zero tests run is the failure this guards against:
+      # surefire is pinned in the POM, but a pin can be dropped and nothing
+      # about the build output would look wrong.
       - name: Confirm tests actually ran
         run: |
           reports=$(find . -path '*/target/surefire-reports/*.xml' | wc -l)
@@ -116,28 +103,3 @@ jobs:
             exit 1
           fi
           echo "surefire report files: $reports"
-
-      - name: Stage the release asset and checksum
-        id: pkg
-        run: |
-          VERSION="${{ steps.ver.outputs.version }}"
-          SRC="$(find package/target -maxdepth 1 -name 'rbac-*.zip' | head -n1)"
-          if [ -z "$SRC" ]; then
-            echo "::error::No plugin zip found in package/target"; ls -l package/target || true; exit 1
-          fi
-          ASSET="rbac-${VERSION}.zip"
-          mkdir -p out
-          cp "$SRC" "out/${ASSET}"
-          ( cd out && sha256sum "${ASSET}" > "${ASSET}.sha256" )
-          echo "asset=${ASSET}" >> "$GITHUB_OUTPUT"
-
-      - name: Create draft GitHub Release with assets
-        # Stays a draft: the zip is unsigned. A human signs locally, replaces the
-        # zip and its .sha256 sidecar, and publishes (see RELEASING.md).
-        uses: softprops/action-gh-release@v2
-        with:
-          draft: true
-          files: |
-            out/${{ steps.pkg.outputs.asset }}
-            out/${{ steps.pkg.outputs.asset }}.sha256
-          prerelease: ${{ contains(github.ref_name, '-') }}

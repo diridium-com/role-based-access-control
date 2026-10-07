@@ -18,18 +18,17 @@ Full documentation is in the [wiki](https://github.com/diridium-com/role-based-a
 
 - JDK 17
 - Maven 3.x
-- A local checkout of the OIE engine source at version 4.6.0, built with its Gradle build (the plugin compiles against engine jars that are not published to a public Maven repository)
-- Network access on the first build: the packaging step downloads Node.js v20.18.0 (via frontend-maven-plugin) to build the web administrator UI in `webadmin/`
+- Network access on the first build: the engine jar script below downloads the OIE distribution, and the packaging step downloads Node.js v24.21.0 (via frontend-maven-plugin) to build the web administrator UI in `webadmin/`
 
 ## Build
 
-First, install the engine jars into your local Maven repository. Build the engine checkout first so its jars exist, then run:
+The plugin compiles against engine jars that are not published to a public Maven repository. Install them into your local Maven repository once per engine version:
 
 ```bash
-ENGINE_DIR=/path/to/engine ./scripts/install-engine-jars.sh
+./scripts/install-engine-jars.sh
 ```
 
-If `ENGINE_DIR` is unset, the script defaults to `../engine` relative to the repo.
+The script downloads the OIE release matching the POM's `mc.version`, checks it against that release's `sha256sums`, and installs the five jars the build needs.
 
 Then build the plugin:
 
@@ -37,7 +36,7 @@ Then build the plugin:
 mvn clean install
 ```
 
-Use `install`, not `package`. The multi-module build requires the shared module to be installed into the local repository for the sibling modules to resolve.
+This runs the Java tests and the web UI's unit tests; `-DskipTests` skips both. `mvn clean package` works too, it just doesn't copy the jars into your local Maven repository.
 
 The distributable zip lands at:
 
@@ -48,6 +47,10 @@ package/target/rbac-1.1.2.zip
 ## Install
 
 Install the zip through the Administrator's Extensions view and restart OIE. On first startup the plugin creates its four `rbac_*` tables and seeds an admin role assigned to the initial admin user.
+
+## What RBAC enforces
+
+RBAC checks each request against the permission the engine, or the plugin that owns the operation, declares for it. An operation that declares no permission is allowed for any logged-in user who has a role, and the server logs a warning each time (`RBAC: allowing unknown operation ...`). OIE 4.6.0 has dozens of these, mostly helpers behind screens that are already gated, such as the database connectors' table lookup (`getTables`). Gating them belongs in the engine. RBAC reads the engine's permission declarations at startup, so once the engine declares one, RBAC enforces it with no plugin change.
 
 ## License
 

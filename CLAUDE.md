@@ -13,19 +13,19 @@ rbac/
 ```
 
 ## Reference Code — ALWAYS check these first
-- **Reference plugin:** `/Users/pcoyne/Documents/GitHub/simple-channel-history/` — canonical patterns for POMs, MyBatis, plugin.xml, XStream
-- **Engine source:** `/Users/pcoyne/Documents/GitHub/engine/` — authoritative for API signatures, Frame behavior, authorization flow
+- **Reference plugin:** `~/github/simple-channel-history/` — canonical patterns for POMs, MyBatis, plugin.xml, XStream
+- **Engine source:** `~/github/engine/` — authoritative for API signatures, Frame behavior, authorization flow
 
 ## Build
-On a fresh machine or wiped `~/.m2`, first install the 4.6.0 engine jars into the local Maven repo (the configured repsy repository does not carry 4.6.0):
+On a fresh machine or wiped `~/.m2`, first install the engine jars into the local Maven repo (the configured repsy repository does not carry 4.6.0). The script downloads the OIE release for the POM's `mc.version` and checks it against the release's `sha256sums`:
 ```bash
-ENGINE_DIR=/path/to/engine ./scripts/install-engine-jars.sh
+./scripts/install-engine-jars.sh
 ```
 Then:
 ```bash
 mvn clean install    # 'mvn package' at the root also works (verified on a fresh repo; the release workflow uses it) — install additionally puts the jars in ~/.m2
 ```
-The packaging step downloads Node.js v20.18.0 (frontend-maven-plugin) to build the `webadmin/` web-administrator UI, so the first build needs network access beyond Maven Central.
+The packaging step downloads Node.js v24.21.0 (frontend-maven-plugin), installs the web UI's dependencies with `npm ci`, builds `webadmin/web/plugin.js` (gitignored), and runs the web UI's unit tests in the test phase, so the first build needs network access beyond Maven Central.
 Output: `package/target/rbac-1.1.2.zip`
 
 ## Architecture
