@@ -10,6 +10,10 @@ Full documentation is in the [wiki](https://github.com/diridium-com/role-based-a
 
 <img src="https://raw.githubusercontent.com/wiki/diridium-com/role-based-access-control/images/2.png" width="600" alt="Role editor with grouped permission checkboxes and preset buttons">
 
+## Known issues
+
+**Oracle:** 1.1.2 does not work on an engine whose database is Oracle. The plugin fails to create its admin role on first startup, so after login the Administrator stops with `403 Missing permission: any (no role assigned)`, and creating a role fails with a `NumberFormatException`. Don't install 1.1.2 on an Oracle-backed engine. A fix is coming in the next release ([#10](https://github.com/diridium-com/role-based-access-control/issues/10)).
+
 ## Prerequisites
 
 - JDK 17
