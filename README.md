@@ -12,7 +12,7 @@ Full documentation is in the [wiki](https://github.com/diridium-com/role-based-a
 
 ## Known issues
 
-**Oracle:** 1.1.2 does not work on an engine whose database is Oracle. The plugin fails to create its admin role on first startup, so after login the Administrator stops with `403 Missing permission: any (no role assigned)`, and creating a role fails with a `NumberFormatException`. Don't install 1.1.2 on an Oracle-backed engine. A fix is coming in the next release ([#10](https://github.com/diridium-com/role-based-access-control/issues/10)).
+**Oracle:** 1.1.2 does not work on an engine whose database is Oracle. The plugin fails to create its admin role on first startup, so after login the Administrator stops with `403 Missing permission: any (no role assigned)`, and creating a role fails with a `NumberFormatException`. Fixed in 1.1.3 ([#10](https://github.com/diridium-com/role-based-access-control/issues/10)). Install 1.1.3, or upgrade to it, on an Oracle-backed engine.
 
 ## Prerequisites
 
@@ -41,7 +41,7 @@ This runs the Java tests and the web UI's unit tests; `-DskipTests` skips both. 
 The distributable zip lands at:
 
 ```
-package/target/rbac-1.1.2.zip
+package/target/rbac-1.1.3.zip
 ```
 
 ## Install

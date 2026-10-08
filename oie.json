@@ -5,7 +5,7 @@
     "description": "Enforces role-based access control with dynamic roles, per-permission grants, and channel-level restrictions.",
     "type": "plugin",
     "ui": ["web", "swing"],
-    "version": "1.1.2",
+    "version": "1.1.3",
     "minEngineVersion": "4.6.0",
     "maxEngineVersion": null,
     "filename": "rbac-{version}.zip",
