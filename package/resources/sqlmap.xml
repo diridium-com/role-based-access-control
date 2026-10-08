@@ -27,10 +27,12 @@
     </select>
 
     <!-- No keyColumn: passing keyColumn="id" makes MyBatis request a generated-keys column
-         named literally "id", which fails on databases that fold unquoted identifiers to
-         upper case (Derby, Oracle, SQL Server) with "table does not have an auto-generated
-         column named 'id'". Relying on keyProperty alone reads the generated key positionally
-         and works across all supported databases (id is the first/only auto-generated column). -->
+        named literally "id", which fails on databases that fold unquoted identifiers to
+        upper case (Derby, Oracle, SQL Server) with "table does not have an auto-generated
+        column named 'id'". Relying on keyProperty alone reads the generated key positionally
+        and works correctly with Derby, PostgreSQL, SQL Server and MySQL, where id is the
+        first/only auto-generated column. Oracle returns a ROWID instead, which is handled
+        by a fallback function. -->
     <insert id="insertRole" parameterType="map" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO rbac_role (name, description, is_admin) VALUES (#{name}, #{description}, #{isAdmin})
     </insert>

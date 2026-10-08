@@ -140,7 +140,7 @@ class AdminRoleSeeder {
         params.put("isAdmin", Boolean.TRUE);
         session.insert(stmt("insertRole"), params);
 
-        Integer adminRoleId = RbacRepository.toInteger(params.get("id"));
+        Integer adminRoleId = RbacRepository.insertedRoleId(session, params, BOOTSTRAP_ADMIN_ROLE_NAME);
         log.info("Created admin role (id={}, name='{}')", adminRoleId, BOOTSTRAP_ADMIN_ROLE_NAME);
         return adminRoleId;
     }

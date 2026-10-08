@@ -153,7 +153,7 @@ public class RbacRepository {
             params.put("isAdmin", role.isAdmin());
             // useGeneratedKeys writes the assigned id back into params["id"]
             session.insert(stmt("insertRole"), params);
-            Integer roleId = toInteger(params.get("id"));
+            Integer roleId = insertedRoleId(session, params, role.getName());
 
             savePermissionsForRole(session, roleId, role.getPermissions());
             saveChannelIdsForRole(session, roleId, role.getChannelIds());
@@ -542,5 +542,14 @@ public class RbacRepository {
                 session.close();
             }
         }
+    }
+
+    // ========== Role Helpers ==========
+
+    static Integer insertedRoleId(SqlSession session, Map<String, Object> params, String roleName) {
+        if (params.get("id") instanceof Number n) {
+            return n.intValue();
+        }
+        return session.selectOne(stmt("getRoleIdByName"), roleName);
     }
 }

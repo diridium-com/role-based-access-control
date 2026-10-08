@@ -126,6 +126,24 @@ class AdminRoleSeederTest {
     }
 
     @Test
+    void freshInstall_oracleRowId_usesFallbackRoleId() {
+        when(session.selectOne(eq(GET_ROLE_ID_BY_NAME), eq("Administrator"))).thenReturn(null, 7);
+
+        when(session.insert(eq(INSERT_ROLE), any())).thenAnswer(invocation -> {
+            Map<String, Object> params = invocation.getArgument(1);
+            params.put("id", "AABAuVAATAAJIiDAAA");
+            return 1;
+        });
+
+        givenRolePermissions(7);
+
+        seeder.seed(session, List.of(1));
+
+        List<Integer> assignedUsers = capturedUserAssignments(7);
+        assertEquals(List.of(1), assignedUsers);
+    }
+
+    @Test
     void freshInstall_nullUserList_userOneStillFloored() {
         givenInsertRoleAssignsId(42);
         givenRolePermissions(42);
