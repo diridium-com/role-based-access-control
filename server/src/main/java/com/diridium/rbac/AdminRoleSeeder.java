@@ -140,13 +140,7 @@ class AdminRoleSeeder {
         params.put("isAdmin", Boolean.TRUE);
         session.insert(stmt("insertRole"), params);
 
-        Integer adminRoleId = RbacRepository.toInteger(params.get("id"));
-        
-        // Fallback if the JDBC driver (e.g. Oracle) returns a ROWID instead of the generated numeric ID
-        if (adminRoleId == null) {
-        	adminRoleId = session.selectOne(stmt("getRoleIdByName"), BOOTSTRAP_ADMIN_ROLE_NAME);
-        }
-        
+        Integer adminRoleId = RbacRepository.insertedRoleId(session, params, BOOTSTRAP_ADMIN_ROLE_NAME);
         log.info("Created admin role (id={}, name='{}')", adminRoleId, BOOTSTRAP_ADMIN_ROLE_NAME);
         return adminRoleId;
     }
