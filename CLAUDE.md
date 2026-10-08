@@ -17,7 +17,7 @@ rbac/
 - **Engine source:** `~/github/engine/` — authoritative for API signatures, Frame behavior, authorization flow
 
 ## Build
-On a fresh machine or wiped `~/.m2`, first install the engine jars into the local Maven repo (the configured repsy repository does not carry 4.6.0). The script downloads the OIE release for the POM's `mc.version` and checks it against the release's `sha256sums`:
+On a fresh machine or wiped `~/.m2`, first install the engine jars into the local Maven repo. The script downloads the OIE release for the POM's `mc.version` and checks it against the release's `sha256sums`:
 ```bash
 ./scripts/install-engine-jars.sh
 ```
