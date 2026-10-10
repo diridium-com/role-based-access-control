@@ -12,10 +12,6 @@ rbac/
 ├── package/   # plugin.xml, sqlmap.xml, assembly.xml
 ```
 
-## Reference Code — ALWAYS check these first
-- **Reference plugin:** `~/github/simple-channel-history/` — canonical patterns for POMs, MyBatis, plugin.xml, XStream
-- **Engine source:** `~/github/engine/` — authoritative for API signatures, Frame behavior, authorization flow
-
 ## Build
 On a fresh machine or wiped `~/.m2`, first install the engine jars into the local Maven repo. The script downloads the OIE release for the POM's `mc.version` and checks it against the release's `sha256sums`:
 ```bash
@@ -88,17 +84,9 @@ These are documented, not bugs to "fix" in the plugin — several live in the en
 - **Ways RBAC can silently become allow-all.** (1) A routine engine upgrade: `mirthVersion` is matched by exact equality, so an un-rebuilt plugin is unloaded and the engine falls back to `DefaultAuthorizationController`. (2) A `manageExtensions` holder disabling the RBAC extension. Both revert to allow-all on restart with only a log line. After any engine upgrade, verify the RBAC tab and gating are active. During the disable→restart window there is transient mixed state (server still 403s, client shows no gating) and no in-UI way to re-enable RBAC — re-enable the extension and restart.
 - **Channel restrictions are only as complete as the engine's redaction.** RBAC has no channel dimension in `isUserAuthorized`/`checkTask`; channel scoping is enforced solely through the engine's `redactChannel*`/`ChannelAuthorizer` machinery. Engine endpoints the engine does NOT redact therefore leak across the channel boundary to a suitably-permissioned restricted user: `updateChannel` (authorizes the path id but persists the body channel), `getAllStatistics` (bulk stats), `getChannelGroups` (group→member refs), `getServerConfiguration` (full channel/alert defs with backup permission), and all Alert CRUD (no channel dimension). These are engine limitations; the plugin cannot patch them.
 - **`ChannelPanel.canViewChannelGroups` is cached by the engine before the plugin installs its controller**, so the channel-group view can show for a user lacking `viewChannelGroups` until the next client launch. Engine construction ordering; not fixable from the plugin.
-- **In-panel edit controls on some settings tabs are not gated by `checkTask` (cosmetic).** The client hook only governs task-pane items (Refresh/Save/Import/Export), not buttons and editable cells the engine builds into a settings panel's body. The clearest case is the Configuration Map tab: a read-only user (`viewConfigurationMap`, not `editConfigurationMap`) has Save and Import hidden, but the panel's own Add/Remove buttons and editable Key/Value/Comment cells stay live, so they can type a value into a row they can never persist. This is cosmetic, not a hole: clicking Add fires `setSaveEnabled(true)`, but the engine re-runs `checkTask` inside `setVisibleTasks` (`Frame.java:1665`) and keeps Save hidden, and `setConfigurationMap` is gated server-side regardless. The engine exposes no per-widget authorization hook, and suppressing those buttons would take fragile reflection into each panel's private fields (`addButton`/`removeButton`/`configurationMapTable`), repeated per settings tab and per engine version. Same family as the double-click/DELETE bypass paths above.
+- **In-panel edit controls on some settings tabs are not gated by `checkTask` (cosmetic).** The client hook only governs task-pane items (Refresh/Save/Import/Export), not buttons and editable cells the engine builds into a settings panel's body. The clearest case is the Configuration Map tab: a read-only user (`viewConfigurationMap`, not `editConfigurationMap`) has Save and Import hidden, but the panel's own Add/Remove buttons and editable Key/Value/Comment cells stay live, so they can type a value into a row they can never persist. This is cosmetic, not a hole: clicking Add fires `setSaveEnabled(true)`, but the engine re-runs `checkTask` inside `setVisibleTasks` (`Frame.java:1665`) and keeps Save hidden, and `setConfigurationMap` is gated server-side regardless. The engine exposes no per-widget authorization hook, and suppressing those buttons would take fragile reflection into each panel's private fields (`addButton`/`removeButton`/`configurationMapTable`), repeated per settings tab and per engine version.
 
 ## Debugging
 - Server-side SLF4J: visible in OIE server logs
 - Client-side SLF4J: DEBUG/INFO may NOT be visible — use `JOptionPane.showMessageDialog()` for quick diagnostics
 - Remove diagnostic popups after confirming behavior
-
-## User Preferences
-- NEVER add "Co-Authored-By: Claude" to commits
-- Don't commit until explicitly asked
-- Don't push to main directly — use feature branches with PRs
-- Use "OIE" not "Mirth" in descriptions and conversation
-- Use "Squash and merge" for PRs
-- Discuss changes before proposing code
