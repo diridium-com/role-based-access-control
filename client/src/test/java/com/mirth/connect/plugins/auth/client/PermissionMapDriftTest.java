@@ -91,7 +91,7 @@ class PermissionMapDriftTest {
 
     /**
      * @return every engine core permission value plus the RBAC plugin's two
-     *         extension permissions
+     *         extension permissions and the bundled Data Pruner's permissions
      */
     private static Set<String> knownPermissions() throws Exception {
         Set<String> values = new HashSet<>();
@@ -102,6 +102,9 @@ class PermissionMapDriftTest {
         }
         values.add(RbacServletInterface.PERMISSION_VIEW);
         values.add(RbacServletInterface.PERMISSION_MANAGE);
+        // DataPrunerServletInterface's extension permission values. The engine
+        // publishes these separately from its core Permissions constants.
+        values.addAll(Set.of("View Settings", "Save Settings", "Start / Stop"));
         return values;
     }
 

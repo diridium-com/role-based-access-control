@@ -63,6 +63,26 @@ class SecureAuthorizationControllerTest {
     }
 
     @Test
+    void checkTask_dataPrunerGrantsDoNotImplyChannelControlOrOtherSettingsAccess() throws Exception {
+        String group = TaskConstants.SETTINGS_KEY_PREFIX + "Data Pruner";
+        for (String permission : Set.of("View Settings", "Save Settings", "Start / Stop",
+                "startStopChannels", "viewServerSettings", "editServerSettings")) {
+            SecureAuthorizationController c = withPermissions(Set.of(permission));
+            for (String[] task : new String[][] {
+                    { "doRefresh", "View Settings" }, { "doSave", "Save Settings" },
+                    { "doStart", "Start / Stop" }, { "doStop", "Start / Stop" }
+            }) {
+                org.junit.jupiter.api.Assertions.assertEquals(permission.equals(task[1]),
+                        c.checkTask(group, task[0]), permission + ": " + task[0]);
+            }
+            for (String task : new String[] { "doStart", "doStop" }) {
+                org.junit.jupiter.api.Assertions.assertEquals(permission.equals("startStopChannels"),
+                        c.checkTask("dashboard", task), permission + ": dashboard/" + task);
+            }
+        }
+    }
+
+    @Test
     void checkTask_rbacSettingsPanel_requiresViewRoles() throws Exception {
         String rbacKey = TaskConstants.SETTINGS_KEY_PREFIX + RbacServletInterface.PLUGIN_NAME;
 

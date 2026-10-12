@@ -131,6 +131,33 @@ class RbacAuthorizationControllerTest {
     }
 
     @Test
+    void webBootstrap_noRoleUserCanDiscoverAndLoadAuthorizationPlugin() throws Exception {
+        when(repo.getUserRoleId(2)).thenReturn(null);
+        for (String prefix : new String[] { "", "Web Support#" }) {
+            for (String operation : new String[] { "getWebPluginPaths", "getWebPluginResource" }) {
+                assertTrue(controller.isUserAuthorized(2, op(prefix + operation), null, "127.0.0.1", false),
+                        prefix + operation);
+            }
+        }
+    }
+
+    @Test
+    void webBootstrapExemptionDoesNotAllowOtherExtensionOperations() {
+        when(repo.getUserRoleId(2)).thenReturn(null);
+        for (String operation : new String[] {
+                "Web Support#validateScript", "Web Support#serializeMessage",
+                "Other Plugin#getWebPluginPaths", "Other Plugin#getWebPluginResource",
+                "Web Support#getWebPluginPathsExtra", "Web Support#setWebPluginResource",
+                "setWebPluginResource", "getServerSettings", "getGlobalScripts",
+                "Role-Based Access Control#getRoles", "Data Pruner#startDataPruner", "Data Pruner#stopDataPruner"
+        }) {
+            MirthApiException denied = assertThrows(MirthApiException.class,
+                    () -> controller.isUserAuthorized(2, op(operation), null, "127.0.0.1", false), operation);
+            assertEquals(403, denied.getResponse().getStatus(), operation);
+        }
+    }
+
+    @Test
     void serverSettings_notWhitelisted_deniedWithoutPermission() {
         // getServerSettings was removed from the whitelist (it leaks SMTP credentials);
         // it now requires viewServerSettings and is denied for a role without it.

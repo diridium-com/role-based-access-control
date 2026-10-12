@@ -43,7 +43,7 @@ export async function mockEngine(page, overrides = {}) {
             }
         }
 
-        if (typeof fx === 'function') fx = fx(req);
+        if (typeof fx === 'function') fx = await fx(req);
         if (fx === undefined) {
             return route.fulfill({ status: 200, contentType: 'text/plain', body: '' });
         }

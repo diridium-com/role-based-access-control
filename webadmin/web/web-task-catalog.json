@@ -1,5 +1,5 @@
 {
-    "$comment": "Snapshot of the OIE web administrator's RBAC task catalog (oie-web-client web-administrator/RBAC.md section 3, captured 2026-07-14) - every (taskGroup, taskName) the host's checkTask hook can be asked about. Generated ONCE from that document so this repo's map-completeness test is self-contained; when the host catalog changes, regenerate this file from RBAC.md section 3 and re-run map-completeness.test.mjs to surface the drift.",
+    "$comment": "Snapshot of the OIE web administrator's RBAC task catalog (oie-web-client web-administrator/RBAC.md section 3, captured 2026-07-14, Data Pruner tasks added 2026-10-12) - every (taskGroup, taskName) the host's checkTask hook can be asked about. Generated ONCE from that document so this repo's map-completeness test is self-contained; when the host catalog changes, regenerate this file from RBAC.md section 3 and re-run map-completeness.test.mjs to surface the drift.",
     "groups": {
         "view": [
             "doShowDashboard",
@@ -180,6 +180,12 @@
             "doAddResource",
             "doRemoveResource",
             "doReloadResource"
+        ],
+        "settings_Data Pruner": [
+            "doRefresh",
+            "doSave",
+            "doStart",
+            "doStop"
         ]
     }
 }

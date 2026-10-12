@@ -128,6 +128,10 @@
         "settings_Resources/doAddResource": "editResources",
         "settings_Resources/doRemoveResource": "editResources",
         "settings_Resources/doReloadResource": "reloadResources",
+        "settings_Data Pruner/doRefresh": "View Settings",
+        "settings_Data Pruner/doSave": "Save Settings",
+        "settings_Data Pruner/doStart": "Start / Stop",
+        "settings_Data Pruner/doStop": "Start / Stop",
         "settings_Role-Based Access Control/doRefresh": "View Roles",
         "settings_Role-Based Access Control/doSave": "Manage Roles"
     }

@@ -4,7 +4,7 @@
 # Builds and tests every push to main and every pull request. The Maven build
 # runs the Java tests and, in the package module, the web administrator's JS
 # unit tests (npm test). The e2e job runs the Playwright suite in webadmin/e2e
-# against a pinned OIE web client release.
+# against an immutable OIE web client commit containing the companion host fixes.
 #
 # The engine jars this plugin compiles against come from the published OIE
 # distribution, the same tarball scripts/install-engine-jars.sh uses for local
@@ -106,12 +106,13 @@ jobs:
 
   # Browser tests: the real built plugin.js loaded into the OIE web client, with
   # the engine's REST API mocked in the browser (webadmin/e2e/mock.js), so no
-  # engine is needed. The web client is pinned to a release tag; bump it when a
-  # new web client release ships and the suite passes against it.
+  # engine is needed. The web client commit includes the permission-surface and
+  # authorization-bootstrap fixes required by the regression matrix. Keep this
+  # immutable; advance it only after the complete suite passes on the new host.
   e2e:
     runs-on: ubuntu-latest
     env:
-      OIE_WEB_CLIENT_REF: v1.0.1
+      OIE_WEB_CLIENT_REF: aeb6acace6c682cb26d8fe48f55c74d3862de623
     steps:
       - uses: actions/checkout@v4
 

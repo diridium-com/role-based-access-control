@@ -384,6 +384,13 @@ public class SecureAuthorizationController implements AuthorizationController {
         // self-scoped server-side, so it is safe to show to everyone. Leaving it unmapped
         // lets it fall through checkTask's unknown-task allow branch.
 
+        // Data Pruner's published bare doStart/doStop task names collide with
+        // channel controls. Its settings group must resolve before the bare map.
+        String prunerKey = TaskConstants.SETTINGS_KEY_PREFIX + "Data Pruner";
+        addSettingsMapping(prunerKey, "View Settings", "Save Settings");
+        groupTaskPermissionMap.put(prunerKey + "/doStart", "Start / Stop");
+        groupTaskPermissionMap.put(prunerKey + "/doStop", "Start / Stop");
+
         // RBAC plugin settings panel
         String rbacKey = TaskConstants.SETTINGS_KEY_PREFIX + RbacServletInterface.PLUGIN_NAME;
         addSettingsMapping(rbacKey, RbacServletInterface.PERMISSION_VIEW, RbacServletInterface.PERMISSION_MANAGE);

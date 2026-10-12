@@ -52,19 +52,16 @@ test.describe('P4 my-permissions 500 (fail closed)', () => {
         const menu = page.getByRole('menu');
         await expect(menu.getByRole('menuitem', { name: 'Edit Account', exact: true })).toBeVisible();
         await expect(menu.getByRole('menuitem', { name: 'Change Password', exact: true })).toBeVisible();
-        // Its tagged items (view/doShowSettings, other/doLogout) are hidden.
+        // Settings fails closed. Account sign-out remains available so a user
+        // can leave a failed authorization session safely.
         await expect(menu.getByRole('menuitem', { name: 'Settings', exact: true })).toHaveCount(0);
-        await expect(menu.getByRole('menuitem', { name: 'Sign out', exact: true })).toHaveCount(0);
+        await expect(menu.getByRole('menuitem', { name: 'Sign out', exact: true })).toBeVisible();
     });
 
-    // fixme: web client 1.0.1 gates the built-in settings tabs too, so failing
-    // closed leaves no tab at all, and the Settings view then crashes on
-    // defs[0].label ("This view failed to render") before any tab renders.
-    // Re-enable once the web client handles an empty tab list
-    // (https://github.com/gibson9583/oie-web-client/issues/97).
-    test.fixme('the RBAC settings tab is skipped on a failed permission load', async ({ page }) => {
+    test('the Settings view safely handles no tabs on a failed permission load', async ({ page }) => {
         await page.goto('/settings');
-        await expect(page.getByRole('tab', { name: 'Server', exact: true })).toBeVisible();
+        await expect(page.getByText('No settings are available with your current permissions.', { exact: true })).toBeVisible();
+        await expect(page.getByRole('tab')).toHaveCount(0);
         await expect(page.getByRole('tab', { name: 'Role-Based Access Control', exact: true })).toHaveCount(0);
     });
 });

@@ -50,6 +50,13 @@ public class RbacAuthorizationController extends AuthorizationController {
             "getExtensionTaskPermissions", // bare; inert at runtime, kept for the whitelist test
             RbacServletInterface.PLUGIN_NAME + "#getMyPermissions",            // composite; real match
             RbacServletInterface.PLUGIN_NAME + "#getExtensionTaskPermissions", // composite; real match
+            // Authenticated clients must discover and load RBAC even without
+            // an assigned role. Only these read-only web assets are exempt;
+            // Web Support's validation/serialization operations are not.
+            "getWebPluginPaths",                 // native engine servlet
+            "getWebPluginResource",              // native engine servlet
+            "Web Support#getWebPluginPaths",     // Web Support extension servlet
+            "Web Support#getWebPluginResource",  // Web Support extension servlet
             "getStatus",                   // Server status checks
             "getServerId"                  // Server identification
     ));

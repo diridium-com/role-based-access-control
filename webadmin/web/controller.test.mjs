@@ -243,3 +243,18 @@ test('settings_Role-Based Access Control pair: View Roles / Manage Roles', () =>
     assert.equal(manager.checkTask('settings_Role-Based Access Control', 'doRefresh'), false,
         'doRefresh maps to "View Roles" - Manage alone does not imply View');
 });
+
+test('Data Pruner permissions are independent of channel control and settings permissions', () => {
+    for (const permission of ['View Settings', 'Save Settings', 'Start / Stop', 'startStopChannels', 'viewServerSettings', 'editServerSettings']) {
+        const controller = controllerFor(new Set([permission]));
+        for (const [task, required] of [
+            ['doRefresh', 'View Settings'], ['doSave', 'Save Settings'],
+            ['doStart', 'Start / Stop'], ['doStop', 'Start / Stop']
+        ]) {
+            assert.equal(controller.checkTask('settings_Data Pruner', task), permission === required, `${permission}: ${task}`);
+        }
+        for (const task of ['doStart', 'doStop']) {
+            assert.equal(controller.checkTask('dashboard', task), permission === 'startStopChannels');
+        }
+    }
+});

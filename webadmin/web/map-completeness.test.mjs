@@ -52,7 +52,7 @@ for (const [group, tasks] of Object.entries(groups)) {
 test('catalog snapshot is well-formed', () => {
     assert.ok(typeof catalog.$comment === 'string' && catalog.$comment.includes('RBAC.md'),
         'snapshot must carry its provenance note');
-    assert.equal(Object.keys(groups).length, 20, 'RBAC.md §3 defines 20 task groups');
+    assert.equal(Object.keys(groups).length, 21, 'RBAC.md §3 defines 21 task groups including Data Pruner');
     for (const [group, tasks] of Object.entries(groups)) {
         assert.ok(Array.isArray(tasks) && tasks.length > 0, `group "${group}" must be a non-empty array`);
         assert.equal(new Set(tasks).size, tasks.length, `group "${group}" has duplicate tasks`);

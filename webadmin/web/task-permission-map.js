@@ -214,6 +214,13 @@ export const GROUP_TASK_PERMISSIONS = {
     'settings_Resources/doRemoveResource': 'editResources',
     'settings_Resources/doReloadResource': 'reloadResources',
 
+    // Data Pruner publishes bare task names that overlap channel controls.
+    // Resolve its settings tasks before the generic doStart/doStop entries.
+    'settings_Data Pruner/doRefresh': 'View Settings',
+    'settings_Data Pruner/doSave': 'Save Settings',
+    'settings_Data Pruner/doStart': 'Start / Stop',
+    'settings_Data Pruner/doStop': 'Start / Stop',
+
     // RBAC plugin settings panel (RbacServletInterface.PLUGIN_NAME /
     // PERMISSION_VIEW / PERMISSION_MANAGE)
     'settings_Role-Based Access Control/doRefresh': 'View Roles',

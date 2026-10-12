@@ -68,7 +68,7 @@ export const DEFAULT_FIXTURES = {
     'GET /server/timezone': 'EST (UTC -5)',
     'GET /server/settings': { serverSettings: { serverName: 'E2E Engine', environmentName: 'test' } },
     'GET /server/about': '',
-    'GET /server/channelTags': '',
+    'GET /server/channelTags': '<set/>',
     'GET /server/channelDependencies': '',
     'GET /server/channelMetadata': {},
 
