@@ -14,6 +14,7 @@
 import { test, expect } from '@playwright/test';
 import { mockEngineWithRbac } from './mock.js';
 import { rbacFixtures } from './fixtures.js';
+import { webClientOlderThan } from './web-client.js';
 
 test.describe('P4 my-permissions 500 (fail closed)', () => {
     test.beforeEach(async ({ page }) => {
@@ -44,6 +45,8 @@ test.describe('P4 my-permissions 500 (fail closed)', () => {
     });
 
     test('untagged web-only items remain visible (the documented boundary)', async ({ page }) => {
+        // Sign out staying available on a failed load is web client 1.1.0 behaviour.
+        test.skip(webClientOlderThan(1, 1), 'needs web client 1.1.0 or later');
         await page.goto('/dashboard');
         await expect(page.getByText('Demo Started', { exact: true })).toBeVisible();
 
@@ -59,6 +62,8 @@ test.describe('P4 my-permissions 500 (fail closed)', () => {
     });
 
     test('the Settings view safely handles no tabs on a failed permission load', async ({ page }) => {
+        // Web client 1.0.1 crashes on an empty tab list (oie-web-client #97).
+        test.skip(webClientOlderThan(1, 1), 'needs web client 1.1.0 or later');
         await page.goto('/settings');
         await expect(page.getByText('No settings are available with your current permissions.', { exact: true })).toBeVisible();
         await expect(page.getByRole('tab')).toHaveCount(0);

@@ -5,6 +5,10 @@
 import { test, expect } from '@playwright/test';
 import { mockEngineWithRbac, login } from './mock.js';
 import { rbacFixtures, permissionSet, taskPermissionMap } from './fixtures.js';
+import { webClientOlderThan } from './web-client.js';
+
+// Every test here checks web client features from oie-web-client #112.
+test.skip(() => webClientOlderThan(1, 1), 'needs web client 1.1.0 or later');
 
 const properties = { enabled: 'true', pruningBlockSize: '1000', pruneEvents: 'false', archiveEnabled: 'false' };
 const prunerProperties = { properties: { property: Object.entries(properties).map(([name, value]) => ({ '@name': name, $: value })) } };
