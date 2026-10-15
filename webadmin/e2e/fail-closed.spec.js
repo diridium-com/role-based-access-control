@@ -7,14 +7,13 @@
  * including the Settings nav and the tagged "other" items that survive in the
  * empty-set case (P3). Untagged web-only items (the account chip's Edit
  * Account / Change Password, which never reach checkTask) remain — asserted
- * explicitly to document that boundary. And nothing crashes: unmapped views
- * still render their data.
+ * explicitly to document that boundary. And nothing crashes: each page shows
+ * Access denied in place of its view.
  */
 
 import { test, expect } from '@playwright/test';
 import { mockEngineWithRbac } from './mock.js';
 import { rbacFixtures } from './fixtures.js';
-import { webClientOlderThan } from './web-client.js';
 
 test.describe('P4 my-permissions 500 (fail closed)', () => {
     test.beforeEach(async ({ page }) => {
@@ -28,8 +27,8 @@ test.describe('P4 my-permissions 500 (fail closed)', () => {
     test('every tagged item hides — including Settings and Logout; the app still runs', async ({ page }) => {
         await page.goto('/dashboard');
 
-        // No crash: the dashboard view itself renders its (mocked) channels.
-        await expect(page.getByText('Demo Started', { exact: true })).toBeVisible();
+        // No crash: the dashboard shows Access denied in place of its view.
+        await expect(page.getByRole('heading', { name: 'Access denied', exact: true })).toBeVisible();
 
         // ALL tagged navs are gone — Settings too this time (unlike P3).
         for (const label of ['Dashboard', 'Channels', 'Users', 'Settings', 'Alerts', 'Events', 'Extensions']) {
@@ -40,15 +39,13 @@ test.describe('P4 my-permissions 500 (fail closed)', () => {
         await expect(page.getByRole('button', { name: 'Logout', exact: true })).toHaveCount(0);
         await expect(page.getByRole('button', { name: 'About', exact: true })).toHaveCount(0);
 
-        // Tagged task buttons fail closed too (dashboard Refresh).
+        // No task buttons either: the dashboard's Refresh never mounts.
         await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toHaveCount(0);
     });
 
     test('untagged web-only items remain visible (the documented boundary)', async ({ page }) => {
-        // Sign out staying available on a failed load is web client 1.1.0 behaviour.
-        test.skip(webClientOlderThan(1, 1), 'needs web client 1.1.0 or later');
         await page.goto('/dashboard');
-        await expect(page.getByText('Demo Started', { exact: true })).toBeVisible();
+        await expect(page.getByRole('heading', { name: 'Access denied', exact: true })).toBeVisible();
 
         // The account chip is untagged; its untagged self-service items remain.
         await page.locator('button.user-chip').click();
@@ -61,11 +58,9 @@ test.describe('P4 my-permissions 500 (fail closed)', () => {
         await expect(menu.getByRole('menuitem', { name: 'Sign out', exact: true })).toBeVisible();
     });
 
-    test('the Settings view safely handles no tabs on a failed permission load', async ({ page }) => {
-        // Web client 1.0.1 crashes on an empty tab list (oie-web-client #97).
-        test.skip(webClientOlderThan(1, 1), 'needs web client 1.1.0 or later');
+    test('a Settings URL shows Access denied and no tabs on a failed permission load', async ({ page }) => {
         await page.goto('/settings');
-        await expect(page.getByText('No settings are available with your current permissions.', { exact: true })).toBeVisible();
+        await expect(page.getByRole('heading', { name: 'Access denied', exact: true })).toBeVisible();
         await expect(page.getByRole('tab')).toHaveCount(0);
         await expect(page.getByRole('tab', { name: 'Role-Based Access Control', exact: true })).toHaveCount(0);
     });

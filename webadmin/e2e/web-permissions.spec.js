@@ -5,10 +5,6 @@
 import { test, expect } from '@playwright/test';
 import { mockEngineWithRbac, login } from './mock.js';
 import { rbacFixtures, permissionSet, taskPermissionMap } from './fixtures.js';
-import { webClientOlderThan } from './web-client.js';
-
-// Every test here checks web client features from oie-web-client #112.
-test.skip(() => webClientOlderThan(1, 1), 'needs web client 1.1.0 or later');
 
 const properties = { enabled: 'true', pruningBlockSize: '1000', pruneEvents: 'false', archiveEnabled: 'false' };
 const prunerProperties = { properties: { property: Object.entries(properties).map(([name, value]) => ({ '@name': name, $: value })) } };
@@ -91,7 +87,8 @@ for (const failed of [false, true]) {
     test(`script/template navigation and palette entries hide with ${failed ? 'failed' : 'empty'} permissions`, async ({ page }) => {
         await setup(page, [], failed ? { 'GET /extensions/rbac/my-permissions': { __status: 503 } } : {});
         await page.goto('/dashboard');
-        await expect(page.getByText('Demo Started', { exact: true })).toBeVisible();
+        // Without viewDashboard the dashboard page itself is denied.
+        await expect(page.getByRole('heading', { name: 'Access denied', exact: true })).toBeVisible();
         for (const name of ['Global Scripts', 'Code Templates']) {
             await expect(page.getByRole('button', { name, exact: true })).toHaveCount(0);
         }
@@ -119,7 +116,7 @@ test('Settings commands match hidden tabs, including Data Pruner without extensi
 });
 
 for (const failedPath of ['my-permissions', 'task-permissions']) {
-    test(`Roles and mounted Settings recover after ${failedPath} fails`, async ({ page }) => {
+    test(`Roles come back once ${failedPath} recovers`, async ({ page }) => {
         await page.clock.install();
         let failing = true;
         let calls = 0;
@@ -130,11 +127,13 @@ for (const failedPath of ['my-permissions', 'task-permissions']) {
             [key]: () => { calls++; return failing ? { __status: 503 } : fixtures[key]; }
         });
         await page.goto('/settings');
-        await expect(page.getByText('No settings are available with your current permissions.', { exact: true })).toBeVisible();
+        await expect(page.getByRole('heading', { name: 'Access denied', exact: true })).toBeVisible();
         await expect(page.getByRole('tab', { name: 'Role-Based Access Control', exact: true })).toHaveCount(0);
         failing = false;
         await page.clock.fastForward(16000);
-        // No further click/render is necessary to recover a completely empty view.
+        // The nav refreshes on its own; the denied page is checked again only when opened again.
+        await expect(page.getByRole('button', { name: 'Settings', exact: true })).toBeVisible();
+        await page.getByRole('button', { name: 'Settings', exact: true }).click();
         await expect(page.getByRole('tab', { name: 'Role-Based Access Control', exact: true })).toHaveCount(1);
         await page.getByRole('tab', { name: 'Role-Based Access Control', exact: true }).click();
         await expect(page.getByText('Roles', { exact: true })).toBeVisible();

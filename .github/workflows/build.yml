@@ -107,13 +107,11 @@ jobs:
   # Browser tests: the real built plugin.js loaded into the OIE web client, with
   # the engine's REST API mocked in the browser (webadmin/e2e/mock.js), so no
   # engine is needed. Pin only a released web client tag: an unreleased one fails
-  # this job before any test runs. Tests that need a newer web client than the
-  # pin skip themselves (webadmin/e2e/web-client.js); bump the tag when that
-  # release ships and they run.
+  # this job before any test runs.
   e2e:
     runs-on: ubuntu-latest
     env:
-      OIE_WEB_CLIENT_REF: v1.0.1
+      OIE_WEB_CLIENT_REF: v1.1.0
     steps:
       - uses: actions/checkout@v4
 
