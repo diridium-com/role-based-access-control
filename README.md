@@ -32,7 +32,7 @@ The plugin compiles against engine jars that are not published to a public Maven
 ./scripts/install-engine-jars.sh
 ```
 
-The script downloads the OIE release matching the POM's `mc.version`, checks it against that release's `sha256sums`, and installs the five jars the build needs.
+The script downloads the OIE release matching the POM's `mc.version`, checks it against the SHA-256 pinned in the POM (`oie.dist.sha256`), and installs the five jars the build needs.
 
 Then build the plugin:
 

@@ -13,7 +13,7 @@ rbac/
 ```
 
 ## Build
-On a fresh machine or wiped `~/.m2`, first install the engine jars into the local Maven repo. The script downloads the OIE release for the POM's `mc.version` and checks it against the release's `sha256sums`:
+On a fresh machine or wiped `~/.m2`, first install the engine jars into the local Maven repo. The script downloads the OIE release for the POM's `mc.version` and checks it against the SHA-256 pinned beside it in the POM (`oie.dist.sha256`, update it with `mc.version`):
 ```bash
 ./scripts/install-engine-jars.sh
 ```
