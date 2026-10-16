@@ -37,7 +37,8 @@ the caller's role.
 
 ## Compatibility
 
-Requires Open Integration Engine **4.6.0** (Java 17+). A restart is required
+Requires Open Integration Engine **4.7.0** (Java 17+). For OIE 4.6.0, use
+rbac 1.1.4. A restart is required
 after install. On servers that don't use the Web Administrator, the web module
 is inert.
 
