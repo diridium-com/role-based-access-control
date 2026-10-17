@@ -32,7 +32,7 @@ Check out the tag on the machine with the YubiKey. If its local Maven repository
 mvn clean package -Psigning -Dsigning.storepass=<yubikey-pin>
 ```
 
-Copy `package/target/rbac-X.Y.Z.zip` somewhere safe right away. A later `mvn clean` deletes it, and it cannot be rebuilt without the key.
+The signed zip is `package/target/rbac-X.Y.Z.zip`. Run the commands below and in step 4 from `package/target/`.
 
 Check every jar before it goes anywhere. Each must print `jar verified.` and exit 0:
 
