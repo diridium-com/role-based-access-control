@@ -21,6 +21,12 @@
 # A tag whose release is already published is refused, so re-running this
 # workflow can never replace a published release's files with an unsigned
 # build. An existing draft is updated: publishing it is the last, manual step.
+#
+# Two jobs, so the token that can write to the repository never shares a job
+# with the build. The build job runs Maven, npm and every package they pull in
+# with a read-only token, and uploads the zip. The release job holds the write
+# token and runs only the steps below it: no checkout, no build tools and no
+# action, just gh to download that zip and create or update the draft.
 
 name: Release
 
@@ -30,13 +36,20 @@ on:
       - 'v*'
 
 permissions:
-  contents: write        # required to create the GitHub Release
+  contents: read
 
 jobs:
-  release:
+  build:
     runs-on: ubuntu-latest
+    outputs:
+      asset: ${{ steps.pkg.outputs.asset }}
     steps:
+      # The token is read-only here, but no later step needs git credentials either, so keep it
+      # out of .git/config, where every later step, the npm install during the build included,
+      # could read it.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up JDK 17
         uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
@@ -44,24 +57,6 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: maven
-
-      - name: Refuse a tag whose release is already published
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if DRAFT="$(gh release view "$GITHUB_REF_NAME" --json isDraft -q .isDraft 2>&1)"; then
-            if [ "$DRAFT" != "true" ]; then
-              echo "::error::Release ${GITHUB_REF_NAME} is already published. Its files are never replaced; release a new version."
-              exit 1
-            fi
-            echo "A draft exists for ${GITHUB_REF_NAME}; it will be updated."
-          elif [ "$DRAFT" = "release not found" ]; then
-            echo "No release exists for ${GITHUB_REF_NAME} yet."
-          else
-            # Anything else (network, permissions) must not be taken for "no release".
-            echo "::error::Could not check for an existing release: $DRAFT"
-            exit 1
-          fi
 
       - name: Check the tag against every version file
         id: ver
@@ -82,6 +77,16 @@ jobs:
           check "webadmin/package-lock.json version" "$(jq -r .version webadmin/package-lock.json)"
           check "webadmin/package-lock.json packages[\"\"].version" \
             "$(jq -r '.packages[""].version' webadmin/package-lock.json)"
+          # The engine loads a plugin only on the exact version in plugin.xml's mirthVersion (the
+          # pom's plugin.supported.mc.versions), so the store listing must say exactly that version too.
+          ENGINE="$(mvn -q -N "$HELP:evaluate" -Dexpression=plugin.supported.mc.versions -DforceStdout)"
+          for field in minEngineVersion maxEngineVersion; do
+            got="$(jq -r ".$field" oie.json)"
+            if [ "$got" != "$ENGINE" ]; then
+              echo "::error::oie.json $field is '${got}', but the plugin is built for OIE ${ENGINE} (pom.xml plugin.supported.mc.versions), the only version the engine will load it on."
+              FAILED=1
+            fi
+          done
           if [ "$FAILED" -ne 0 ]; then
             echo "Set the version in every file listed above (RELEASING.md, step 1) and tag again."
             exit 1
@@ -122,28 +127,76 @@ jobs:
           fi
           echo "surefire report files: $reports"
 
+      # plugin.xml gets its version from the pom when the zip is built, and webadmin/plugin.json
+      # is copied in. Check what actually went into the zip, so a broken filter can't ship a placeholder.
+      - name: Check the version inside the zip
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          ZIP="package/target/rbac-${VERSION}.zip"
+          XML="$(unzip -p "$ZIP" rbac/plugin.xml | sed -n 's:.*<pluginVersion>\(.*\)</pluginVersion>.*:\1:p')"
+          JSON="$(unzip -p "$ZIP" rbac/webadmin/plugin.json | jq -r .version)"
+          if [ "$XML" != "$VERSION" ] || [ "$JSON" != "$VERSION" ]; then
+            echo "::error::The zip has plugin.xml '${XML}' and webadmin/plugin.json '${JSON}', but the tag is ${VERSION}."
+            exit 1
+          fi
+          echo "plugin.xml and webadmin/plugin.json in the zip both say ${VERSION}"
+
       - name: Stage the release asset and checksum
         id: pkg
         run: |
           VERSION="${{ steps.ver.outputs.version }}"
-          SRC="$(find package/target -maxdepth 1 -name 'rbac-*.zip' | head -n1)"
-          if [ -z "$SRC" ]; then
-            echo "::error::No plugin zip found in package/target"; ls -l package/target || true; exit 1
-          fi
           ASSET="rbac-${VERSION}.zip"
+          SRC="package/target/${ASSET}"
+          if [ ! -f "$SRC" ]; then
+            echo "::error::${SRC} was not built"; ls -l package/target || true; exit 1
+          fi
           mkdir -p out
           cp "$SRC" "out/${ASSET}"
           ( cd out && sha256sum "${ASSET}" > "${ASSET}.sha256" )
           echo "asset=${ASSET}" >> "$GITHUB_OUTPUT"
 
-      - name: Create draft GitHub Release with assets
-        # Stays a draft: the zip is unsigned. A human signs locally, replaces the
-        # zip and its .sha256 sidecar, and publishes (see RELEASING.md). Pinned
-        # to v2.6.2 by commit.
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
+      - name: Upload the release asset and checksum for the release job
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          draft: true
-          files: |
-            out/${{ steps.pkg.outputs.asset }}
-            out/${{ steps.pkg.outputs.asset }}.sha256
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          name: release-zip
+          path: out/
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write    # create or update the draft release
+      actions: read      # download the build job's artifact
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      ASSET: ${{ needs.build.outputs.asset }}
+    steps:
+      - name: Download the release asset and checksum
+        run: |
+          gh run download "$GITHUB_RUN_ID" --name release-zip --dir out
+          ( cd out && sha256sum -c "${ASSET}.sha256" )
+
+      - name: Create or update the DRAFT release
+        # Stays a draft: the zip is unsigned. A human signs locally, replaces the
+        # zip and its .sha256 sidecar, and publishes (see RELEASING.md).
+        run: |
+          if DRAFT="$(gh release view "$GITHUB_REF_NAME" --json isDraft -q .isDraft 2>&1)"; then
+            if [ "$DRAFT" != "true" ]; then
+              echo "::error::Release ${GITHUB_REF_NAME} is already published. Its files are never replaced; release a new version."
+              exit 1
+            fi
+            echo "A draft exists for ${GITHUB_REF_NAME}; replacing its files."
+            gh release upload "$GITHUB_REF_NAME" "out/${ASSET}" "out/${ASSET}.sha256" --clobber
+          elif [ "$DRAFT" = "release not found" ]; then
+            prerelease=()
+            case "$GITHUB_REF_NAME" in *-*) prerelease=(--prerelease) ;; esac
+            gh release create "$GITHUB_REF_NAME" "out/${ASSET}" "out/${ASSET}.sha256" \
+              --draft --verify-tag --title "$GITHUB_REF_NAME" --notes "" "${prerelease[@]}"
+          else
+            # Anything else (network, permissions) must not be taken for "no release".
+            echo "::error::Could not check for an existing release: $DRAFT"
+            exit 1
+          fi

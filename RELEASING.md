@@ -16,13 +16,15 @@ Change all of these in the commit you tag:
 
 The release workflow fails unless the tag matches every one of them, since both CI and the signed build are made from the committed files.
 
+When the engine version the plugin is built for (`plugin.supported.mc.versions` in `pom.xml`, normally `${mc.version}`) changes, set `minEngineVersion` and `maxEngineVersion` in `oie.json` to it as well. The engine loads a plugin only on the exact version it was built for, and the release workflow fails if `oie.json` says otherwise.
+
 ## 2. Tag
 
 ```bash
 git tag vX.Y.Z && git push origin vX.Y.Z
 ```
 
-`.github/workflows/release.yml` builds and tests against the OIE distribution matching the POM's `mc.version` and stages a **draft** release holding the unsigned `rbac-X.Y.Z.zip` and its `.sha256` sidecar. CI never publishes it.
+`.github/workflows/release.yml` builds and tests against the OIE distribution matching the POM's `mc.version` and stages a **draft** release holding the unsigned `rbac-X.Y.Z.zip` and its `.sha256` sidecar. CI never publishes it. The build and tests run in a job whose token can only read the repository; a second job, the only one that can write, downloads the zip and creates or updates the draft.
 
 ## 3. Build the signed zip
 
