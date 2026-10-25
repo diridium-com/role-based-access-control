@@ -24,8 +24,6 @@ mvn clean install    # 'mvn package' at the root also works (verified on a fresh
 The packaging step downloads Node.js v24.21.0 (frontend-maven-plugin), installs the web UI's dependencies with `npm ci`, builds `webadmin/web/plugin.js` (gitignored), and runs the web UI's unit tests in the test phase, so the first build needs network access beyond Maven Central.
 Output: `package/target/rbac-1.2.0.zip`
 
-**Temporary engine split (1.2.0):** `plugin.xml`'s `mirthVersion` comes from an explicit `<plugin.supported.mc.versions>4.7.0</plugin.supported.mc.versions>`, while `mc.version` (the jars compiled against) is still 4.6.0, because 4.7.0 was unpublished when 1.2.0 shipped. The next release joins them again: `mc.version` 4.7.0, `oie.dist.sha256` from the 4.7.0 release's `sha256sums`, and `plugin.supported.mc.versions` back to `${mc.version}`.
-
 ## Architecture
 
 ### Server-Side Authorization
