@@ -10,6 +10,7 @@ rbac/
 ├── shared/    # RbacServletInterface (JAX-RS), Role model
 ├── client/    # RbacClientPlugin, RbacSettingsPanel, RoleEditorDialog, SecureAuthorizationController
 ├── package/   # plugin.xml, sqlmap.xml, assembly.xml
+├── e2e/       # real-engine end-to-end suite (run.py): the zip on the released engine, six databases, CI job `e2e`
 ```
 
 ## Build

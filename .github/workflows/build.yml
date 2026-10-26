@@ -3,8 +3,9 @@
 #
 # Builds and tests every push to main and every pull request. The Maven build
 # runs the Java tests and, in the package module, the web administrator's JS
-# unit tests (npm test). The e2e job runs the Playwright suite in webadmin/e2e
-# against a pinned OIE web client release.
+# unit tests (npm test). The browser job runs the Playwright suite in webadmin/e2e
+# against a pinned OIE web client release. The e2e job installs the built zip into
+# the released engine and runs e2e/run.py on each database the engine supports.
 #
 # The engine jars this plugin compiles against come from the published OIE
 # distribution, installed by scripts/install-engine-jars.sh, the same script
@@ -31,6 +32,11 @@ jobs:
       fail-fast: false
       matrix:
         java: ['17', '21']
+    outputs:
+      mc_version: ${{ steps.engine.outputs.mc_version }}
+      tarball: ${{ steps.engine.outputs.tarball }}
+      dist_sha256: ${{ steps.engine.outputs.dist_sha256 }}
+      label_as: ${{ steps.engine.outputs.label_as }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -44,7 +50,8 @@ jobs:
       # The engine version lives in exactly one place, the POM's mc.version. Hardcoding
       # it here as well meant a future engine bump could leave CI installing 4.6.0 jars
       # while the build compiled against something else, with nothing to catch it.
-      # Here it only keys the cache; the install script reads it again itself.
+      # Here it keys the cache and tells the e2e job which tarball to run; the install
+      # script reads it again itself.
       - name: Resolve the engine version from the POM
         id: engine
         run: |
@@ -54,6 +61,23 @@ jobs:
             exit 1
           fi
           echo "mc_version=$MC_VERSION" >> "$GITHUB_OUTPUT"
+          # For the e2e job, which fetches and checks the tarball itself: the name and hash
+          # scripts/install-engine-jars.sh uses.
+          echo "tarball=oie_unix_${MC_VERSION//./_}.tar.gz" >> "$GITHUB_OUTPUT"
+          DIST_SHA256="$(mvn -q -N org.apache.maven.plugins:maven-help-plugin:3.5.1:evaluate -Dexpression=oie.dist.sha256 -DforceStdout)"
+          if [[ ! "$DIST_SHA256" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error::pom.xml oie.dist.sha256 is '${DIST_SHA256}', not a SHA-256"
+            exit 1
+          fi
+          echo "dist_sha256=$DIST_SHA256" >> "$GITHUB_OUTPUT"
+          # A release can target an engine that isn't published yet (plugin.supported.mc.versions set
+          # explicitly in the POM). The e2e job then runs on mc.version's engine with the zips relabelled
+          # to it, since the engine only loads a plugin built for its exact version.
+          TARGET="$(mvn -q -N org.apache.maven.plugins:maven-help-plugin:3.5.1:evaluate -Dexpression=plugin.supported.mc.versions -DforceStdout)"
+          if [ "$TARGET" != "$MC_VERSION" ]; then
+            echo "::warning::plugin.xml targets OIE ${TARGET}; the e2e job runs on OIE ${MC_VERSION} with the zips relabelled to it."
+            echo "label_as=$MC_VERSION" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Cache OIE distribution
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -84,12 +108,22 @@ jobs:
           fi
           echo "surefire report files: $reports"
 
+      # One leg uploads, since two uploads of one artifact name fail: the 17 leg, which builds like release.yml.
+      - name: Upload plugin zip
+        if: matrix.java == '17'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: plugin-zip
+          path: package/target/rbac-*.zip
+          if-no-files-found: error
+          retention-days: 7
+
   # Browser tests: the real built plugin.js loaded into the OIE web client, with
   # the engine's REST API mocked in the browser (webadmin/e2e/mock.js), so no
   # engine is needed. Pin the commit of a released web client tag, with the tag in a
   # comment: an unreleased one fails this job before any test runs, and a tag can be
   # moved.
-  e2e:
+  browser:
     runs-on: ubuntu-latest
     env:
       OIE_WEB_CLIENT_REF: 6bb86ee73619702f6ab7d089223ef370ab91942d # v1.1.0
@@ -123,7 +157,7 @@ jobs:
         working-directory: webadmin
         run: npx playwright install --with-deps chromium
 
-      - name: Run the e2e suite
+      - name: Run the Playwright suite
         working-directory: webadmin
         env:
           WEBADMIN_DIR: ${{ github.workspace }}/oie-web-client
@@ -137,4 +171,83 @@ jobs:
           path: |
             webadmin/playwright-report
             webadmin/test-results
+          retention-days: 7
+
+  # Installs the zip into the released OIE engine through its own installer, the way a
+  # user would, and runs the scenarios in e2e/run.py as real signed-in users: fresh install
+  # (seeding, roles, the admin floor, what each role can and can't do, channel restrictions,
+  # Data Pruner, the cache, the orphan sweep, a restart), an upgrade from each release in
+  # e2e/upgrade-sources.txt, and uninstall. One job per database and Java: the engine runs
+  # on 17 and on 21, the Java the OIE 4.7.0 installers bundle.
+  e2e:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        db: [derby, postgres, mysql, sqlserver, sqlserver-ms, oracle]
+        java: ['17', '21']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up JDK ${{ matrix.java }}
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+
+      # Restore only: the build job saves this cache, and the e2e jobs saving the same key would race.
+      - name: Restore OIE distribution
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .oie-dist
+          key: oie-dist-${{ needs.build.outputs.mc_version }}
+
+      # The whole engine runs from this tarball: downloaded if the cache missed, and checked against
+      # the SHA-256 pinned in the POM either way, as scripts/install-engine-jars.sh does.
+      - name: Fetch and check the OIE distribution
+        env:
+          MC_VERSION: ${{ needs.build.outputs.mc_version }}
+          OIE_TARBALL: ${{ needs.build.outputs.tarball }}
+          OIE_SHA256: ${{ needs.build.outputs.dist_sha256 }}
+        run: |
+          mkdir -p .oie-dist
+          if [ ! -f ".oie-dist/$OIE_TARBALL" ]; then
+            curl -fSL -o ".oie-dist/$OIE_TARBALL.part" "https://github.com/OpenIntegrationEngine/engine/releases/download/v${MC_VERSION}/${OIE_TARBALL}"
+            mv ".oie-dist/$OIE_TARBALL.part" ".oie-dist/$OIE_TARBALL"
+          fi
+          echo "${OIE_SHA256}  .oie-dist/${OIE_TARBALL}" | sha256sum -c -
+
+      - name: Download the plugin zip
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: plugin-zip
+          path: plugin-zip
+
+      - name: Run the e2e scenarios
+        env:
+          DB: ${{ matrix.db }}
+          OIE_TARBALL: ${{ needs.build.outputs.tarball }}
+          LABEL_AS: ${{ needs.build.outputs.label_as }}
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          zips=(plugin-zip/rbac-*.zip)
+          if [ "${#zips[@]}" -ne 1 ] || [ ! -f "${zips[0]}" ]; then
+            echo "::error::expected exactly one plugin zip, found: ${zips[*]}"
+            exit 1
+          fi
+          relabel=()
+          if [ -n "$LABEL_AS" ]; then relabel=(--label-as "$LABEL_AS"); fi
+          python3 e2e/run.py --db "$DB" --zip "${zips[0]}" --tarball ".oie-dist/$OIE_TARBALL" --work "$RUNNER_TEMP/e2e" "${relabel[@]}"
+
+      - name: Upload engine logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-logs-${{ matrix.db }}-java${{ matrix.java }}
+          path: |
+            ${{ runner.temp }}/e2e/*/oie*/logs/
+            ${{ runner.temp }}/e2e/*/oie*/console-*.log
+          if-no-files-found: ignore
           retention-days: 7

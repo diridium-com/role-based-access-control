@@ -50,6 +50,22 @@ The distributable zip lands at:
 package/target/rbac-1.2.0.zip
 ```
 
+## Testing
+
+`mvn clean install` runs the unit tests. CI also runs two end-to-end suites:
+
+- `browser`: the built web bundle loaded into the OIE web client, with the engine's REST API mocked (Playwright, `webadmin/e2e`).
+- `e2e`: the zip installed into the released engine through its own installer and driven over the REST API as real signed-in users, on every database the engine supports (Derby, PostgreSQL, MySQL, SQL Server with the jTDS and the Microsoft driver, Oracle), on Java 17 and 21. It runs a fresh install, an upgrade from each earlier release, and an uninstall.
+
+To run `e2e` locally you need Java 17 or later, Docker for every database but Derby, and the OIE distribution for the POM's `mc.version` (`oie_unix_4_7_0.tar.gz` from the engine's release):
+
+```bash
+python3 e2e/run.py --db postgres --zip package/target/rbac-1.2.0.zip \
+    --tarball oie_unix_4_7_0.tar.gz --work /tmp/rbac-e2e-1
+```
+
+What it covers, and what it leaves out, is in [docs/design-notes.md](docs/design-notes.md).
+
 ## Install
 
 Install the zip through the Administrator's Extensions view and restart OIE. On first startup the plugin creates its four `rbac_*` tables and seeds an admin role assigned to the initial admin user.
