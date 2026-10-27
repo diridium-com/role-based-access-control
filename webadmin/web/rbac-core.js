@@ -252,6 +252,10 @@ export const NONE_ROLE_LABEL = '(none)';
 export const MSG_CATALOG_NOT_LOADED =
     'The permission list has not finished loading. Click Refresh and try again.';
 
+// RbacSettingsPanel.channelListNotLoaded() — add/edit guard.
+export const MSG_CHANNELS_NOT_LOADED =
+    "The channel list didn't load. Click Refresh and try again.";
+
 // RbacSettingsPanel — selection warnings.
 export const MSG_SELECT_ROLE_EDIT = 'Please select a role to edit.';
 export const MSG_SELECT_ROLE_DELETE = 'Please select a role to delete.';
