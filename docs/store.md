@@ -30,6 +30,11 @@ the caller's role.
   they need to log in.
 - **`manageExtensions` is admin-equivalent.** A holder can disable RBAC, and
   after the next restart the engine reverts to allowing everything.
+- **Manage Roles is for delegating user management.** On its own it gives no
+  access to channels or server settings, so its holder can't change the engine
+  by accident. It isn't a security boundary: a holder can give their own
+  account any role, the admin role included. Grant it only to someone you
+  would trust as an administrator.
 - **Check RBAC after every engine upgrade.** The engine unloads a plugin built
   for a different engine version and falls back to allowing everything. Make
   sure the Role-Based Access Control settings tab is there before letting users

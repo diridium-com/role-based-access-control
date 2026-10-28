@@ -190,6 +190,20 @@ export const MANAGE_EXTENSIONS_WARNING =
     + 'effectively remove all access control after a server restart.\n'
     + 'Grant only to fully trusted administrators.';
 
+// RoleEditorDialog.applyPermissionWarning — tooltip on the Manage Roles checkbox.
+export const MANAGE_ROLES_WARNING =
+    'Manage Roles is for delegating user management. On its own it gives\n'
+    + 'no access to channels or server settings, but a holder can give their\n'
+    + 'own account any role, the admin role included.\n'
+    + 'Grant it only to someone you would trust as an administrator.';
+
+// The warning tooltip for a permission's checkbox, or null.
+export function permissionWarning(perm) {
+    if (perm === 'manageExtensions') return MANAGE_EXTENSIONS_WARNING;
+    if (perm === 'Manage Roles') return MANAGE_ROLES_WARNING;
+    return null;
+}
+
 // RoleEditorDialog — Read-Only preset button tooltip.
 export const READ_ONLY_TOOLTIP =
     'Select all view-only permissions (minimum for a functional read-only user)';
