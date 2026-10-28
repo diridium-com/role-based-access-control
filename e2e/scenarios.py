@@ -17,8 +17,6 @@ import rbac as b
 from oie import Api
 
 PASSWORD = "Rbac-e2e-" + b.new_id()[:12] + "!"
-# Open issues that make a check fail on some databases. Each check they cover is a NOTE there until fixed.
-SQLSERVER_NAMES = "issue #34 (SQL Server stores role names as VARCHAR)"
 # rbac writes these at WARN on purpose: every refusal, and the blocked deletion of the last admin user.
 EXPECTED_WARN = (r"RBAC: User \d+ denied for operation", r"RBAC: blocked deletion of the last admin user")
 
@@ -118,7 +116,7 @@ def check_tables(r, db, dbname, want, where=""):
 def check_schema_version(r, db, dbname, where=""):
     version = db.schema_version(dbname)
     if version is not None or db.kind != "derby":
-        r.check(f"{where}schema_version is 2 in CONFIGURATION", version == 2, f"found {version}")
+        r.check(f"{where}schema_version is 3 in CONFIGURATION", version == 3, f"found {version}")
 
 
 # ---------- fresh install: every feature
@@ -152,7 +150,7 @@ def fresh(r, engine, db, dbname, new_zip, **_):
         k.add_user(w, key, key)
     k.add_user(w, "no-role")
 
-    k.role_crud(r, w, SQLSERVER_NAMES if db.server == "sqlserver" else None)
+    k.role_crud(r, w)
     k.admin_floor(r, w, admin_role)
     k.matrix(r, w)
     k.data_pruner(r, w)
@@ -185,8 +183,7 @@ def fresh(r, engine, db, dbname, new_zip, **_):
     check_schema_version(r, db, dbname, "after a restart: ")
     k.expect(r, "after a restart, read-only is still refused server settings", login(engine, "rbac-e2e-viewer"),
              "GET", "/server/settings", (403,), k.missing("viewServerSettings"))
-    # On SQL Server, the duplicate of the non-Latin-1 name fails its insert and rbac logs it (issue #34).
-    check_logs(r, engine, allowed=(r"Failed to create role e2e R",) if db.server == "sqlserver" else ())
+    check_logs(r, engine)
 
 
 # ---------- upgrade from a published release
@@ -250,7 +247,10 @@ def upgrade(r, engine, db, dbname, new_zip, old_zip, upgrade_engine=None, **_):
             got = b.user_role(api, uid)
             r.check(f"{name} holds the admin role again", admin_role and got and got["id"] == admin_role["id"], str(got))
     else:
-        r.check("no schema step ran on the upgrade", "Applying RBAC schema" not in after)
+        # Releases before schema step v3 left SQL Server's text columns VARCHAR; no other database needs a step.
+        steps = re.findall(r"Applying RBAC schema (v\d)", after)
+        want = ["v3"] if db.server == "sqlserver" else []
+        r.check(f"the upgrade ran schema steps {want}", steps == want, f"ran {steps}")
         now = b.roles(api)
         others = {rid: role for rid, role in snapshot.items() if not role["isAdmin"]}
         r.check("every non-admin role is kept as it was", {rid: now.get(rid) for rid in others} == others,
@@ -267,6 +267,7 @@ def upgrade(r, engine, db, dbname, new_zip, old_zip, upgrade_engine=None, **_):
         status, ids = b.channel_ids(viewer)
         r.check("after the upgrade, the channel-limited user still sees only its channel",
                 status == 200 and ids == {channel}, f"HTTP {status}: {ids}")
+    k.unicode_role_name(r, api, "after the upgrade: ")
     check_schema_version(r, db, dbname, "after the upgrade: ")
     # 1.1.2's failed seed on Oracle is the known defect above.
     seed_failure = (r"Failed to seed admin permissions; RBAC bootstrap is incomplete",) if locked else ()

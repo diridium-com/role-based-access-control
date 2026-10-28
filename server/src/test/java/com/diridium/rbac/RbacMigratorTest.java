@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
@@ -19,7 +20,12 @@ import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import com.mirth.connect.model.util.MigrationException;
 import com.mirth.connect.server.controllers.ConfigurationController;
@@ -54,6 +60,9 @@ class RbacMigratorTest {
         final List<String> scripts = new ArrayList<>();
         final List<String> statements = new ArrayList<>();
         SQLException statementFailure;
+        // SQL Server's catalog for the v3 checks ("table.column" keys); the statements update it.
+        Map<String, String> catalogTypes;
+        Map<String, String> catalogUniques;
 
         @Override
         protected void executeScript(String path) {
@@ -66,7 +75,27 @@ class RbacMigratorTest {
                 throw statementFailure;
             }
             statements.add(sql);
+            if (catalogTypes != null) {
+                applyToCatalog(sql);
+            }
             return 0;
+        }
+
+        private void applyToCatalog(String sql) {
+            Matcher m = Pattern.compile("ALTER TABLE (\\w+) DROP CONSTRAINT \\[(.+)]").matcher(sql);
+            if (m.matches()) {
+                catalogUniques.values().removeIf(index -> index.equals(m.group(2)));
+            }
+            Matcher alter = Pattern.compile("ALTER TABLE (\\w+) ALTER COLUMN (\\w+) NVARCHAR.*").matcher(sql);
+            if (alter.matches()) {
+                catalogTypes.put(alter.group(1) + "." + alter.group(2), "nvarchar");
+            }
+            Matcher add = Pattern.compile("ALTER TABLE (\\w+) ADD CONSTRAINT (\\w+) UNIQUE \\((.+)\\)").matcher(sql);
+            if (add.matches()) {
+                for (String column : add.group(3).split(",\\s*")) {
+                    catalogUniques.put(add.group(1) + "." + column, add.group(2));
+                }
+            }
         }
     }
 
@@ -85,6 +114,8 @@ class RbacMigratorTest {
                 .thenAnswer(inv -> resultSetWithNext(false));
         when(meta.getColumns(any(), any(), anyString(), anyString()))
                 .thenAnswer(inv -> resultSetWithNext(false));
+        when(meta.getIndexInfo(any(), any(), anyString(), anyBoolean(), anyBoolean()))
+                .thenAnswer(inv -> resultSetWithNext(false));
 
         configController = mock(ConfigurationController.class);
         mockedConfig = Mockito.mockStatic(ConfigurationController.class);
@@ -99,13 +130,13 @@ class RbacMigratorTest {
     // ========== Fresh install ==========
 
     @Test
-    void freshInstall_appliesV1AndV2_andWritesVersion2() throws Exception {
+    void freshInstall_appliesV1AndV2_andWritesVersion3() throws Exception {
         migrator.migrate();
 
         assertEquals(List.of("/derby-rbac-tables.sql"), migrator.scripts);
         assertEquals(1, migrator.statements.size());
         assertTrue(migrator.statements.get(0).contains("ADD COLUMN is_admin"));
-        verify(configController).saveProperty(PLUGIN_NAME, VERSION_PROP, "2");
+        verify(configController).saveProperty(PLUGIN_NAME, VERSION_PROP, "3");
     }
 
     // ========== Partial states ==========
@@ -119,7 +150,7 @@ class RbacMigratorTest {
         assertTrue(migrator.scripts.isEmpty(), "v1 script must not rerun");
         assertEquals(1, migrator.statements.size());
         assertTrue(migrator.statements.get(0).contains("is_admin"));
-        verify(configController).saveProperty(PLUGIN_NAME, VERSION_PROP, "2");
+        verify(configController).saveProperty(PLUGIN_NAME, VERSION_PROP, "3");
     }
 
     @Test
@@ -131,8 +162,9 @@ class RbacMigratorTest {
 
         assertTrue(migrator.scripts.isEmpty());
         assertTrue(migrator.statements.isEmpty());
+        // v3 has nothing to do outside SQL Server, so a v2 schema there is the latest.
         // Written once when aligning the unset stored version, once at the end
-        verify(configController, atLeastOnce()).saveProperty(PLUGIN_NAME, VERSION_PROP, "2");
+        verify(configController, atLeastOnce()).saveProperty(PLUGIN_NAME, VERSION_PROP, "3");
     }
 
     // ========== Backfill / realignment ==========
@@ -148,7 +180,7 @@ class RbacMigratorTest {
         assertEquals(List.of("/derby-rbac-tables.sql"), migrator.scripts);
         assertEquals(1, migrator.statements.size());
         verify(configController).saveProperty(PLUGIN_NAME, VERSION_PROP, "0");
-        verify(configController).saveProperty(PLUGIN_NAME, VERSION_PROP, "2");
+        verify(configController).saveProperty(PLUGIN_NAME, VERSION_PROP, "3");
     }
 
     @Test
@@ -161,7 +193,7 @@ class RbacMigratorTest {
 
         assertTrue(migrator.scripts.isEmpty());
         assertTrue(migrator.statements.isEmpty());
-        verify(configController, atLeastOnce()).saveProperty(PLUGIN_NAME, VERSION_PROP, "2");
+        verify(configController, atLeastOnce()).saveProperty(PLUGIN_NAME, VERSION_PROP, "3");
     }
 
     @Test
@@ -197,8 +229,73 @@ class RbacMigratorTest {
 
         migrator.migrate();
 
-        assertEquals(1, migrator.statements.size());
+        // v3's NVARCHAR statements follow; the v3 tests below cover them.
         assertTrue(migrator.statements.get(0).contains("BIT"));
+    }
+
+    // ========== V3: SQL Server NVARCHAR ==========
+
+    @Test
+    void v3_sqlServerVarcharColumns_areConverted_andConstraintsComeBack() throws Exception {
+        givenSqlServerCatalog(
+                Map.of("rbac_role.name", "varchar", "rbac_role.description", "varchar",
+                        "rbac_role_permission.permission", "varchar"),
+                Map.of("rbac_role.name", "UQ__rbac_rol__72E12F1B",
+                        "rbac_role_permission.role_id", "uq_role_perm", "rbac_role_permission.permission", "uq_role_perm"));
+
+        migrator.migrate();
+
+        assertEquals(List.of(
+                "ALTER TABLE rbac_role DROP CONSTRAINT [UQ__rbac_rol__72E12F1B]",
+                "ALTER TABLE rbac_role ALTER COLUMN name NVARCHAR(255) NOT NULL",
+                "ALTER TABLE rbac_role ADD CONSTRAINT uq_rbac_role_name UNIQUE (name)",
+                "ALTER TABLE rbac_role ALTER COLUMN description NVARCHAR(1024) NULL",
+                "ALTER TABLE rbac_role_permission DROP CONSTRAINT [uq_role_perm]",
+                "ALTER TABLE rbac_role_permission ALTER COLUMN permission NVARCHAR(255) NOT NULL",
+                "ALTER TABLE rbac_role_permission ADD CONSTRAINT uq_role_perm UNIQUE (role_id, permission)"),
+                migrator.statements);
+        verify(configController).saveProperty(PLUGIN_NAME, VERSION_PROP, "2");
+        verify(configController).saveProperty(PLUGIN_NAME, VERSION_PROP, "3");
+    }
+
+    @Test
+    void v3_sqlServerAlreadyNvarchar_runsNoDdl() throws Exception {
+        givenSqlServerCatalog(
+                Map.of("rbac_role.name", "nvarchar", "rbac_role.description", "nvarchar",
+                        "rbac_role_permission.permission", "nvarchar"),
+                Map.of("rbac_role.name", "uq_rbac_role_name",
+                        "rbac_role_permission.role_id", "uq_role_perm", "rbac_role_permission.permission", "uq_role_perm"));
+
+        migrator.migrate();
+
+        assertTrue(migrator.statements.isEmpty(), migrator.statements.toString());
+        verify(configController, atLeastOnce()).saveProperty(PLUGIN_NAME, VERSION_PROP, "3");
+    }
+
+    @Test
+    void v3_sqlServerStoppedHalfway_finishesOnTheNextRun() throws Exception {
+        // The last run altered rbac_role.name and stopped before adding its constraint back.
+        givenSqlServerCatalog(
+                Map.of("rbac_role.name", "nvarchar", "rbac_role.description", "varchar",
+                        "rbac_role_permission.permission", "nvarchar"),
+                Map.of("rbac_role_permission.role_id", "uq_role_perm", "rbac_role_permission.permission", "uq_role_perm"));
+
+        migrator.migrate();
+
+        assertEquals(List.of(
+                "ALTER TABLE rbac_role ADD CONSTRAINT uq_rbac_role_name UNIQUE (name)",
+                "ALTER TABLE rbac_role ALTER COLUMN description NVARCHAR(1024) NULL"),
+                migrator.statements);
+        verify(configController).saveProperty(PLUGIN_NAME, VERSION_PROP, "3");
+    }
+
+    @Test
+    void v3StatementFailure_wrapsInMigrationException() throws Exception {
+        givenSqlServerCatalog(Map.of("rbac_role.name", "varchar"), Map.of());
+        migrator.statementFailure = new SQLException("disk on fire");
+
+        MigrationException e = assertThrows(MigrationException.class, () -> migrator.migrate());
+        assertTrue(e.getMessage().contains("NVARCHAR"), e.getMessage());
     }
 
     // ========== Failure handling ==========
@@ -284,5 +381,45 @@ class RbacMigratorTest {
         ResultSet rs = mock(ResultSet.class);
         when(rs.next()).thenReturn(hasRow);
         return rs;
+    }
+
+    /**
+     * A SQL Server schema at v2 (tables and is_admin present) whose text column types and unique
+     * constraints come from the given maps ("table.column" keys), which the migrator's statements update.
+     */
+    private void givenSqlServerCatalog(Map<String, String> types, Map<String, String> uniques) throws SQLException {
+        migrator.setDatabaseType("sqlserver");
+        givenBaseTablesExist();
+        migrator.catalogTypes = new HashMap<>(types);
+        migrator.catalogTypes.put("rbac_role.is_admin", "bit");
+        migrator.catalogUniques = new HashMap<>(uniques);
+        when(meta.getColumns(any(), any(), anyString(), anyString())).thenAnswer(inv -> {
+            String type = migrator.catalogTypes.get(inv.getArgument(2) + "." + inv.getArgument(3));
+            if (type == null) {
+                return resultSetWithNext(false);
+            }
+            ResultSet rs = resultSetWithNext(true);
+            when(rs.getString("TYPE_NAME")).thenReturn(type);
+            return rs;
+        });
+        when(meta.getIndexInfo(any(), any(), anyString(), anyBoolean(), anyBoolean())).thenAnswer(inv -> {
+            String prefix = inv.getArgument(2) + ".";
+            List<String[]> rows = new ArrayList<>();
+            migrator.catalogUniques.forEach((key, index) -> {
+                if (key.startsWith(prefix)) {
+                    rows.add(new String[] { index, key.substring(prefix.length()) });
+                }
+            });
+            Iterator<String[]> it = rows.iterator();
+            String[][] current = new String[1][];
+            ResultSet rs = mock(ResultSet.class);
+            when(rs.next()).thenAnswer(n -> {
+                current[0] = it.hasNext() ? it.next() : null;
+                return current[0] != null;
+            });
+            when(rs.getString("INDEX_NAME")).thenAnswer(n -> current[0][0]);
+            when(rs.getString("COLUMN_NAME")).thenAnswer(n -> current[0][1]);
+            return rs;
+        });
     }
 }
