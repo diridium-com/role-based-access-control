@@ -92,7 +92,7 @@ public class RbacMigrator extends Migrator {
     /**
      * Detects the actual schema version from {@link DatabaseMetaData} (table
      * + column existence) and writes it to the {@code schema_version}
-     * property if it differs from what's stored.
+     * property if the stored one describes a different schema.
      *
      * @return the detected current version (0 = fresh install, 1 = has
      *         tables but no is_admin column, 2 = has both, 3 = also has the
@@ -104,12 +104,21 @@ public class RbacMigrator extends Migrator {
         if (stored == null) {
             log.info("RBAC schema state detected as version {} (no stored version)", detected);
             writeSchemaVersion(detected);
-        } else if (stored != detected) {
+        } else if (!sameSchema(stored, detected)) {
             log.warn("RBAC schema stored version ({}) does not match actual state ({}); realigning",
                     stored, detected);
             writeSchemaVersion(detected);
         }
         return detected;
+    }
+
+    /**
+     * Whether two versions leave the same tables on this database. Outside SQL Server,
+     * v3 changes nothing, so a v2 stored by an earlier release matches a detected v3;
+     * the run records 3 when it finishes.
+     */
+    private boolean sameSchema(int a, int b) {
+        return a == b || (!"sqlserver".equals(getDatabaseType()) && Math.min(a, b) >= 2);
     }
 
     private int detectFromState() throws MigrationException {

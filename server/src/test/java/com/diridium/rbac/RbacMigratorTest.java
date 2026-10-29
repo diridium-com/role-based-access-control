@@ -12,6 +12,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -180,6 +181,39 @@ class RbacMigratorTest {
         assertEquals(List.of("/derby-rbac-tables.sql"), migrator.scripts);
         assertEquals(1, migrator.statements.size());
         verify(configController).saveProperty(PLUGIN_NAME, VERSION_PROP, "0");
+        verify(configController).saveProperty(PLUGIN_NAME, VERSION_PROP, "3");
+    }
+
+    @Test
+    void v2StoredOutsideSqlServer_isAlreadyLatest_withoutRealigning() throws Exception {
+        // An earlier release stored 2. Outside SQL Server v3 changes nothing, so this is the latest schema:
+        // no realignment (and no WARN), no DDL, and the run records 3.
+        when(configController.getProperty(PLUGIN_NAME, VERSION_PROP)).thenReturn("2");
+        givenBaseTablesExist();
+        givenColumnExists("rbac_role", "is_admin");
+
+        migrator.migrate();
+
+        assertTrue(migrator.scripts.isEmpty());
+        assertTrue(migrator.statements.isEmpty());
+        verify(configController, never()).saveProperty(PLUGIN_NAME, VERSION_PROP, "2");
+        verify(configController).saveProperty(PLUGIN_NAME, VERSION_PROP, "3");
+    }
+
+    @Test
+    void v3StoredOnSqlServer_withVarcharColumns_isRealignedAndConverted() throws Exception {
+        // On SQL Server v2 and v3 differ, so a stored 3 over VARCHAR columns is a real mismatch.
+        when(configController.getProperty(PLUGIN_NAME, VERSION_PROP)).thenReturn("3");
+        givenSqlServerCatalog(
+                Map.of("rbac_role.name", "varchar", "rbac_role.description", "varchar",
+                        "rbac_role_permission.permission", "varchar"),
+                Map.of("rbac_role.name", "UQ__rbac_rol__72E12F1B",
+                        "rbac_role_permission.role_id", "uq_role_perm", "rbac_role_permission.permission", "uq_role_perm"));
+
+        migrator.migrate();
+
+        verify(configController).saveProperty(PLUGIN_NAME, VERSION_PROP, "2");
+        assertEquals(7, migrator.statements.size(), migrator.statements.toString());
         verify(configController).saveProperty(PLUGIN_NAME, VERSION_PROP, "3");
     }
 
