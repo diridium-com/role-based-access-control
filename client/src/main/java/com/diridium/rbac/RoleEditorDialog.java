@@ -443,14 +443,20 @@ public class RoleEditorDialog extends JDialog {
     /**
      * Adds a warning tooltip to especially privileged permissions so the person
      * assigning them understands the blast radius. {@code manageExtensions} in
-     * particular can disable RBAC itself and revert the engine to allow-all.
+     * particular can disable RBAC itself and revert the engine to allow-all, and
+     * a Manage Roles holder can give their own account any role.
      */
-    private static void applyPermissionWarning(JCheckBox cb, String perm) {
+    static void applyPermissionWarning(JCheckBox cb, String perm) {
         if ("manageExtensions".equals(perm)) {
             cb.setToolTipText("<html>Manage Extensions grants full control over installed plugins,"
                     + "<br>including disabling RBAC itself. A user with this permission can"
                     + "<br>effectively remove all access control after a server restart."
                     + "<br>Grant only to fully trusted administrators.</html>");
+        } else if (RbacServletInterface.PERMISSION_MANAGE.equals(perm)) {
+            cb.setToolTipText("<html>Manage Roles is for delegating user management. On its own it gives"
+                    + "<br>no access to channels or server settings, but a holder can give their"
+                    + "<br>own account any role, the admin role included."
+                    + "<br>Grant it only to someone you would trust as an administrator.</html>");
         }
     }
 

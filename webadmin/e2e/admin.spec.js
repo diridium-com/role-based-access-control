@@ -63,6 +63,19 @@ test.describe('P1 admin (full catalog)', () => {
         await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeVisible();
     });
 
+    test('the role editor warns on Manage Roles and manageExtensions only', async ({ page }) => {
+        await page.goto('/settings');
+        await page.getByRole('tab', { name: 'Role-Based Access Control', exact: true }).click();
+        await page.getByRole('cell', { name: 'Read Only', exact: true }).click();
+        await page.getByRole('button', { name: 'Edit', exact: true }).click();
+        const editor = page.locator('.rbac-overlay');
+        await expect(editor.locator('label', { hasText: /^Manage Roles$/ }))
+            .toHaveAttribute('title', /own account any role, the admin role included/);
+        await expect(editor.locator('label', { hasText: /^manageExtensions$/ }))
+            .toHaveAttribute('title', /including disabling RBAC itself/);
+        expect(await editor.locator('label', { hasText: /^viewChannels$/ }).getAttribute('title')).toBeNull();
+    });
+
     test('the plugin loads through the real login flow', async ({ page }) => {
         let authed = false;
         await mockEngineWithRbac(page, {

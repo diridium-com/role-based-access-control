@@ -27,7 +27,7 @@
 
 import {
     groupPermissions, orphanPermissionsOf, orphanChannelIdsOf, missingBase,
-    READ_ONLY_PERMISSIONS, MANAGE_EXTENSIONS_WARNING, READ_ONLY_TOOLTIP,
+    READ_ONLY_PERMISSIONS, permissionWarning, READ_ONLY_TOOLTIP,
     TITLE_ADD_ROLE, TITLE_EDIT_ROLE, MSG_NAME_REQUIRED, TITLE_VALIDATION_ERROR,
     MSG_CATALOG_EMPTY_EDIT, TITLE_PERMISSIONS_UNAVAILABLE,
     missingBaseWarningText, TITLE_MISSING_BASE_PERMISSIONS,
@@ -278,7 +278,7 @@ export function makeRoleEditor(platform) {
                                             <legend>{group.name}</legend>
                                             {group.permissions.map((perm) => (
                                                 <label key={perm} className="rbac-check"
-                                                    title={perm === 'manageExtensions' ? MANAGE_EXTENSIONS_WARNING : null}>
+                                                    title={permissionWarning(perm)}>
                                                     <input type="checkbox" checked={selected.has(perm)} disabled={isAdmin}
                                                         onChange={() => setSelected((s) => toggleIn(s, perm))} />
                                                     {perm}
