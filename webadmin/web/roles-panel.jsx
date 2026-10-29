@@ -21,7 +21,7 @@
 
 import {
     IMMEDIATE_NOTICE, ROLE_COLUMNS, USER_COLUMNS, NONE_ROLE_LABEL,
-    MSG_CATALOG_NOT_LOADED, MSG_SELECT_ROLE_EDIT, MSG_SELECT_ROLE_DELETE,
+    MSG_CATALOG_NOT_LOADED, MSG_CHANNELS_NOT_LOADED, MSG_SELECT_ROLE_EDIT, MSG_SELECT_ROLE_DELETE,
     MSG_SELECT_USER_ASSIGN, MSG_SELECT_USER_REMOVE, MSG_ADMIN_ROLE_CANNOT_DELETE,
     MSG_NO_ROLES, deleteRoleConfirmText, TITLE_CONFIRM_DELETE,
     removeRoleConfirmText, TITLE_CONFIRM_REMOVE, assignRolePromptText,
@@ -87,6 +87,7 @@ export function registerRolesPanel(platform, api) {
         const [catalog, setCatalog] = React.useState(null);       // Set<string> | null (not loaded)
         const [extGroups, setExtGroups] = React.useState({});     // permission -> publishing plugin
         const [channels, setChannels] = React.useState([]);       // [{id, name}] live, wire order
+        const [channelsLoaded, setChannelsLoaded] = React.useState(false); // last fetch succeeded
         const [selectedRoleId, setSelectedRoleId] = React.useState(null);
         const [selectedUserId, setSelectedUserId] = React.useState(null);
         const [editor, setEditor] = React.useState(null);         // { role: Role|null } while open
@@ -119,8 +120,14 @@ export function registerRolesPanel(platform, api) {
                 // Grouping is cosmetic — failure just leaves plugin permissions
                 // under "Other".
                 if (extGroupsRes.status === 'fulfilled') setExtGroups(extGroupsRes.value);
+                // A failed fetch keeps the old list, and the editor would show the
+                // missing channels as deleted, so Add/Edit wait for a fresh one.
                 if (channelsRes.status === 'fulfilled') {
                     setChannels(mapEntries(channelsRes.value).map(([id, name]) => ({ id, name })));
+                    setChannelsLoaded(true);
+                } else {
+                    setChannelsLoaded(false);
+                    ui.toast(`Failed to load channels: ${channelsRes.reason && channelsRes.reason.message || channelsRes.reason}`, 'error');
                 }
                 if (usersRes.status === 'fulfilled') {
                     // N+1 like Swing: resolve each user's assigned role;
@@ -175,6 +182,14 @@ export function registerRolesPanel(platform, api) {
             return false;
         };
 
+        const channelListNotLoaded = () => {
+            if (!channelsLoaded) {
+                ui.toast(MSG_CHANNELS_NOT_LOADED, 'warn');
+                return true;
+            }
+            return false;
+        };
+
         // Every mutation: commit, surface engine errors (incl. the server-side
         // AdminRoleGuard messages) as a toast, always reload.
         async function mutate(call) {
@@ -188,14 +203,14 @@ export function registerRolesPanel(platform, api) {
         }
 
         function addRole() {
-            if (catalogNotLoaded()) return;
+            if (catalogNotLoaded() || channelListNotLoaded()) return;
             setEditor({ role: null });
         }
 
         function editRole(role) {
             const target = role || selectedRole;
             if (!target) { ui.toast(MSG_SELECT_ROLE_EDIT, 'warn'); return; }
-            if (catalogNotLoaded()) return;
+            if (catalogNotLoaded() || channelListNotLoaded()) return;
             setEditor({ role: target });
         }
 

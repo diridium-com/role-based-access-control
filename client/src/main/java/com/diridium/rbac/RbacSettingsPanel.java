@@ -72,6 +72,8 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
     private Set<String> cachedPermissions;
     private Map<String, String> cachedExtensionGroups = new LinkedHashMap<>();
     private Map<String, String> cachedChannelMap = new LinkedHashMap<>();
+    // Whether the last refresh fetched the channel list (read and written on the EDT).
+    private boolean channelListLoaded;
 
     /**
      * @param tabName the label displayed for this tab in the Settings view
@@ -242,6 +244,9 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
                         if (extensionGroups != null) {
                             cachedExtensionGroups = extensionGroups;
                         }
+                        // A failed fetch keeps the old list, and the editor would show the
+                        // missing channels as deleted, so add and edit wait for a fresh one.
+                        channelListLoaded = channelMap != null;
                         if (channelMap != null) {
                             cachedChannelMap = channelMap;
                         }
@@ -337,8 +342,24 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
         return false;
     }
 
+    /**
+     * Guards the role editor against opening when the last refresh did not fetch
+     * the channel list. The editor lists every restricted channel missing from
+     * the list as deleted, with a Purge checkbox, so a stale or empty list would
+     * show live channels as deleted.
+     *
+     * @return {@code true} (after warning the user) if the channel list is not loaded
+     */
+    private boolean channelListNotLoaded() {
+        if (!channelListLoaded) {
+            parent.alertWarning(parent, "The channel list didn't load. Click Refresh and try again.");
+            return true;
+        }
+        return false;
+    }
+
     private void addRole() {
-        if (permissionCatalogNotLoaded()) {
+        if (permissionCatalogNotLoaded() || channelListNotLoaded()) {
             return;
         }
         RoleEditorDialog dialog = new RoleEditorDialog(parent, null, cachedPermissions, cachedExtensionGroups, cachedChannelMap);
@@ -357,7 +378,7 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
             return;
         }
 
-        if (permissionCatalogNotLoaded()) {
+        if (permissionCatalogNotLoaded() || channelListNotLoaded()) {
             return;
         }
 
