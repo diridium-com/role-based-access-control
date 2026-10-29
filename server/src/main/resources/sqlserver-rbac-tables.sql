@@ -1,15 +1,16 @@
 IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'rbac_role') AND type in (N'U'))
 CREATE TABLE rbac_role (
     id          INTEGER IDENTITY(1,1) PRIMARY KEY,
-    name        VARCHAR(255) NOT NULL UNIQUE,
-    description VARCHAR(1024)
+    name        NVARCHAR(255) NOT NULL,
+    description NVARCHAR(1024),
+    CONSTRAINT uq_rbac_role_name UNIQUE (name)
 )
 
 IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'rbac_role_permission') AND type in (N'U'))
 CREATE TABLE rbac_role_permission (
     id          INTEGER IDENTITY(1,1) PRIMARY KEY,
     role_id     INTEGER NOT NULL FOREIGN KEY REFERENCES rbac_role(id) ON DELETE CASCADE,
-    permission  VARCHAR(255) NOT NULL,
+    permission  NVARCHAR(255) NOT NULL,
     CONSTRAINT uq_role_perm UNIQUE (role_id, permission)
 )
 

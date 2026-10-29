@@ -60,7 +60,7 @@ def seeding(r, w, db, dbname, early_users):
     else:
         r.check("rbac's four tables exist", tables == 4, f"found {tables}")
         version = db.schema_version(dbname)
-        r.check("schema_version is 2 in CONFIGURATION", version == 2, f"found {version}")
+        r.check("schema_version is 3 in CONFIGURATION", version == 3, f"found {version}")
     admin_role = b.admin_role(w.api)
     r.check("exactly one role carries the admin flag", admin_role is not None, str(b.roles(w.api)))
     if admin_role is None:
@@ -109,6 +109,18 @@ def role_crud(r, w, known_issue=None):
     r.check("a role can be deleted", status in (200, 204) and rid not in b.roles(a), f"HTTP {status}")
     status, _ = a.request("GET", f"{b.RBAC}/roles/{rid}")
     r.check("a deleted role is gone (404)", status == 404, f"HTTP {status}")
+
+
+def unicode_role_name(r, api, where=""):
+    """A role name with characters outside Latin-1 reads back intact, and a second role with it is refused. On
+    SQL Server this needs the NVARCHAR columns of schema step v3."""
+    name = "e2e Rôle ünïcödé 角色 v3"
+    rid = b.create_role(api, name, ["viewChannels"])
+    got = (b.roles(api).get(rid) or {}).get("name")
+    r.check(f"{where}a role name with characters outside Latin-1 reads back intact", got == name, repr(got))
+    status, _ = b.post_role(api, b.role_xml(name, ["viewChannels"]))
+    r.check(f"{where}a second role with that name is refused (409)", status == 409, f"HTTP {status} {api.reason}")
+    b.delete_role(api, rid)
 
 
 # ---------- the admin floor

@@ -35,6 +35,10 @@ import static com.diridium.rbac.RbacServletInterface.PLUGIN_NAME;
  *       {@code rbac_user_role}, {@code rbac_role_channel}.</li>
  *   <li><b>2</b> — Adds {@code is_admin BOOLEAN/NUMBER(1)/BIT} column to
  *       {@code rbac_role}.</li>
+ *   <li><b>3</b> — SQL Server only: {@code rbac_role.name}, {@code rbac_role.description}
+ *       and {@code rbac_role_permission.permission} become {@code NVARCHAR}. SQL Server's
+ *       {@code VARCHAR} holds only the column's code page, so other characters were saved
+ *       as {@code ?}; the other databases' {@code VARCHAR} already holds Unicode.</li>
  * </ul>
  *
  * <h3>Backfill</h3>
@@ -49,7 +53,7 @@ import static com.diridium.rbac.RbacServletInterface.PLUGIN_NAME;
 public class RbacMigrator extends Migrator {
 
     /** Bump when adding a new {@code applyVN} step. */
-    static final int LATEST_VERSION = 2;
+    static final int LATEST_VERSION = 3;
 
     /** CONFIGURATION property key holding the applied schema version. Shared with
      *  {@code RbacServicePlugin}'s second-layer check so both agree on the key. */
@@ -78,6 +82,9 @@ public class RbacMigrator extends Migrator {
         if (current < 2) {
             applyV2();
         }
+        if (current < 3) {
+            applyV3();
+        }
         writeSchemaVersion(LATEST_VERSION);
         log.info("RBAC schema at version {}", LATEST_VERSION);
     }
@@ -85,10 +92,11 @@ public class RbacMigrator extends Migrator {
     /**
      * Detects the actual schema version from {@link DatabaseMetaData} (table
      * + column existence) and writes it to the {@code schema_version}
-     * property if it differs from what's stored.
+     * property if the stored one describes a different schema.
      *
      * @return the detected current version (0 = fresh install, 1 = has
-     *         tables but no is_admin column, 2 = has both)
+     *         tables but no is_admin column, 2 = has both, 3 = also has the
+     *         SQL Server NVARCHAR columns and their unique constraints)
      */
     private int detectAndAlignSchemaVersion() throws MigrationException {
         int detected = detectFromState();
@@ -96,12 +104,21 @@ public class RbacMigrator extends Migrator {
         if (stored == null) {
             log.info("RBAC schema state detected as version {} (no stored version)", detected);
             writeSchemaVersion(detected);
-        } else if (stored != detected) {
+        } else if (!sameSchema(stored, detected)) {
             log.warn("RBAC schema stored version ({}) does not match actual state ({}); realigning",
                     stored, detected);
             writeSchemaVersion(detected);
         }
         return detected;
+    }
+
+    /**
+     * Whether two versions leave the same tables on this database. Outside SQL Server,
+     * v3 changes nothing, so a v2 stored by an earlier release matches a detected v3;
+     * the run records 3 when it finishes.
+     */
+    private boolean sameSchema(int a, int b) {
+        return a == b || (!"sqlserver".equals(getDatabaseType()) && Math.min(a, b) >= 2);
     }
 
     private int detectFromState() throws MigrationException {
@@ -129,7 +146,10 @@ public class RbacMigrator extends Migrator {
             if (!columnExists("rbac_role", "is_admin")) {
                 return 1;
             }
-            return 2;
+            if (!v3Complete()) {
+                return 2;
+            }
+            return 3;
         } catch (MigrationException e) {
             throw e; // already descriptive — do not double-wrap
         } catch (Exception e) {
@@ -156,6 +176,59 @@ public class RbacMigrator extends Migrator {
         } catch (Exception e) {
             throw new MigrationException("Failed to add is_admin column", e);
         }
+    }
+
+    /**
+     * Converts the SQL Server text columns to {@code NVARCHAR}. A unique constraint
+     * has to be dropped before its column can change type and added back after, and
+     * the one on {@code rbac_role.name} had a name SQL Server generated, so it is
+     * looked up and comes back as {@code uq_rbac_role_name}. Every step checks before
+     * it acts, so a run that stopped halfway finishes on the next startup.
+     */
+    private void applyV3() throws MigrationException {
+        try {
+            // Nothing to do outside SQL Server, or on a fresh install, whose create script is already NVARCHAR.
+            if (v3Complete()) {
+                return;
+            }
+            log.info("Applying RBAC schema v3 (SQL Server text columns to NVARCHAR)");
+            toNvarchar("rbac_role", "name", "NVARCHAR(255) NOT NULL", "uq_rbac_role_name", "name");
+            toNvarchar("rbac_role", "description", "NVARCHAR(1024) NULL", null, null);
+            toNvarchar("rbac_role_permission", "permission", "NVARCHAR(255) NOT NULL", "uq_role_perm", "role_id, permission");
+        } catch (Exception e) {
+            throw new MigrationException("Failed to convert RBAC text columns to NVARCHAR", e);
+        }
+    }
+
+    /**
+     * @param constraint        the unique constraint on the column, added back after the
+     *                          change, or {@code null} when the column has none
+     * @param constraintColumns that constraint's columns
+     */
+    private void toNvarchar(String table, String column, String type, String constraint, String constraintColumns)
+            throws Exception {
+        if (!"nvarchar".equalsIgnoreCase(columnType(table, column))) {
+            String existing = constraint == null ? null : uniqueIndexOn(table, column);
+            if (existing != null) {
+                executeStatement("ALTER TABLE " + table + " DROP CONSTRAINT [" + existing.replace("]", "]]") + "]");
+            }
+            executeStatement("ALTER TABLE " + table + " ALTER COLUMN " + column + " " + type);
+        }
+        if (constraint != null && uniqueIndexOn(table, column) == null) {
+            executeStatement("ALTER TABLE " + table + " ADD CONSTRAINT " + constraint + " UNIQUE (" + constraintColumns + ")");
+        }
+    }
+
+    /** Whether v3 is done: always on databases other than SQL Server, where it has nothing to do. */
+    private boolean v3Complete() throws Exception {
+        if (!"sqlserver".equals(getDatabaseType())) {
+            return true;
+        }
+        return "nvarchar".equalsIgnoreCase(columnType("rbac_role", "name"))
+                && "nvarchar".equalsIgnoreCase(columnType("rbac_role", "description"))
+                && "nvarchar".equalsIgnoreCase(columnType("rbac_role_permission", "permission"))
+                && uniqueIndexOn("rbac_role", "name") != null
+                && uniqueIndexOn("rbac_role_permission", "permission") != null;
     }
 
     // ========== Schema version persistence ==========
@@ -221,6 +294,43 @@ public class RbacMigrator extends Migrator {
             }
         }
         return false;
+    }
+
+    /**
+     * @return the column's database type name ({@code nvarchar}, {@code varchar}, ...),
+     *         or {@code null} if the column isn't found
+     */
+    private String columnType(String tableName, String columnName) throws Exception {
+        DatabaseMetaData meta = getConnection().getMetaData();
+        for (String tableCandidate : namingCandidates(tableName)) {
+            for (String columnCandidate : namingCandidates(columnName)) {
+                try (ResultSet rs = meta.getColumns(null, null, tableCandidate, columnCandidate)) {
+                    if (rs.next()) {
+                        return rs.getString("TYPE_NAME");
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * @return the name of a unique index covering the column, or {@code null}. SQL Server
+     *         backs each UNIQUE constraint with a unique index of the same name.
+     */
+    private String uniqueIndexOn(String tableName, String columnName) throws Exception {
+        DatabaseMetaData meta = getConnection().getMetaData();
+        for (String tableCandidate : namingCandidates(tableName)) {
+            try (ResultSet rs = meta.getIndexInfo(null, null, tableCandidate, true, false)) {
+                while (rs.next()) {
+                    String index = rs.getString("INDEX_NAME");
+                    if (index != null && columnName.equalsIgnoreCase(rs.getString("COLUMN_NAME"))) {
+                        return index;
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     private static List<String> namingCandidates(String name) {
