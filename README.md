@@ -20,6 +20,8 @@ Full documentation is in the [wiki](https://github.com/diridium-com/role-based-a
 
 **Oracle:** 1.1.2 does not work on an engine whose database is Oracle. The plugin fails to create its admin role on first startup, so after login the Administrator stops with `403 Missing permission: any (no role assigned)`, and creating a role fails with a `NumberFormatException`. Fixed in 1.1.3 ([#10](https://github.com/diridium-com/role-based-access-control/issues/10)). Use 1.1.3 or later on an Oracle-backed engine.
 
+**Swing Administrator task buttons:** In the desktop (Swing) Administrator, some task-pane buttons stay visible to users whose role doesn't allow them: the entries plugins add to the channel list and the channel editor, and the channel editor's own Debug Channel and Deploy Channel. The engine checks only a fixed set of buttons on those screens. Clicking one of these is refused by the server with a `Missing permission` message, and nothing runs. The web Administrator hides the channel editor's Debug Channel and Deploy Channel from those users ([#8](https://github.com/diridium-com/role-based-access-control/issues/8)).
+
 ## Prerequisites
 
 - JDK 17
