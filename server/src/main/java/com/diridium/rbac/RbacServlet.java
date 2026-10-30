@@ -18,8 +18,11 @@ import org.slf4j.LoggerFactory;
 
 import com.mirth.connect.client.core.ClientException;
 import com.mirth.connect.client.core.api.MirthApiException;
+import com.mirth.connect.model.Channel;
+import com.mirth.connect.model.PluginMetaData;
 import com.mirth.connect.server.api.MirthServlet;
 import com.mirth.connect.server.controllers.AuthorizationController;
+import com.mirth.connect.server.controllers.ChannelController;
 import com.mirth.connect.server.controllers.ConfigurationController;
 import com.mirth.connect.server.controllers.ControllerFactory;
 import com.mirth.connect.server.controllers.DefaultAuthorizationController;
@@ -30,6 +33,7 @@ public class RbacServlet extends MirthServlet implements RbacServletInterface {
 
     private final RbacRepository repo;
     private final RoleService roleService;
+    private final RoleTransferService transferService;
 
     /**
      * The engine instantiates one of these per REST request. Resolves
@@ -51,6 +55,7 @@ public class RbacServlet extends MirthServlet implements RbacServletInterface {
         if (!MigrationStatus.isOk()) {
             this.repo = null;
             this.roleService = null;
+            this.transferService = null;
             return;
         }
         this.repo = RbacRepository.getInstance();
@@ -65,6 +70,9 @@ public class RbacServlet extends MirthServlet implements RbacServletInterface {
         // the full catalog for any admin-role holder regardless of what is stored).
         AdminRoleGuard adminGuard = new AdminRoleGuard(repo, PermissionUtil::getAllCorePermissions);
         this.roleService = new RoleService(repo, adminGuard, auditLog, this::invalidateCache);
+        this.transferService = new RoleTransferService(repo, auditLog, this::invalidateCache,
+                this::getAllPermissions, RbacServlet::allChannelNames, RbacServlet::rbacVersion,
+                () -> ConfigurationController.getInstance().getServerVersion());
     }
 
     /**
@@ -171,6 +179,43 @@ public class RbacServlet extends MirthServlet implements RbacServletInterface {
             throw e;
         } catch (Exception e) {
             log.error("Failed to delete role {}", roleId, e);
+            throw new MirthApiException(e);
+        }
+    }
+
+    // ========== Export and Import ==========
+
+    /**
+     * {@inheritDoc}
+     * <p>Delegates to {@link RoleTransferService#export}.</p>
+     */
+    @Override
+    public String exportRoles(Set<Integer> roleIds) throws ClientException {
+        requireMigrationOk();
+        try {
+            return transferService.export(callerPermissions(), roleIds);
+        } catch (MirthApiException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Failed to export roles", e);
+            throw new MirthApiException(e);
+        }
+    }
+
+    /**
+     * {@inheritDoc}
+     * <p>Delegates to {@link RoleTransferService#importRoles}.</p>
+     */
+    @Override
+    public RoleImportResult importRoles(String file, boolean dryRun, boolean applyChannels, List<Integer> pick,
+            String planToken) throws ClientException {
+        requireMigrationOk();
+        try {
+            return transferService.importRoles(callerPermissions(), file, dryRun, applyChannels, pick, planToken);
+        } catch (MirthApiException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Failed to import roles", e);
             throw new MirthApiException(e);
         }
     }
@@ -311,6 +356,25 @@ public class RbacServlet extends MirthServlet implements RbacServletInterface {
             all.addAll(rbac.getExtensionPermissionNames());
         }
         return all;
+    }
+
+    private Set<String> callerPermissions() {
+        return roleService.effectivePermissions(getCurrentUserId(), this::getAllPermissions);
+    }
+
+    /** Every channel on the engine, id to name, whatever the caller can see. */
+    private static Map<String, String> allChannelNames() {
+        Map<String, String> names = new LinkedHashMap<>();
+        for (Channel channel : ChannelController.getInstance().getChannels(null)) {
+            names.put(channel.getId(), channel.getName());
+        }
+        return names;
+    }
+
+    private static String rbacVersion() {
+        PluginMetaData metaData = ControllerFactory.getFactory().createExtensionController()
+                .getPluginMetaData().get(PLUGIN_NAME);
+        return metaData != null && metaData.getPluginVersion() != null ? metaData.getPluginVersion() : "unknown";
     }
 
     private void invalidateCache() {

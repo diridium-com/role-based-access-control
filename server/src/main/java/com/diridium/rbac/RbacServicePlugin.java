@@ -3,6 +3,8 @@
 
 package com.diridium.rbac;
 
+import static com.diridium.rbac.RbacServletInterface.PERMISSION_EXPORT;
+import static com.diridium.rbac.RbacServletInterface.PERMISSION_IMPORT;
 import static com.diridium.rbac.RbacServletInterface.PERMISSION_MANAGE;
 import static com.diridium.rbac.RbacServletInterface.PERMISSION_VIEW;
 import static com.diridium.rbac.RbacServletInterface.PLUGIN_NAME;
@@ -32,9 +34,9 @@ import com.mirth.connect.server.controllers.ControllerFactory;
  * and {@link #stop} once on shutdown; everything else here exists to satisfy
  * the {@link ServicePlugin} contract.</p>
  *
- * <p>The two {@link ExtensionPermission} entries returned by
- * {@link #getExtensionPermissions()} appear in the engine's user-permissions
- * UI as "View Roles" and "Manage Roles" checkboxes; assigning them to a role
+ * <p>The four {@link ExtensionPermission} entries returned by
+ * {@link #getExtensionPermissions()} appear in the role editors as "View Roles",
+ * "Manage Roles", "Export Roles" and "Import Roles"; assigning them to a role
  * grants access to the corresponding subset of RBAC REST operations.</p>
  */
 public class RbacServicePlugin implements ServicePlugin {
@@ -201,7 +203,10 @@ public class RbacServicePlugin implements ServicePlugin {
      * intentionally not claimed: RBAC never serves them (it persists via its own
      * {@code /roles} REST calls), and claiming them collided with Data Pruner too.</p>
      *
-     * @return two-element array — view permission first, then manage permission
+     * <p>Export Roles and Import Roles each gate one operation; the servlet also
+     * requires View Roles for export and Manage Roles for import.</p>
+     *
+     * @return four entries: view, manage, export, import
      */
     @Override
     public ExtensionPermission[] getExtensionPermissions() {
@@ -221,6 +226,22 @@ public class RbacServicePlugin implements ServicePlugin {
                 new String[0]
         );
 
-        return new ExtensionPermission[] { viewPermission, managePermission };
+        ExtensionPermission exportPermission = new ExtensionPermission(
+                PLUGIN_NAME,
+                PERMISSION_EXPORT,
+                "Allows exporting roles to a file. Also needs View Roles.",
+                OperationUtil.getOperationNamesForPermission(PERMISSION_EXPORT, RbacServletInterface.class),
+                new String[0]
+        );
+
+        ExtensionPermission importPermission = new ExtensionPermission(
+                PLUGIN_NAME,
+                PERMISSION_IMPORT,
+                "Allows importing roles from a file. Also needs Manage Roles.",
+                OperationUtil.getOperationNamesForPermission(PERMISSION_IMPORT, RbacServletInterface.class),
+                new String[0]
+        );
+
+        return new ExtensionPermission[] { viewPermission, managePermission, exportPermission, importPermission };
     }
 }

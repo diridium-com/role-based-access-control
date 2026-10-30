@@ -9,12 +9,14 @@ import java.util.Set;
 
 import javax.ws.rs.Consumes;
 import javax.ws.rs.DELETE;
+import javax.ws.rs.DefaultValue;
 import javax.ws.rs.GET;
 import javax.ws.rs.POST;
 import javax.ws.rs.PUT;
 import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
 import javax.ws.rs.Produces;
+import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.MediaType;
 
 import com.mirth.connect.client.core.ClientException;
@@ -32,11 +34,14 @@ import io.swagger.v3.oas.annotations.tags.Tag;
  * and consumed by both the Swing administrator UI and any external client
  * that wants to manage RBAC programmatically.
  *
- * <p>Every operation here is gated by either {@link #PERMISSION_VIEW} or
- * {@link #PERMISSION_MANAGE}, declared as extension permissions by
+ * <p>Every operation here is gated by {@link #PERMISSION_VIEW},
+ * {@link #PERMISSION_MANAGE}, {@link #PERMISSION_EXPORT} or
+ * {@link #PERMISSION_IMPORT}, declared as extension permissions by
  * {@code RbacServicePlugin}. The engine applies the gate before our servlet
  * implementation method runs; admins (users assigned to a role flagged
- * {@code is_admin=true}) bypass the gate via {@code RbacAuthorizationController}.</p>
+ * {@code is_admin=true}) bypass the gate via {@code RbacAuthorizationController}.
+ * Export and import also check a second permission in the servlet (View Roles
+ * and Manage Roles), since an operation declares only one.</p>
  */
 @Path("/extensions/rbac")
 @Tag(name = "Role-Based Access Control")
@@ -52,6 +57,12 @@ public interface RbacServletInterface extends BaseServletInterface {
 
     /** Extension permission required for mutating operations (create/update/delete/assign). */
     String PERMISSION_MANAGE = "Manage Roles";
+
+    /** Extension permission required to export roles to a file (View Roles is also required). */
+    String PERMISSION_EXPORT = "Export Roles";
+
+    /** Extension permission required to import roles from a file (Manage Roles is also required). */
+    String PERMISSION_IMPORT = "Import Roles";
 
     // ========== Role CRUD ==========
 
@@ -129,6 +140,52 @@ public interface RbacServletInterface extends BaseServletInterface {
     @Operation(summary = "Deletes a role")
     @MirthOperation(name = "deleteRole", display = "Delete role", permission = PERMISSION_MANAGE, type = ExecuteType.SYNC)
     void deleteRole(@Param("roleId") @Parameter(description = "The ID of the role", required = true) @PathParam("roleId") int roleId) throws ClientException;
+
+    // ========== Export and Import ==========
+
+    /**
+     * Writes the chosen roles as a role export file (XML, format 1; see
+     * {@code docs/role-export-format.md}). The admin role is never exported.
+     * Requires View Roles as well as Export Roles.
+     *
+     * @param roleIds the roles to export; empty exports every role but the admin role
+     * @return the file's text
+     * @throws ClientException 400 if an id doesn't exist or is the admin role's,
+     *                         403 without View Roles
+     */
+    @GET
+    @Path("/roles/_export")
+    @Produces(MediaType.TEXT_PLAIN)
+    @Operation(summary = "Returns the chosen roles as a role export file")
+    @MirthOperation(name = "exportRoles", display = "Export roles", permission = PERMISSION_EXPORT, type = ExecuteType.ASYNC)
+    String exportRoles(@Param("roleIds") @Parameter(description = "The IDs of the roles to export. If absent, every role but the admin role is exported.") @QueryParam("roleId") Set<Integer> roleIds) throws ClientException;
+
+    /**
+     * Previews or applies a role export file. A dry run (the default) plans
+     * every role in the file and returns a token; the apply sends the same
+     * file, the token and the positions of the picked roles, and writes them
+     * in one transaction. Requires Manage Roles as well as Import Roles.
+     *
+     * @param file          the role export file's text
+     * @param dryRun        {@code true} to preview without writing
+     * @param applyChannels {@code true} to apply the file's channel restrictions
+     * @param pick          for an apply, the positions in the file (from 0) of the roles to write
+     * @param planToken     for an apply, the token from the preview
+     * @return the preview, or the outcome of the apply
+     * @throws ClientException 400 for a refused file or a bad pick, 403 without
+     *                         Manage Roles, 409 if the roles changed since the preview
+     */
+    @POST
+    @Path("/roles/_import")
+    @Consumes(MediaType.TEXT_PLAIN)
+    @Operation(summary = "Previews or applies a role export file")
+    @MirthOperation(name = "importRoles", display = "Import roles", permission = PERMISSION_IMPORT, type = ExecuteType.SYNC)
+    RoleImportResult importRoles(
+            @Param(value = "file", excludeFromAudit = true) @Parameter(description = "The role export file", required = true) String file,
+            @Param("dryRun") @Parameter(description = "Preview without writing") @QueryParam("dryRun") @DefaultValue("true") boolean dryRun,
+            @Param("applyChannels") @Parameter(description = "Apply the file's channel restrictions") @QueryParam("applyChannels") @DefaultValue("true") boolean applyChannels,
+            @Param("pick") @Parameter(description = "For an apply, the positions in the file of the roles to write") @QueryParam("pick") List<Integer> pick,
+            @Param("planToken") @Parameter(description = "For an apply, the token from the preview") @QueryParam("planToken") String planToken) throws ClientException;
 
     // ========== User-Role Assignment ==========
 

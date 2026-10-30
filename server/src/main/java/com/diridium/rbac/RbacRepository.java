@@ -230,6 +230,34 @@ public class RbacRepository {
     }
 
     /**
+     * Writes an import's picked roles in one transaction: all of them, or none if
+     * any statement fails. What is written is {@link RoleImportWriter}'s job; this
+     * method owns the session.
+     *
+     * @param writes the roles to create or overwrite, from {@link RoleImportPlanner}
+     * @throws RoleImportWriter.NameClash if a new role's name is taken, after which nothing was written
+     * @throws RbacRepositoryException on persistence failure, after which nothing was written
+     */
+    public void importRoles(List<RoleImportPlanner.PlannedRole> writes) {
+        SqlSession session = null;
+        try {
+            session = SqlConfig.getInstance().getSqlSessionManager().openSession(false);
+            new RoleImportWriter().write(session, writes);
+            session.commit();
+        } catch (RoleImportWriter.NameClash e) {
+            // The user's to fix, not a failure: closing the uncommitted session rolls it back.
+            throw e;
+        } catch (Exception e) {
+            log.error("Failed to import {} role(s); nothing was written", writes.size(), e);
+            throw new RbacRepositoryException(e);
+        } finally {
+            if (session != null) {
+                session.close();
+            }
+        }
+    }
+
+    /**
      * Looks up a role's id by its unique name. Used by the servlet for
      * duplicate-name conflict detection without loading every role.
      *
@@ -433,7 +461,7 @@ public class RbacRepository {
      * Replaces all permission grants for a role within the caller's transaction.
      * Caller owns commit/rollback.
      */
-    private void savePermissionsForRole(SqlSession session, int roleId, Set<String> permissions) {
+    static void savePermissionsForRole(SqlSession session, int roleId, Set<String> permissions) {
         session.delete(stmt("deletePermissionsForRole"), roleId);
 
         if (permissions != null && !permissions.isEmpty()) {
@@ -450,7 +478,7 @@ public class RbacRepository {
      * Replaces all channel restrictions for a role within the caller's transaction.
      * Caller owns commit/rollback.
      */
-    private void saveChannelIdsForRole(SqlSession session, int roleId, Set<String> channelIds) {
+    static void saveChannelIdsForRole(SqlSession session, int roleId, Set<String> channelIds) {
         session.delete(stmt("deleteChannelIdsForRole"), roleId);
 
         if (channelIds != null && !channelIds.isEmpty()) {

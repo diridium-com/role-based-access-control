@@ -47,3 +47,18 @@ The create script now uses `NVARCHAR`, as the engine's own SQL Server schema doe
 A column can't change type under a unique constraint, so v3 drops the constraint, alters the column and adds it back. The one on `rbac_role.name` had a name SQL Server generated; v3 looks it up and adds it back as `uq_rbac_role_name`. Each statement checks before it acts, so a run that stopped halfway finishes on the next startup. On the other databases v3 does nothing.
 
 The end-to-end suite expects `schema_version` 3. On SQL Server every upgrade scenario runs v3 and nothing else, and every upgrade checks that a role name with characters outside Latin-1 reads back intact and that a second role with it is refused.
+
+## 2026-10-30: role export and import on the server
+
+Roles can be exported to a file and imported on the same engine or another one (issue #39). The format, and what an import does with a file, are in [role-export-format.md](role-export-format.md).
+
+The work is on the server, behind two new permissions, Export Roles and Import Roles. The Administrators only upload, preview and confirm. That puts the permission checks where they can't be skipped, makes the import one transaction, and lets channel matching see every channel on the engine, not only the ones the importing user can see. An operation declares one permission, so the second each one needs is checked in the servlet: export also needs View Roles, because the file shows every role in it, and import also needs Manage Roles, so it can't write anything its user couldn't write by hand.
+
+The format declares its version, and reading it is strict: a file with an element, attribute or version this rbac doesn't know is refused whole, with the reason. The alternative, reading what it can, is how a newer file loses a field without anyone noticing. The parser refuses any DOCTYPE, so external entities and entity expansion never come into it, and XStream isn't used, so nothing in a file can name a Java type.
+
+An import is previewed, then applied with the roles the user picked and the token the preview returned. The apply plans the file again and is refused (409) if the token differs, so it writes exactly what the user saw. One thing no preview can see: two new names the database treats as one, such as "Café" and "Cafe" under MySQL's default collation, which ignores accents. The file's own check ignores case only, so before inserting each new role the apply asks the database, inside the transaction, whether the name is taken, and stops with the reason if it is. The admin role is never exported and never changed by an import. A restricted role whose channels are all missing on this engine is skipped rather than written with an empty channel list, which rbac reads as every channel.
+
+### Not covered
+
+- A database failure partway through an import, except on MySQL. There the end-to-end check of two names that differ only by an accent inserts the first role, stops at the second, and neither is left. On the other databases the rollback is tested with a mocked session.
+- The Swing and web Administrators' buttons for export and import come in a separate change.

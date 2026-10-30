@@ -72,6 +72,10 @@ What it covers, and what it leaves out, is in [docs/design-notes.md](docs/design
 
 Install the zip through the Administrator's Extensions view and restart OIE. On first startup the plugin creates its four `rbac_*` tables and seeds an admin role assigned to the initial admin user.
 
+## Export and import roles
+
+Roles can be written to a file and read back, on the same engine or another one, through `GET /api/extensions/rbac/roles/_export` and `POST /api/extensions/rbac/roles/_import`. Export needs the Export Roles and View Roles permissions; import needs Import Roles and Manage Roles. An import is previewed first, writes only the roles picked, in one transaction, and never changes the admin role. Applying the file's channel restrictions is a choice. The file format and the import rules are in [docs/role-export-format.md](docs/role-export-format.md).
+
 ## What RBAC enforces
 
 RBAC checks each request against the permission the engine, or the plugin that owns the operation, declares for it. An operation that declares no permission is allowed for any logged-in user who has a role, and the server logs a warning each time (`RBAC: allowing unknown operation ...`). OIE 4.7.0 has dozens of these, mostly helpers behind screens that are already gated, such as the database connectors' table lookup (`getTables`). Gating them belongs in the engine. RBAC reads the engine's permission declarations at startup, so once the engine declares one, RBAC enforces it with no plugin change.

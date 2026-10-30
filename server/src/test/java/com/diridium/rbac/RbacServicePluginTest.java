@@ -28,9 +28,24 @@ import org.mockito.Mockito;
 class RbacServicePluginTest {
 
     @Test
-    void getExtensionPermissions_returnsViewAndManage() {
+    void getExtensionPermissions_returnsViewManageExportImport() {
         ExtensionPermission[] perms = new RbacServicePlugin().getExtensionPermissions();
-        assertEquals(2, perms.length);
+        assertEquals(4, perms.length);
+        assertEquals(RbacServletInterface.PERMISSION_VIEW, perms[0].getDisplayName());
+        assertEquals(RbacServletInterface.PERMISSION_MANAGE, perms[1].getDisplayName());
+        assertEquals(RbacServletInterface.PERMISSION_EXPORT, perms[2].getDisplayName());
+        assertEquals(RbacServletInterface.PERMISSION_IMPORT, perms[3].getDisplayName());
+    }
+
+    @Test
+    void exportAndImportPermissions_eachGateExactlyTheirOperation() {
+        ExtensionPermission[] perms = new RbacServicePlugin().getExtensionPermissions();
+        assertEquals(java.util.List.of("exportRoles"), operationNames(perms[2]));
+        assertEquals(java.util.List.of("importRoles"), operationNames(perms[3]));
+        for (ExtensionPermission p : perms) {
+            assertEquals(RbacServletInterface.PLUGIN_NAME, p.getExtensionName());
+            assertTrue(taskNames(p).isEmpty(), p.getDisplayName() + " should declare no tasks");
+        }
     }
 
     @Test

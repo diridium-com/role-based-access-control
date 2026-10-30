@@ -4,6 +4,7 @@
 package com.diridium.rbac;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import com.mirth.connect.model.ServerEvent;
@@ -78,6 +79,22 @@ class RbacAuditLog {
             attributes.put("Role ID", String.valueOf(roleId));
         }
         attributes.put("Action", action);
+        dispatch(attributes);
+    }
+
+    /**
+     * Dispatches one audit event for an applied role import.
+     *
+     * @param created         names of the roles the import created
+     * @param overwritten     names of the existing roles it overwrote
+     * @param channelsApplied whether the file's channel restrictions were applied
+     */
+    void rolesImported(List<String> created, List<String> overwritten, boolean channelsApplied) {
+        Map<String, String> attributes = new LinkedHashMap<>();
+        attributes.put("Created", created.isEmpty() ? "(none)" : String.join(", ", created));
+        attributes.put("Overwritten", overwritten.isEmpty() ? "(none)" : String.join(", ", overwritten));
+        attributes.put("Channel restrictions", channelsApplied ? "Applied from the file" : "Not applied");
+        attributes.put("Action", "Imported");
         dispatch(attributes);
     }
 
