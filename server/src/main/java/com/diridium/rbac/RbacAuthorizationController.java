@@ -317,7 +317,7 @@ public class RbacAuthorizationController extends AuthorizationController {
      * @param reason human-readable denial reason, surfaced to the client
      * @return the exception to throw
      */
-    private static MirthApiException forbidden(String reason) {
+    static MirthApiException forbidden(String reason) {
         return new MirthApiException(Response.status(new Response.StatusType() {
             @Override
             public int getStatusCode() { return 403; }

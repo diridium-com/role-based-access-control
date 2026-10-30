@@ -6,8 +6,8 @@ Role-Based Access Control plugin for OIE/Mirth Connect 4.7.0 (1.1.4 is the last 
 ## Project Structure
 ```
 rbac/
-├── server/    # RbacAuthorizationController, RbacServicePlugin, RbacServlet, RbacRepository, RbacMigrator
-├── shared/    # RbacServletInterface (JAX-RS), Role model
+├── server/    # RbacAuthorizationController, RbacServicePlugin, RbacServlet, RbacRepository, RbacMigrator, RoleTransfer*/RoleImport* (export and import)
+├── shared/    # RbacServletInterface (JAX-RS), Role model, RoleImportResult/RoleImportRow
 ├── client/    # RbacClientPlugin, RbacSettingsPanel, RoleEditorDialog, SecureAuthorizationController
 ├── package/   # plugin.xml, sqlmap.xml, assembly.xml
 ├── e2e/       # real-engine end-to-end suite (run.py): the zip on the released engine, six databases, CI job `e2e`
@@ -58,7 +58,13 @@ Output: `package/target/rbac-1.2.0.zip`
 - Roles: GET/POST `/roles`, GET/PUT/DELETE `/roles/{roleId}`
 - Users: GET `/users/{userId}/role`, POST `/users/{userId}/role/{roleId}`, DELETE `/users/{userId}/role`
 - Permissions: GET `/permissions` (all available), GET `/my-permissions` (current user's granted permissions), GET `/permissions/extensions` (extension permission → publishing plugin, for the role editors' per-plugin headers), GET `/task-permissions` (extension task → permission, whitelisted for all users)
-- `@MirthOperation` annotations with `PERMISSION_VIEW = "View Roles"` and `PERMISSION_MANAGE = "Manage Roles"`
+- Export/import: GET `/roles/_export?roleId=` (the file, `text/plain`), POST `/roles/_import?dryRun=&applyChannels=&pick=&planToken=` (the file as a `text/plain` body; preview, then apply the picked roles in one transaction). Format and rules: `docs/role-export-format.md`
+- `@MirthOperation` annotations with `PERMISSION_VIEW = "View Roles"`, `PERMISSION_MANAGE = "Manage Roles"`, `PERMISSION_EXPORT = "Export Roles"` and `PERMISSION_IMPORT = "Import Roles"`. An operation declares one permission, so `RoleTransferService` checks the second: export also needs View Roles, import also needs Manage Roles
+
+### Role Export and Import
+- `RoleTransferFormat` writes and strictly reads the file (format 1; DOCTYPE refused; no XStream). Unknown elements, attributes or format versions refuse the whole file, so a newer file is never partly read
+- `RoleImportPlanner` (no database writes) decides each role's action and the plan token; `RoleImportWriter` runs the picked rows inside `RbacRepository.importRoles`'s single transaction
+- The apply re-plans and answers 409 if the token from the preview no longer matches. The admin role is never exported or changed; a restricted role with no channel found here is skipped, never written with an empty (= every channel) list
 
 ### XStream Serialization (CRITICAL)
 - Plugin DTOs MUST be whitelisted: `ObjectXMLSerializer.getInstance().allowTypes(emptyList, asList("com.diridium.rbac.**"), emptyList)`

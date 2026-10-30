@@ -5,6 +5,7 @@ package com.diridium.rbac;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 
@@ -60,5 +61,48 @@ class RoleSerializationTest {
         assertEquals(original.isAdmin(), restored.isAdmin());
         assertEquals(original.getPermissions(), restored.getPermissions());
         assertEquals(original.getChannelIds(), restored.getChannelIds());
+    }
+
+    @Test
+    void importResultSurvivesXStreamRoundTripUnderTheWildcard() {
+        // Returned by importRoles; its rows carry two nested enums, which the wildcard must cover too.
+        XStream xstream = new XStream(new DomDriver());
+        xstream.addPermission(new WildcardTypePermission(new String[] { WILDCARD }));
+
+        RoleImportRow row = new RoleImportRow();
+        row.setIndex(3);
+        row.setName("Lab");
+        row.setAction(RoleImportRow.Action.OVERWRITE);
+        row.setReason("note");
+        row.setDroppedPermissions(new ArrayList<>(Arrays.asList("Run Lab Reports")));
+        row.setUnmatchedChannels(new ArrayList<>(Arrays.asList("Gone (id-gone)")));
+        row.setMatchedChannelCount(2);
+        row.setChannels(RoleImportRow.Channels.KEPT);
+        RoleImportResult original = new RoleImportResult();
+        original.setImportable(true);
+        original.setFormatVersion("1");
+        original.setSourceRbacVersion("1.3.0");
+        original.setSourceEngineVersion("4.7.0");
+        original.setApplyChannels(true);
+        original.setPlanToken("abc");
+        original.setRows(new ArrayList<>(Arrays.asList(row)));
+
+        RoleImportResult restored = (RoleImportResult) xstream.fromXML(xstream.toXML(original));
+
+        assertEquals(original.isImportable(), restored.isImportable());
+        assertEquals(original.getFormatVersion(), restored.getFormatVersion());
+        assertEquals(original.getSourceRbacVersion(), restored.getSourceRbacVersion());
+        assertEquals(original.getSourceEngineVersion(), restored.getSourceEngineVersion());
+        assertEquals(original.isApplyChannels(), restored.isApplyChannels());
+        assertEquals(original.getPlanToken(), restored.getPlanToken());
+        RoleImportRow back = restored.getRows().get(0);
+        assertEquals(3, back.getIndex());
+        assertEquals("Lab", back.getName());
+        assertEquals(RoleImportRow.Action.OVERWRITE, back.getAction());
+        assertEquals("note", back.getReason());
+        assertEquals(row.getDroppedPermissions(), back.getDroppedPermissions());
+        assertEquals(row.getUnmatchedChannels(), back.getUnmatchedChannels());
+        assertEquals(2, back.getMatchedChannelCount());
+        assertEquals(RoleImportRow.Channels.KEPT, back.getChannels());
     }
 }

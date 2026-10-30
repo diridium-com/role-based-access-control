@@ -4,11 +4,13 @@
 package com.diridium.rbac;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 import java.lang.reflect.Method;
 
 import com.mirth.connect.client.core.api.MirthOperation;
+import com.mirth.connect.client.core.api.Param;
 
 import org.junit.jupiter.api.Test;
 
@@ -37,6 +39,29 @@ class RbacServletInterfacePermissionsTest {
         assertPermission("deleteRole", RbacServletInterface.PERMISSION_MANAGE, true);
         assertPermission("assignUserRole", RbacServletInterface.PERMISSION_MANAGE, true);
         assertPermission("removeUserRole", RbacServletInterface.PERMISSION_MANAGE, true);
+    }
+
+    @Test
+    void exportAndImport_requireTheirOwnPermissionsAndAreAudited() throws Exception {
+        assertPermission("exportRoles", RbacServletInterface.PERMISSION_EXPORT, true);
+        assertPermission("importRoles", RbacServletInterface.PERMISSION_IMPORT, true);
+    }
+
+    @Test
+    void importRoles_keepsTheFileOutOfTheAudit() {
+        for (Method method : RbacServletInterface.class.getDeclaredMethods()) {
+            if (!method.getName().equals("importRoles")) {
+                continue;
+            }
+            for (java.lang.reflect.Parameter parameter : method.getParameters()) {
+                Param param = parameter.getAnnotation(Param.class);
+                if (param != null && param.value().equals("file")) {
+                    assertTrue(param.excludeFromAudit(), "the file's text must not be written to the audit log");
+                    return;
+                }
+            }
+        }
+        fail("importRoles has no @Param(\"file\") parameter");
     }
 
     private void assertPermission(String methodName, String expectedPermission, boolean expectedAuditable) {

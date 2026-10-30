@@ -7,6 +7,7 @@ assignments, and Data Pruner. Standard library only."""
 import os
 import uuid
 import xml.etree.ElementTree as ET
+from xml.sax.saxutils import escape
 
 from oie import ApiError
 
@@ -147,6 +148,79 @@ def my_permissions(api):
     if status != 200:
         return status, None
     return status, {el.text for el in ET.fromstring(text).iter("string")}
+
+
+# ---------- role export and import
+
+def export_roles(api, role_ids=()):
+    """(status, text) of an export. The endpoint answers text/plain only; any other Accept gets HTTP 406."""
+    query = {"roleId": list(role_ids)} if role_ids else None
+    return api.request("GET", RBAC + "/roles/_export", query=query, accept="text/plain")
+
+
+def import_roles(api, text, dry_run=True, apply_channels=True, pick=(), token=None):
+    """(status, text) of an import preview (dry_run) or apply."""
+    query = {"dryRun": "true" if dry_run else "false", "applyChannels": "true" if apply_channels else "false"}
+    if pick:
+        query["pick"] = list(pick)
+    if token:
+        query["planToken"] = token
+    return api.request("POST", RBAC + "/roles/_import", text, content_type="text/plain", query=query)
+
+
+def parse_export(text):
+    """(root attributes, {role name: {permissions, restricted, channels: {id: name}}}) of an export file."""
+    root = ET.fromstring(text)
+    roles_by_name = {}
+    for el in root.findall("role"):
+        channels = el.find("channels")
+        roles_by_name[el.findtext("name")] = {
+            "permissions": {p.text for p in el.findall("permissions/permission")},
+            "restricted": channels.get("restricted") == "true",
+            "channels": {c.get("id"): c.get("name") for c in channels.findall("channel")},
+        }
+    return dict(root.attrib), roles_by_name
+
+
+def parse_import(text):
+    """An import result: importable, refusal, applied, token, and rows by name (action, reason, channels,
+    dropped permissions, unmatched channels)."""
+    root = ET.fromstring(text)
+    holder = root.find("rows")
+    rows = {}
+    for el in (holder if holder is not None else []):
+        rows[el.findtext("name")] = {
+            "index": int(el.findtext("index")),
+            "action": el.findtext("action"),
+            "reason": el.findtext("reason"),
+            "channels": el.findtext("channels"),
+            "dropped": [s.text for s in el.findall("droppedPermissions/string")],
+            "unmatched": [s.text for s in el.findall("unmatchedChannels/string")],
+        }
+    return {"importable": root.findtext("importable") == "true", "refusal": root.findtext("refusal"),
+            "applied": root.findtext("applied") == "true", "token": root.findtext("planToken"), "rows": rows}
+
+
+def role_file(roles, format_version="1"):
+    """A role export file written here rather than by rbac. roles: (name, permissions, channels), channels a
+    list of (id, name), or None for every channel."""
+    def attr(value):
+        return escape(value, {'"': "&quot;"})
+
+    out = [f'<rbacRoles formatVersion="{format_version}" rbacVersion="e2e" engineVersion="e2e">']
+    for name, permissions, channels in roles:
+        out.append(f"<role><name>{escape(name)}</name><description>rbac e2e</description><permissions>")
+        out += [f"<permission>{escape(p)}</permission>" for p in permissions]
+        out.append("</permissions>")
+        if channels is None:
+            out.append('<channels restricted="false"/>')
+        else:
+            out.append('<channels restricted="true">'
+                       + "".join(f'<channel id="{attr(cid)}" name="{attr(cname)}"/>' for cid, cname in channels)
+                       + "</channels>")
+        out.append("</role>")
+    out.append("</rbacRoles>")
+    return "".join(out)
 
 
 # ---------- channels: never deployed; the checks only list, read and remove them
