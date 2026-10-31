@@ -52,8 +52,8 @@ final class RoleImportWriter {
                 Integer taken = session.selectOne(stmt("getRoleIdByName"), role.getName());
                 if (taken != null && created.containsKey(taken)) {
                     throw new NameClash("The roles '" + created.get(taken) + "' and '" + role.getName()
-                            + "' in the file are the same role on this engine, whose database matches names without"
-                            + " regard to case or accents. Rename one of them in the file.", false);
+                            + "' in the file are the same role on this engine, whose database holds them as one"
+                            + " name. Rename one of them in the file.", false);
                 }
                 if (taken != null) {
                     throw new NameClash("The roles changed since the preview. Preview the import again.", true);

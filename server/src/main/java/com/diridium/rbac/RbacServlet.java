@@ -193,7 +193,7 @@ public class RbacServlet extends MirthServlet implements RbacServletInterface {
     public String exportRoles(Set<Integer> roleIds) throws ClientException {
         requireMigrationOk();
         try {
-            return transferService.export(callerPermissions(), roleIds);
+            return transferService.export(callerIsAdmin(), roleIds);
         } catch (MirthApiException e) {
             throw e;
         } catch (Exception e) {
@@ -211,7 +211,7 @@ public class RbacServlet extends MirthServlet implements RbacServletInterface {
             String planToken) throws ClientException {
         requireMigrationOk();
         try {
-            return transferService.importRoles(callerPermissions(), file, dryRun, applyChannels, pick, planToken);
+            return transferService.importRoles(callerIsAdmin(), file, dryRun, applyChannels, pick, planToken);
         } catch (MirthApiException e) {
             throw e;
         } catch (Exception e) {
@@ -358,11 +358,16 @@ public class RbacServlet extends MirthServlet implements RbacServletInterface {
         return all;
     }
 
-    private Set<String> callerPermissions() {
-        return roleService.effectivePermissions(getCurrentUserId(), this::getAllPermissions);
+    /** Whether the caller holds the admin role, which export and import need. */
+    private boolean callerIsAdmin() {
+        Role role = repo.getUserRole(getCurrentUserId());
+        return role != null && role.isAdmin();
     }
 
-    /** Every channel on the engine, id to name, whatever the caller can see. */
+    /**
+     * Every channel on the engine, id to name, whatever the caller can see. Only the
+     * admin role may export or import, and rbac filters no channels for it.
+     */
     private static Map<String, String> allChannelNames() {
         Map<String, String> names = new LinkedHashMap<>();
         for (Channel channel : ChannelController.getInstance().getChannels(null)) {

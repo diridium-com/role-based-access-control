@@ -106,8 +106,8 @@ class RoleImportWriterTest {
                 () -> new RoleImportWriter().write(session, List.of(
                         planned(null, "Café", Set.of(), Set.of(), true), planned(null, "Cafe", Set.of(), Set.of(), true))));
 
-        assertEquals("The roles 'Café' and 'Cafe' in the file are the same role on this engine, whose database matches"
-                + " names without regard to case or accents. Rename one of them in the file.", clash.getMessage());
+        assertEquals("The roles 'Café' and 'Cafe' in the file are the same role on this engine, whose database holds"
+                + " them as one name. Rename one of them in the file.", clash.getMessage());
         assertEquals(false, clash.changedSincePreview());
         verify(session, times(1)).insert(eq("Rbac.insertRole"), anyMap());
     }
@@ -192,7 +192,7 @@ class RoleImportWriterTest {
         role.setDescription("d");
         role.setPermissions(new LinkedHashSet<>(permissions));
         role.setChannelIds(new LinkedHashSet<>(channelIds));
-        return new PlannedRole(0, existingId, role, writeChannels);
+        return new PlannedRole(existingId, role, writeChannels);
     }
 
     @SuppressWarnings("unchecked")

@@ -69,6 +69,8 @@ class RoleImportPlannerTest {
         assertEquals(Set.of("viewChannels"), write.role().getPermissions());
         assertEquals(Set.of("id-lab"), write.role().getChannelIds());
         assertTrue(write.writeChannels());
+        assertTrue(row.getAddedPermissions().isEmpty() && row.getAddedChannels().isEmpty(),
+                "only an overwrite lists changes");
     }
 
     @Test
@@ -120,8 +122,61 @@ class RoleImportPlannerTest {
         roles.put(5, role(5, "Cafe", "d", Set.of(), Set.of()));
         Refusal refusal = assertThrows(Refusal.class, () -> plan(true,
                 fileRole("Café", List.of(), false), fileRole("Cafe", List.of(), false)));
-        assertTrue(refusal.getMessage().startsWith("The roles 'Café' and 'Cafe' in the file are the same role on"
-                + " this engine"), refusal.getMessage());
+        assertEquals("The roles 'Café' and 'Cafe' in the file are the same role on this engine, whose database holds"
+                + " them as one name. Rename one of them in the file.", refusal.getMessage());
+    }
+
+    @Test
+    void twoFileRolesThatDifferOnlyInCase_areTwoRoles_whereTheDatabaseHoldsTwo() throws Exception {
+        roles.put(5, role(5, "Lab", "d", Set.of(), Set.of()));
+        roles.put(6, role(6, "LAB", "d", Set.of(), Set.of()));
+        Plan plan = plan(true, fileRole("Lab", List.of(), false), fileRole("LAB", List.of(), false));
+        assertEquals(List.of(Action.UNCHANGED, Action.UNCHANGED),
+                plan.rows().stream().map(RoleImportRow::getAction).toList());
+    }
+
+    // ========== What an overwrite changes ==========
+
+    @Test
+    void anOverwrite_listsThePermissionsItAddsAndRemoves_andADescriptionChange() throws Exception {
+        roles.put(5, role(5, "Lab", "old", Set.of("viewMessages", "View Roles"), Set.of()));
+        RoleImportRow row = plan(true, fileRole("Lab", List.of("viewMessages", "viewChannels"), false)).rows().get(0);
+        assertEquals(Action.OVERWRITE, row.getAction());
+        assertEquals(List.of("viewChannels"), row.getAddedPermissions());
+        assertEquals(List.of("View Roles"), row.getRemovedPermissions());
+        assertTrue(row.isDescriptionChanged());
+        assertTrue(row.getAddedChannels().isEmpty() && row.getRemovedChannels().isEmpty());
+        assertNull(row.getReason());
+    }
+
+    @Test
+    void anOverwrite_listsTheChannelsItAddsAndRemoves_byName() throws Exception {
+        roles.put(5, role(5, "Lab", "d", Set.of(), Set.of("id-adt", "id-deleted-here")));
+        RoleImportRow row = plan(true, fileRole("Lab", List.of(), true,
+                new Channel("id-lab", "Lab In"), new Channel("id-adt", "ADT Out"))).rows().get(0);
+        assertEquals(Action.OVERWRITE, row.getAction());
+        assertEquals(List.of("Lab In"), row.getAddedChannels());
+        assertEquals(List.of("id-deleted-here"), row.getRemovedChannels(), "a channel deleted here has only its id");
+        assertFalse(row.isDescriptionChanged());
+        assertTrue(row.getAddedPermissions().isEmpty() && row.getRemovedPermissions().isEmpty());
+    }
+
+    @Test
+    void anOverwriteThatLetsARestrictedRoleSeeEveryChannel_saysSo() throws Exception {
+        roles.put(5, role(5, "Lab", "d", Set.of(), Set.of("id-lab", "id-adt")));
+        RoleImportRow row = plan(true, fileRole("Lab", List.of(), false)).rows().get(0);
+        assertEquals(Action.OVERWRITE, row.getAction());
+        assertEquals("Sees every channel after the import; here it is restricted to 2 channel(s).", row.getReason());
+        assertTrue(row.getRemovedChannels().isEmpty(), "every channel has no list to compare");
+    }
+
+    @Test
+    void anOverwriteThatRestrictsARoleSeeingEveryChannel_saysSo() throws Exception {
+        roles.put(5, role(5, "Lab", "d", Set.of(), Set.of()));
+        RoleImportRow row = plan(true, fileRole("Lab", List.of(), true, new Channel("id-lab", "Lab In"))).rows().get(0);
+        assertEquals(Action.OVERWRITE, row.getAction());
+        assertEquals("Restricted to 1 channel(s) after the import; here it sees every channel.", row.getReason());
+        assertTrue(row.getAddedChannels().isEmpty(), "every channel has no list to compare");
     }
 
     // ========== Permissions ==========
@@ -181,6 +236,8 @@ class RoleImportPlannerTest {
         assertEquals(Action.OVERWRITE, row.getAction());
         assertEquals(Channels.KEPT, row.getChannels());
         assertNull(row.getReason());
+        assertTrue(row.getAddedChannels().isEmpty() && row.getRemovedChannels().isEmpty(), "its channels don't change");
+        assertEquals(List.of("viewChannels"), row.getAddedPermissions());
         PlannedRole write = plan.writes().get(0);
         assertFalse(write.writeChannels());
         assertEquals(Set.of("id-adt"), write.role().getChannelIds());

@@ -4,6 +4,7 @@
 """The fresh scenario's checks, one function per feature. Each takes the Report and a World: the engine, the
 admin's session, the test users' sessions and ids, the roles and the channels the scenario made."""
 
+import time
 import types
 
 import rbac as b
@@ -256,9 +257,10 @@ def data_pruner(r, w):
 
 
 def export_import(r, w):
-    """Roles out to a file and back in: who may, what the file contains, the preview, only the picked roles written,
-    the channel choice, roles that can't come in, and refused files that write nothing."""
-    a, u, imp = w.api, w.users, w.users["importer"]
+    """Roles out to a file and back in: only the admin role may, what the file contains, the preview and what an
+    overwrite changes, only the picked roles written, the audit event, the channel choice, roles that can't come in,
+    refused files that write nothing, and names the database may hold as one."""
+    a, u = w.api, w.users
     t1, t2 = b.new_id(), b.new_id()
     for cid, name in ((t1, "rbac e2e T1"), (t2, "rbac e2e T2")):
         ok, detail = b.create_channel(a, cid, name)
@@ -269,25 +271,41 @@ def export_import(r, w):
     def by_name():
         return {role["name"]: role for role in b.roles(a).values()}
 
-    def refused(label, api, status, permission):
-        r.check(label, status == 403 and api.reason == missing(permission), f"HTTP {status} {api.reason!r}")
+    def refused(label, api, status, reason):
+        r.check(label, status == 403 and api.reason == reason, f"HTTP {status} {api.reason!r}")
 
     def preview(text, apply_channels=True, label="the preview"):
-        status, body = b.import_roles(imp, text, apply_channels=apply_channels)
-        r.check(f"import: {label} answers", status == 200, f"HTTP {status} {imp.reason!r}: {body[:200]}")
+        status, body = b.import_roles(a, text, apply_channels=apply_channels)
+        r.check(f"import: {label} answers", status == 200, f"HTTP {status} {a.reason!r}: {body[:200]}")
         return b.parse_import(body) if status == 200 else {"importable": False, "rows": {}, "token": None}
 
     def apply(text, plan, names, apply_channels=True):
         pick = [plan["rows"][n]["index"] for n in names if n in plan["rows"]]
-        return b.import_roles(imp, text, dry_run=False, apply_channels=apply_channels, pick=pick, token=plan["token"])
+        return b.import_roles(a, text, dry_run=False, apply_channels=apply_channels, pick=pick, token=plan["token"])
 
-    # Export: who may, and what the file contains.
-    refused("export: View Roles without Export Roles is refused", u["role-viewer"],
-            b.export_roles(u["role-viewer"])[0], "Export Roles")
-    refused("export: Export Roles without View Roles is refused", u["export-only"],
-            b.export_roles(u["export-only"])[0], "View Roles")
-    status, text = b.export_roles(u["exporter"], [restricted, unrestricted])
-    r.check("export: Export Roles with View Roles may export", status == 200, f"HTTP {status}: {text[:200]}")
+    def import_event(role_name):
+        """The newest audit event of an import that wrote role_name. The engine stores events from a queue, so
+        this waits for it."""
+        end = time.time() + 30
+        while True:
+            for event in b.plugin_events(a, "Role: " + role_name):
+                if event.get("Action") == "Imported":
+                    return event
+            if time.time() > end:
+                return None
+            time.sleep(1)
+
+    # Only the admin role may export or import. The engine's own check wants View Roles (export) or Manage Roles
+    # (import); past it, rbac refuses any role but the admin role, whatever its permissions.
+    export_admin, import_admin = "Exporting roles needs the admin role.", "Importing roles needs the admin role."
+    refused("export: a role without View Roles is refused", u["viewer"], b.export_roles(u["viewer"])[0],
+            missing("View Roles"))
+    refused("export: View Roles without the admin role is refused", u["role-viewer"],
+            b.export_roles(u["role-viewer"])[0], export_admin)
+    refused("export: every permission without the admin role is refused", u["every-permission"],
+            b.export_roles(u["every-permission"])[0], export_admin)
+    status, text = b.export_roles(a, [restricted, unrestricted])
+    r.check("export: the admin role may export", status == 200, f"HTTP {status}: {text[:200]}")
     header, exported = b.parse_export(text) if status == 200 else ({}, {})
     r.check("export: the file says format 1 and the rbac version that wrote it",
             header.get("formatVersion") == "1" and header.get("rbacVersion") == b.plugin_meta(a)[0], str(header))
@@ -306,11 +324,12 @@ def export_import(r, w):
     status, body = b.export_roles(a, [b.admin_role(a)["id"]])
     r.check("export: the admin role is refused (400)", status == 400 and "never exported" in body, f"HTTP {status}: {body}")
 
-    # Import: who may.
-    refused("import: Manage Roles without Import Roles is refused", u["role-manager"],
-            b.import_roles(u["role-manager"], text)[0], "Import Roles")
-    refused("import: Import Roles without Manage Roles is refused", u["import-only"],
-            b.import_roles(u["import-only"], text)[0], "Manage Roles")
+    refused("import: a role without Manage Roles is refused", u["viewer"], b.import_roles(u["viewer"], text)[0],
+            missing("Manage Roles"))
+    refused("import: Manage Roles without the admin role is refused, a preview included", u["role-manager"],
+            b.import_roles(u["role-manager"], text)[0], import_admin)
+    refused("import: every permission without the admin role is refused", u["every-permission"],
+            b.import_roles(u["every-permission"], text)[0], import_admin)
 
     # A round trip: delete both roles, preview, apply.
     for rid in (restricted, unrestricted):
@@ -330,21 +349,46 @@ def export_import(r, w):
     got = now.get("e2e transfer open", {})
     r.check("import: the unrestricted role comes back seeing every channel",
             got.get("permissions") == {"viewChannels"} and got.get("channelIds") == set(), str(got))
+    event = import_event("e2e transfer restricted")
+    r.check("import: the audit event names the roles created and what each was given",
+            event is not None
+            and event.get("Created") == "e2e transfer restricted, e2e transfer open"
+            and event.get("Role: e2e transfer restricted") == "Permissions: viewChannels, viewDashboard. Channels: "
+            + ", ".join(sorted([f"rbac e2e T1 ({t1})", f"rbac e2e T2 ({t2})"])) + "."
+            and event.get("Role: e2e transfer open") == "Permissions: viewChannels. Channels: every channel.",
+            str(event))
     again = preview(text, label="a second preview")
     r.check("import: a second preview finds both roles unchanged",
             {row["action"] for row in again["rows"].values()} == {"UNCHANGED"}, str(again["rows"]))
 
-    # Only the picked roles are written.
+    # What an overwrite changes, shown in the preview; then only the picked roles are written.
     picked = b.role_file([("e2e transfer open", ["viewChannels", "viewMessages"], None),
                           ("e2e transfer picked", ["viewChannels"], None)])
     plan = preview(picked)
-    r.check("import: a changed role is planned as an overwrite",
-            plan["rows"].get("e2e transfer open", {}).get("action") == "OVERWRITE", str(plan["rows"]))
+    row = plan["rows"].get("e2e transfer open", {})
+    r.check("import: a changed role is planned as an overwrite", row.get("action") == "OVERWRITE", str(plan["rows"]))
+    r.check("import: the overwrite lists the permission it adds, and nothing else changes",
+            row.get("added_permissions") == ["viewMessages"] and row.get("removed_permissions") == []
+            and row.get("description_changed") is False and row.get("added_channels") == []
+            and row.get("removed_channels") == [], str(row))
     status, _ = apply(picked, plan, ["e2e transfer picked"])
     now = by_name()
     r.check("import: only the picked role is written",
             status == 200 and "e2e transfer picked" in now
             and now["e2e transfer open"]["permissions"] == {"viewChannels"}, f"HTTP {status}")
+
+    narrower = b.role_file([("e2e transfer restricted", ["viewChannels", "viewDashboard"], [(t1, "rbac e2e T1")])])
+    row = preview(narrower, label="a preview that narrows a role's channels")["rows"].get("e2e transfer restricted", {})
+    r.check("import: an overwrite lists the channel it takes away, by name",
+            row.get("action") == "OVERWRITE" and row.get("removed_channels") == ["rbac e2e T2"]
+            and row.get("added_channels") == [] and row.get("added_permissions") == [], str(row))
+    wider = b.role_file([("e2e transfer restricted", ["viewChannels", "viewDashboard"], None)])
+    row = preview(wider, label="a preview that lets a restricted role see every channel")["rows"].get(
+        "e2e transfer restricted", {})
+    r.check("import: an overwrite that lets a restricted role see every channel says so",
+            row.get("action") == "OVERWRITE"
+            and row.get("reason") == "Sees every channel after the import; here it is restricted to 2 channel(s).",
+            str(row))
 
     # Channel restrictions not applied: an existing role keeps its own, a new one sees every channel.
     off = b.role_file([("e2e transfer restricted", ["viewChannels"], [(t1, "rbac e2e T1")]),
@@ -397,7 +441,7 @@ def export_import(r, w):
     for label, bad, reason in (("a newer format", newer, "This file is format 2"),
                                ("a DOCTYPE", doctype, "The file has a DOCTYPE."),
                                ("a damaged file", text[:len(text) // 2], "isn't well-formed XML")):
-        status, body = b.import_roles(imp, bad, dry_run=False, pick=[0], token="x")
+        status, body = b.import_roles(a, bad, dry_run=False, pick=[0], token="x")
         r.check(f"import: applying {label} is refused (400) with the reason", status == 400 and reason in body,
                 f"HTTP {status}: {body[:200]}")
     r.check("import: refused files write nothing", b.roles(a) == before)
@@ -412,9 +456,38 @@ def export_import(r, w):
             status == 409 and "Preview the import again" in body
             and by_name()["e2e transfer open"]["permissions"] == {"viewChannels"}, f"HTTP {status}: {body[:200]}")
 
-    # Two new names that differ only by an accent. The file compares names ignoring case only, so both are planned
-    # as new; a database whose names also ignore accents (MySQL's default collation) treats them as one name. There
-    # the apply stops on the second, says why, and writes neither. The NOTE says which happened.
+    # A name with characters outside Latin-1, out over HTTP and back in.
+    wide = "e2e transfer Rôle 角色"
+    wide_id = b.create_role(a, wide, ["viewChannels"])
+    status, wide_file = b.export_roles(a, [wide_id])
+    names = set(b.parse_export(wide_file)[1]) if status == 200 else set()
+    r.check("export: a name with characters outside Latin-1 comes out intact", names == {wide},
+            f"HTTP {status}: {names}")
+    b.delete_role(a, wide_id)
+    plan = preview(wide_file, label="a preview of a name with characters outside Latin-1")
+    status, body = apply(wide_file, plan, [wide])
+    r.check("import: a name with characters outside Latin-1 goes back in intact",
+            status == 200 and wide in by_name(), f"HTTP {status}: {body[:200]}; planned: {list(plan['rows'])}")
+
+    # Names that differ only in case. Postgres, Derby and Oracle hold "Case" and "CASE" as two roles; MySQL and
+    # SQL Server refuse the second (409). Either way an export of every role reads back, and both plan no change.
+    b.create_role(a, "e2e transfer Case", ["viewChannels"])
+    status, _ = b.post_role(a, b.role_xml("e2e transfer CASE", ["viewChannels"]))
+    both = status in (200, 201)
+    r.check("a role whose name differs from another only in case is created, or refused (409)",
+            both or status == 409, f"HTTP {status} {a.reason}")
+    r.note("a second role whose name differs only in case", "created" if both else f"HTTP {status}")
+    status, everything = b.export_roles(a)
+    plan = preview(everything, label="a preview of every role")
+    cases = {n: row["action"] for n, row in plan["rows"].items() if n.lower() == "e2e transfer case"}
+    want = {"e2e transfer Case": "UNCHANGED", "e2e transfer CASE": "UNCHANGED"} if both else {
+        "e2e transfer Case": "UNCHANGED"}
+    r.check("import: an export of every role reads back, names that differ only in case included, and plans no"
+            " change for them", plan["importable"] and cases == want, f"{plan.get('refusal')}: {cases}")
+
+    # Two new names that differ only by an accent. The file compares names exactly, so both are planned as new; a
+    # database whose names also ignore accents (MySQL's default collation) treats them as one name. There the apply
+    # stops on the second, says why, and writes neither. The NOTE says which happened.
     accents = ("e2e transfer Café", "e2e transfer Cafe")
     pair = b.role_file([(name, ["viewChannels"], None) for name in accents])
     plan = preview(pair, label="a preview of two names that differ only by an accent")
