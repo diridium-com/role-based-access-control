@@ -143,6 +143,33 @@ def remove_role(api, user_id):
     return api.request("DELETE", f"{RBAC}/users/{user_id}/role")
 
 
+def available_permissions(api):
+    """Every permission a role can be given on this engine."""
+    root = api.xml("GET", RBAC + "/permissions")
+    return {el.text for el in root.iter("string")}
+
+
+def plugin_events(api, attribute_search):
+    """rbac's audit events whose attributes contain attribute_search, newest first, each as {attribute: value}."""
+    status, text = api.request("GET", "/events", query={"name": PLUGIN_NAME, "attributeSearch": attribute_search})
+    if status != 200:
+        raise ApiError(f"GET /events -> HTTP {status} {api.reason}: {text[:200]}")
+    events = []
+    for el in ET.fromstring(text).iter("event"):
+        pairs = [[s.text for s in entry.findall("string")] for entry in el.findall("attributes/entry")]
+        events.append({pair[0]: pair[1] for pair in pairs if len(pair) == 2})
+    return events
+
+
+def authorization_events(api, name, user_id, outcome):
+    """How many of the engine's authorization audit events named like name (for an extension operation,
+    "<display name> invoked through <plugin>") one user has with the given outcome, SUCCESS or FAILURE."""
+    status, text = api.request("GET", "/events", query={"name": name, "userId": user_id, "outcome": outcome})
+    if status != 200:
+        raise ApiError(f"GET /events -> HTTP {status} {api.reason}: {text[:200]}")
+    return sum(1 for _ in ET.fromstring(text).iter("event"))
+
+
 def my_permissions(api):
     status, text = api.request("GET", RBAC + "/my-permissions")
     if status != 200:
@@ -184,7 +211,7 @@ def parse_export(text):
 
 def parse_import(text):
     """An import result: importable, refusal, applied, token, and rows by name (action, reason, channels,
-    dropped permissions, unmatched channels)."""
+    dropped permissions, unmatched channels, and what an overwrite changes)."""
     root = ET.fromstring(text)
     holder = root.find("rows")
     rows = {}
@@ -196,6 +223,11 @@ def parse_import(text):
             "channels": el.findtext("channels"),
             "dropped": [s.text for s in el.findall("droppedPermissions/string")],
             "unmatched": [s.text for s in el.findall("unmatchedChannels/string")],
+            "description_changed": el.findtext("descriptionChanged") == "true",
+            "added_permissions": [s.text for s in el.findall("addedPermissions/string")],
+            "removed_permissions": [s.text for s in el.findall("removedPermissions/string")],
+            "added_channels": [s.text for s in el.findall("addedChannels/string")],
+            "removed_channels": [s.text for s in el.findall("removedChannels/string")],
         }
     return {"importable": root.findtext("importable") == "true", "refusal": root.findtext("refusal"),
             "applied": root.findtext("applied") == "true", "token": root.findtext("planToken"), "rows": rows}

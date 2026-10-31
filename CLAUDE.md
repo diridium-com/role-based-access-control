@@ -59,12 +59,14 @@ Output: `package/target/rbac-1.2.0.zip`
 - Users: GET `/users/{userId}/role`, POST `/users/{userId}/role/{roleId}`, DELETE `/users/{userId}/role`
 - Permissions: GET `/permissions` (all available), GET `/my-permissions` (current user's granted permissions), GET `/permissions/extensions` (extension permission → publishing plugin, for the role editors' per-plugin headers), GET `/task-permissions` (extension task → permission, whitelisted for all users)
 - Export/import: GET `/roles/_export?roleId=` (the file, `text/plain`), POST `/roles/_import?dryRun=&applyChannels=&pick=&planToken=` (the file as a `text/plain` body; preview, then apply the picked roles in one transaction). Format and rules: `docs/role-export-format.md`
-- `@MirthOperation` annotations with `PERMISSION_VIEW = "View Roles"`, `PERMISSION_MANAGE = "Manage Roles"`, `PERMISSION_EXPORT = "Export Roles"` and `PERMISSION_IMPORT = "Import Roles"`. An operation declares one permission, so `RoleTransferService` checks the second: export also needs View Roles, import also needs Manage Roles
+- `@MirthOperation` annotations with `PERMISSION_VIEW = "View Roles"` and `PERMISSION_MANAGE = "Manage Roles"`. Export and import are admin-only: their operations are registered under View Roles and Manage Roles (so never unknown), `RbacAuthorizationController` refuses them to anyone without the admin role (`ADMIN_ONLY_OPERATIONS`, so the audit records a FAILURE, not a success), and `RoleTransferService` checks again
 
 ### Role Export and Import
 - `RoleTransferFormat` writes and strictly reads the file (format 1; DOCTYPE refused; no XStream). Unknown elements, attributes or format versions refuse the whole file, so a newer file is never partly read
 - `RoleImportPlanner` (no database writes) decides each role's action and the plan token; `RoleImportWriter` runs the picked rows inside `RbacRepository.importRoles`'s single transaction
 - The apply re-plans and answers 409 if the token from the preview no longer matches. The admin role is never exported or changed; a restricted role with no channel found here is skipped, never written with an empty (= every channel) list
+- An OVERWRITE row lists the permissions and channels added and removed and whether the description changes; a change between every channel and some channels is a note in its reason
+- The file reader compares role names exactly (Postgres, Derby and Oracle hold "Lab" and "LAB" as two roles). Names the database holds as one are caught by the planner (existing roles) and by `RoleImportWriter`'s in-transaction lookup (new roles)
 
 ### XStream Serialization (CRITICAL)
 - Plugin DTOs MUST be whitelisted: `ObjectXMLSerializer.getInstance().allowTypes(emptyList, asList("com.diridium.rbac.**"), emptyList)`
@@ -82,6 +84,7 @@ Output: `package/target/rbac-1.2.0.zip`
 - The admin role's retention floor is the **core** permission set, not core+extension. The seeder grants only core perms, and admin access is by the flag regardless of stored perms, so requiring extension perms just made the admin role uneditable.
 - `manageExtensions` is effectively an admin-equivalent grant: a holder can disable the RBAC extension, and on the next restart the engine reverts to the always-allow `DefaultAuthorizationController` (every user becomes admin). The role editor tags it with a warning tooltip; treat it as a privileged grant. This mirrors stock OIE (manageExtensions = install/enable/disable plugins = arbitrary code).
 - `Manage Roles` is for delegating user management, not a security boundary: a holder can give their own account any role, the admin role included (measured on OIE 4.7.0 with rbac 1.2.0). Both role editors tag it with a warning tooltip, like `manageExtensions`.
+- Role export and import are admin-only, rbac's only operations that are (decided 2026-10-31, before 1.3.0 shipped). Importing is admin-level power anyway (see Manage Roles above), and the admin role sees every channel, so an export can name each one. Separate Export Roles and Import Roles permissions were built first and removed before release; adding a grantable permission later is additive, removing a shipped one is not
 - No role assigned = deny all (server-side), fail-closed (client-side)
 - Unknown operations = allow (server-side fallback for login, infrastructure); `@DontCheckAuthorized` reads instead return `false` to degrade gracefully (see `DEGRADABLE_OPERATIONS`)
 - VIEW_SETTINGS intentionally unmapped in client — always shown; individual settings tabs gated by group-specific permissions

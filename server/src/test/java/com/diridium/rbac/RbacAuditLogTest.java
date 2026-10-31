@@ -8,7 +8,10 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import com.mirth.connect.model.ServerEvent;
 import com.mirth.connect.model.ServerEvent.Level;
@@ -80,6 +83,35 @@ class RbacAuditLogTest {
     void role_actionUpdated() {
         auditLog.role("Updated", "MyRole");
         assertEquals("Updated", capture().getAttributes().get("Action"));
+    }
+
+    @Test
+    void rolesImported_recordsEachRolesPermissionsAndChannels() {
+        RoleImportPlanner.PlannedRole created = planned(null, "Lab", Set.of("viewMessages", "viewChannels"),
+                Set.of("id-lab", "id-gone"), true);
+        RoleImportPlanner.PlannedRole everywhere = planned(5, "Billing", Set.of(), Set.of(), true);
+        RoleImportPlanner.PlannedRole kept = planned(6, "Front desk", Set.of("viewDashboard"), Set.of("id-lab"), false);
+
+        auditLog.rolesImported(List.of(created, everywhere, kept), Map.of("id-lab", "Lab In"), true);
+
+        Map<String, String> attrs = capture().getAttributes();
+        assertEquals("Lab", attrs.get("Created"));
+        assertEquals("Billing, Front desk", attrs.get("Overwritten"));
+        assertEquals("Applied from the file", attrs.get("Channel restrictions"));
+        assertEquals("Permissions: viewChannels, viewMessages. Channels: Lab In (id-lab), id-gone.",
+                attrs.get("Role: Lab"), "a channel with no name here has only its id");
+        assertEquals("Permissions: (none). Channels: every channel.", attrs.get("Role: Billing"));
+        assertEquals("Permissions: viewDashboard. Channels: unchanged.", attrs.get("Role: Front desk"));
+        assertEquals("Imported", attrs.get("Action"));
+    }
+
+    private static RoleImportPlanner.PlannedRole planned(Integer existingId, String name, Set<String> permissions,
+            Set<String> channelIds, boolean writeChannels) {
+        Role role = new Role();
+        role.setName(name);
+        role.setPermissions(new HashSet<>(permissions));
+        role.setChannelIds(new HashSet<>(channelIds));
+        return new RoleImportPlanner.PlannedRole(existingId, role, writeChannels);
     }
 
     private ServerEvent capture() {

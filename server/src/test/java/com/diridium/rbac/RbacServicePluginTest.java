@@ -28,24 +28,9 @@ import org.mockito.Mockito;
 class RbacServicePluginTest {
 
     @Test
-    void getExtensionPermissions_returnsViewManageExportImport() {
+    void getExtensionPermissions_returnsViewAndManage() {
         ExtensionPermission[] perms = new RbacServicePlugin().getExtensionPermissions();
-        assertEquals(4, perms.length);
-        assertEquals(RbacServletInterface.PERMISSION_VIEW, perms[0].getDisplayName());
-        assertEquals(RbacServletInterface.PERMISSION_MANAGE, perms[1].getDisplayName());
-        assertEquals(RbacServletInterface.PERMISSION_EXPORT, perms[2].getDisplayName());
-        assertEquals(RbacServletInterface.PERMISSION_IMPORT, perms[3].getDisplayName());
-    }
-
-    @Test
-    void exportAndImportPermissions_eachGateExactlyTheirOperation() {
-        ExtensionPermission[] perms = new RbacServicePlugin().getExtensionPermissions();
-        assertEquals(java.util.List.of("exportRoles"), operationNames(perms[2]));
-        assertEquals(java.util.List.of("importRoles"), operationNames(perms[3]));
-        for (ExtensionPermission p : perms) {
-            assertEquals(RbacServletInterface.PLUGIN_NAME, p.getExtensionName());
-            assertTrue(taskNames(p).isEmpty(), p.getDisplayName() + " should declare no tasks");
-        }
+        assertEquals(2, perms.length);
     }
 
     @Test
@@ -93,6 +78,14 @@ class RbacServicePluginTest {
     @Test
     void managePermission_declaresNoTasks() {
         assertTrue(taskNames(managePermission()).isEmpty());
+    }
+
+    @Test
+    void exportAndImport_areRegisteredUnderViewAndManage() {
+        // Registered, so rbac's allow-unknown fallback never reaches them; the servlet
+        // also requires the admin role.
+        assertTrue(operationNames(viewPermission()).contains("exportRoles"));
+        assertTrue(operationNames(managePermission()).contains("importRoles"));
     }
 
     @Test

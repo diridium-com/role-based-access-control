@@ -143,15 +143,11 @@ def fresh(r, engine, db, dbname, new_zip, **_):
         "role-manager": b.create_role(api, "e2e manage roles", ["View Roles", "Manage Roles"]),
         "pruner-view": b.create_role(api, "e2e Data Pruner view", ["View Settings"]),
         "pruner-all": b.create_role(api, "e2e Data Pruner view and start", ["View Settings", "Start / Stop"]),
-        "exporter": b.create_role(api, "e2e export roles", ["Export Roles", "View Roles"]),
-        "export-only": b.create_role(api, "e2e export roles only", ["Export Roles"]),
-        "importer": b.create_role(api, "e2e import roles", ["Import Roles", "Manage Roles"]),
-        "import-only": b.create_role(api, "e2e import roles only", ["Import Roles"]),
+        "every-permission": b.create_role(api, "e2e every permission", sorted(b.available_permissions(api))),
     }
     for key, uid in early.items():
         k.add_user(w, key, uid=uid)
-    for key in ("viewer", "channel-a", "role-viewer", "role-manager", "pruner-view", "pruner-all", "exporter",
-                "export-only", "importer", "import-only"):
+    for key in ("viewer", "channel-a", "role-viewer", "role-manager", "pruner-view", "pruner-all", "every-permission"):
         k.add_user(w, key, key)
     k.add_user(w, "no-role")
 

@@ -16,6 +16,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -30,14 +31,13 @@ import com.diridium.rbac.RoleImportRow.Action;
 import com.mirth.connect.client.core.api.MirthApiException;
 
 /**
- * Tests {@link RoleTransferService}: the second permission each operation needs,
- * what an export holds, and the preview-then-apply exchange of an import.
+ * Tests {@link RoleTransferService}: only the admin role may export or import, what
+ * an export holds, and the preview-then-apply exchange of an import.
  */
 class RoleTransferServiceTest {
 
     private static final Set<String> CATALOG = Set.of("viewChannels", "viewMessages");
-    private static final Set<String> EXPORTER = Set.of("Export Roles", "View Roles");
-    private static final Set<String> IMPORTER = Set.of("Import Roles", "Manage Roles");
+    private static final boolean ADMIN = true;
 
     private RbacRepository repo;
     private RbacAuditLog auditLog;
@@ -70,13 +70,14 @@ class RoleTransferServiceTest {
     // ========== Export ==========
 
     @Test
-    void export_needsViewRolesToo() {
-        assertForbidden(() -> service.export(Set.of("Export Roles"), Set.of()), "Missing permission: View Roles");
+    void export_needsTheAdminRole() {
+        assertForbidden(() -> service.export(false, Set.of()), "Exporting roles needs the admin role.");
+        verify(repo, never()).getAllRoles();
     }
 
     @Test
     void export_withNoIds_writesEveryRoleButTheAdminRole() throws Exception {
-        RoleTransferFormat.ExportFile file = RoleTransferFormat.parse(service.export(EXPORTER, Set.of()));
+        RoleTransferFormat.ExportFile file = RoleTransferFormat.parse(service.export(ADMIN, Set.of()));
         assertEquals("1.3.0", file.rbacVersion());
         assertEquals("4.7.0", file.engineVersion());
         assertEquals(List.of("Lab", "Everyone"), file.roles().stream().map(RoleTransferFormat.ExportedRole::name).toList());
@@ -90,15 +91,23 @@ class RoleTransferServiceTest {
 
     @Test
     void export_withIds_writesOnlyThoseRoles() throws Exception {
-        RoleTransferFormat.ExportFile file = RoleTransferFormat.parse(service.export(EXPORTER, Set.of(6)));
+        RoleTransferFormat.ExportFile file = RoleTransferFormat.parse(service.export(ADMIN, Set.of(6)));
         assertEquals(1, file.roles().size());
         assertEquals("Everyone", file.roles().get(0).name());
     }
 
     @Test
     void export_refusesAnUnknownIdOrTheAdminRole() {
-        assertStatus(400, "There's no role with id 9.", () -> service.export(EXPORTER, Set.of(5, 9)));
-        assertStatus(400, "The admin role is never exported.", () -> service.export(EXPORTER, Set.of(1)));
+        assertStatus(400, "There's no role with id 9.", () -> service.export(ADMIN, Set.of(5, 9)));
+        assertStatus(400, "The admin role is never exported.", () -> service.export(ADMIN, Set.of(1)));
+    }
+
+    @Test
+    void export_refusesAnIdWithNoValue_ratherThanExportingEveryRole() {
+        assertStatus(400, "A roleId has no value.",
+                () -> service.export(ADMIN, new HashSet<>(Arrays.asList(6, null))));
+        assertStatus(400, "A roleId has no value.",
+                () -> service.export(ADMIN, new HashSet<>(Arrays.asList((Integer) null))));
     }
 
     @Test
@@ -107,21 +116,22 @@ class RoleTransferServiceTest {
         admin.setAdmin(true);
         when(repo.getAllRoles()).thenReturn(List.of(admin));
         assertStatus(400, "There are no roles to export. The admin role is never exported.",
-                () -> service.export(EXPORTER, Set.of()));
+                () -> service.export(ADMIN, Set.of()));
     }
 
     // ========== Import: preview ==========
 
     @Test
-    void import_needsManageRolesToo() {
-        assertForbidden(() -> service.importRoles(Set.of("Import Roles"), file(), true, true, null, null),
-                "Missing permission: Manage Roles");
+    void import_needsTheAdminRole_evenForAPreview() {
+        assertForbidden(() -> service.importRoles(false, file(), true, true, null, null),
+                "Importing roles needs the admin role.");
+        verify(repo, never()).findRoleIdByName(any());
         verify(repo, never()).importRoles(any());
     }
 
     @Test
     void preview_plansEveryRole_andWritesNothing() {
-        RoleImportResult result = service.importRoles(IMPORTER, file(), true, true, null, null);
+        RoleImportResult result = service.importRoles(ADMIN, file(), true, true, null, null);
         assertTrue(result.isImportable());
         assertFalse(result.isApplied());
         assertEquals("1", result.getFormatVersion());
@@ -135,7 +145,7 @@ class RoleTransferServiceTest {
 
     @Test
     void preview_ofARefusedFile_saysWhy() {
-        RoleImportResult result = service.importRoles(IMPORTER, "<rbacRoles formatVersion=\"2\" rbacVersion=\"1.4.0\"/>",
+        RoleImportResult result = service.importRoles(ADMIN, "<rbacRoles formatVersion=\"2\" rbacVersion=\"1.4.0\"/>",
                 true, true, null, null);
         assertFalse(result.isImportable());
         assertEquals("This file is format 2, written by rbac 1.4.0. This rbac reads format 1.", result.getRefusal());
@@ -143,13 +153,39 @@ class RoleTransferServiceTest {
         assertNull(result.getPlanToken());
     }
 
+    @Test
+    void preview_ofTwoRolesThatAreOneRoleHere_isNotImportable_andItsApplyIs400() {
+        // The planner's refusal, not the file reader's: the database holds both names as one role.
+        when(repo.findRoleIdByName("Lab")).thenReturn(5);
+        when(repo.findRoleIdByName("LAB")).thenReturn(5);
+        String pair = "<rbacRoles formatVersion=\"1\" rbacVersion=\"1.3.0\" engineVersion=\"4.7.0\">"
+                + "<role><name>Lab</name><permissions/><channels restricted=\"false\"/></role>"
+                + "<role><name>LAB</name><permissions/><channels restricted=\"false\"/></role></rbacRoles>";
+        String reason = "The roles 'Lab' and 'LAB' in the file are the same role on this engine, whose database"
+                + " holds them as one name. Rename one of them in the file.";
+
+        RoleImportResult result = service.importRoles(ADMIN, pair, true, true, null, null);
+
+        assertFalse(result.isImportable());
+        assertEquals(reason, result.getRefusal());
+        assertStatus(400, reason, () -> service.importRoles(ADMIN, pair, false, true, List.of(0), "t"));
+        verify(repo, never()).importRoles(any());
+    }
+
     // ========== Import: apply ==========
 
     @Test
-    void apply_writesThePickedRoles_thenClearsTheCacheAndAudits() {
-        String token = service.importRoles(IMPORTER, file(), true, true, null, null).getPlanToken();
+    void apply_needsTheAdminRole() {
+        assertForbidden(() -> service.importRoles(false, file(), false, true, List.of(0), "t"),
+                "Importing roles needs the admin role.");
+        verify(repo, never()).importRoles(any());
+    }
 
-        RoleImportResult result = service.importRoles(IMPORTER, file(), false, true, List.of(0), token);
+    @Test
+    void apply_writesThePickedRoles_thenClearsTheCacheAndAudits() {
+        String token = service.importRoles(ADMIN, file(), true, true, null, null).getPlanToken();
+
+        RoleImportResult result = service.importRoles(ADMIN, file(), false, true, List.of(0), token);
 
         assertTrue(result.isApplied());
         assertEquals(List.of("New"), result.getRows().stream().map(RoleImportRow::getName).toList());
@@ -158,45 +194,55 @@ class RoleTransferServiceTest {
         assertEquals(1, writes.getValue().size());
         assertEquals("New", writes.getValue().get(0).role().getName());
         verify(cacheInvalidator).run();
-        verify(auditLog).rolesImported(List.of("New"), List.of(), true);
+        verify(auditLog).rolesImported(writes.getValue(), channels, true);
+    }
+
+    @Test
+    void apply_ignoresANullPick() {
+        String token = service.importRoles(ADMIN, file(), true, true, null, null).getPlanToken();
+
+        RoleImportResult result = service.importRoles(ADMIN, file(), false, true, Arrays.asList(null, 0), token);
+
+        assertEquals(List.of("New"), result.getRows().stream().map(RoleImportRow::getName).toList());
+        verify(repo).importRoles(any());
     }
 
     @Test
     void apply_refusesAStaleToken_withoutWriting() {
-        String token = service.importRoles(IMPORTER, file(), true, true, null, null).getPlanToken();
+        String token = service.importRoles(ADMIN, file(), true, true, null, null).getPlanToken();
         when(repo.findRoleIdByName("New")).thenReturn(6); // someone made a role called New since the preview
 
         assertStatus(409, "The roles changed since the preview. Preview the import again.",
-                () -> service.importRoles(IMPORTER, file(), false, true, List.of(0), token));
+                () -> service.importRoles(ADMIN, file(), false, true, List.of(0), token));
         verify(repo, never()).importRoles(any());
         verify(auditLog, never()).rolesImported(any(), any(), anyBoolean());
     }
 
     @Test
     void apply_refusesAMissingTokenOrABadPick_withoutWriting() {
-        String token = service.importRoles(IMPORTER, file(), true, true, null, null).getPlanToken();
+        String token = service.importRoles(ADMIN, file(), true, true, null, null).getPlanToken();
         assertStatus(400, "Preview the import first, and send the preview's planToken with the apply.",
-                () -> service.importRoles(IMPORTER, file(), false, true, List.of(0), null));
+                () -> service.importRoles(ADMIN, file(), false, true, List.of(0), null));
         assertStatus(400, "No roles were picked.",
-                () -> service.importRoles(IMPORTER, file(), false, true, List.of(), token));
+                () -> service.importRoles(ADMIN, file(), false, true, List.of(), token));
         assertStatus(400, "There's no role at position 7 in the file.",
-                () -> service.importRoles(IMPORTER, file(), false, true, List.of(0, 7), token));
+                () -> service.importRoles(ADMIN, file(), false, true, List.of(0, 7), token));
         assertStatus(400, "The role 'Administrator' can't be imported: This is the name of this engine's admin role,"
                 + " which an import never changes.",
-                () -> service.importRoles(IMPORTER, file(), false, true, List.of(1), token));
+                () -> service.importRoles(ADMIN, file(), false, true, List.of(1), token));
         verify(repo, never()).importRoles(any());
     }
 
     @Test
     void apply_thatTheDatabaseRefusesForAName_saysWhy_andChangesNothing() {
-        String token = service.importRoles(IMPORTER, file(), true, true, null, null).getPlanToken();
+        String token = service.importRoles(ADMIN, file(), true, true, null, null).getPlanToken();
         doThrow(new RoleImportWriter.NameClash("Rename one of them in the file.", false)).when(repo).importRoles(any());
         assertStatus(400, "Rename one of them in the file.",
-                () -> service.importRoles(IMPORTER, file(), false, true, List.of(0), token));
+                () -> service.importRoles(ADMIN, file(), false, true, List.of(0), token));
 
         doThrow(new RoleImportWriter.NameClash("Preview the import again.", true)).when(repo).importRoles(any());
         assertStatus(409, "Preview the import again.",
-                () -> service.importRoles(IMPORTER, file(), false, true, List.of(0), token));
+                () -> service.importRoles(ADMIN, file(), false, true, List.of(0), token));
 
         verify(cacheInvalidator, never()).run();
         verify(auditLog, never()).rolesImported(any(), any(), anyBoolean());
@@ -204,7 +250,7 @@ class RoleTransferServiceTest {
 
     @Test
     void apply_ofARefusedFile_is400() {
-        assertStatus(400, "The file is empty.", () -> service.importRoles(IMPORTER, "", false, true, List.of(0), "t"));
+        assertStatus(400, "The file is empty.", () -> service.importRoles(ADMIN, "", false, true, List.of(0), "t"));
     }
 
     // ========== Helpers ==========

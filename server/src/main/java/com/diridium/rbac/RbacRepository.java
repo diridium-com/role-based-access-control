@@ -238,7 +238,7 @@ public class RbacRepository {
      * @throws RoleImportWriter.NameClash if a new role's name is taken, after which nothing was written
      * @throws RbacRepositoryException on persistence failure, after which nothing was written
      */
-    public void importRoles(List<RoleImportPlanner.PlannedRole> writes) {
+    void importRoles(List<RoleImportPlanner.PlannedRole> writes) {
         SqlSession session = null;
         try {
             session = SqlConfig.getInstance().getSqlSessionManager().openSession(false);

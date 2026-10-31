@@ -78,6 +78,11 @@ class RoleSerializationTest {
         row.setUnmatchedChannels(new ArrayList<>(Arrays.asList("Gone (id-gone)")));
         row.setMatchedChannelCount(2);
         row.setChannels(RoleImportRow.Channels.KEPT);
+        row.setDescriptionChanged(true);
+        row.setAddedPermissions(new ArrayList<>(Arrays.asList("viewChannels")));
+        row.setRemovedPermissions(new ArrayList<>(Arrays.asList("viewMessages")));
+        row.setAddedChannels(new ArrayList<>(Arrays.asList("Lab In")));
+        row.setRemovedChannels(new ArrayList<>(Arrays.asList("ADT Out")));
         RoleImportResult original = new RoleImportResult();
         original.setImportable(true);
         original.setFormatVersion("1");
@@ -104,5 +109,10 @@ class RoleSerializationTest {
         assertEquals(row.getUnmatchedChannels(), back.getUnmatchedChannels());
         assertEquals(2, back.getMatchedChannelCount());
         assertEquals(RoleImportRow.Channels.KEPT, back.getChannels());
+        assertEquals(true, back.isDescriptionChanged());
+        assertEquals(row.getAddedPermissions(), back.getAddedPermissions());
+        assertEquals(row.getRemovedPermissions(), back.getRemovedPermissions());
+        assertEquals(row.getAddedChannels(), back.getAddedChannels());
+        assertEquals(row.getRemovedChannels(), back.getRemovedChannels());
     }
 }

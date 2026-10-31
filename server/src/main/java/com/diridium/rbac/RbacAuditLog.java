@@ -3,9 +3,12 @@
 
 package com.diridium.rbac;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeSet;
 
 import com.mirth.connect.model.ServerEvent;
 import com.mirth.connect.model.ServerEvent.Level;
@@ -83,19 +86,53 @@ class RbacAuditLog {
     }
 
     /**
-     * Dispatches one audit event for an applied role import.
+     * Dispatches one audit event for an applied role import: the roles it created and
+     * overwrote, and for each one, the permissions and channels it was given. The file
+     * itself is kept out of the engine's own audit of the call, so this is the record of
+     * what the import wrote, as the event for a role created by hand records the role.
      *
-     * @param created         names of the roles the import created
-     * @param overwritten     names of the existing roles it overwrote
-     * @param channelsApplied whether the file's channel restrictions were applied
+     * @param writes           the roles the import wrote
+     * @param channelNamesById this engine's channels, id to name
+     * @param channelsApplied  whether the file's channel restrictions were applied
      */
-    void rolesImported(List<String> created, List<String> overwritten, boolean channelsApplied) {
+    void rolesImported(List<RoleImportPlanner.PlannedRole> writes, Map<String, String> channelNamesById,
+            boolean channelsApplied) {
+        List<String> created = new ArrayList<>();
+        List<String> overwritten = new ArrayList<>();
+        Map<String, String> roles = new LinkedHashMap<>();
+        for (RoleImportPlanner.PlannedRole write : writes) {
+            String name = write.role().getName();
+            (write.existingId() == null ? created : overwritten).add(name);
+            roles.put("Role: " + name, describe(write, channelNamesById));
+        }
         Map<String, String> attributes = new LinkedHashMap<>();
         attributes.put("Created", created.isEmpty() ? "(none)" : String.join(", ", created));
         attributes.put("Overwritten", overwritten.isEmpty() ? "(none)" : String.join(", ", overwritten));
         attributes.put("Channel restrictions", channelsApplied ? "Applied from the file" : "Not applied");
+        attributes.putAll(roles);
         attributes.put("Action", "Imported");
         dispatch(attributes);
+    }
+
+    private static String describe(RoleImportPlanner.PlannedRole write, Map<String, String> channelNamesById) {
+        Role role = write.role();
+        String permissions = role.getPermissions().isEmpty()
+                ? "(none)" : String.join(", ", new TreeSet<>(role.getPermissions()));
+        String channels;
+        if (!write.writeChannels()) {
+            channels = "unchanged";
+        } else if (role.getChannelIds().isEmpty()) {
+            channels = "every channel";
+        } else {
+            List<String> named = new ArrayList<>();
+            for (String id : role.getChannelIds()) {
+                String channelName = channelNamesById.get(id);
+                named.add(channelName != null ? channelName + " (" + id + ")" : id);
+            }
+            Collections.sort(named);
+            channels = String.join(", ", named);
+        }
+        return "Permissions: " + permissions + ". Channels: " + channels + ".";
     }
 
     private void dispatch(Map<String, String> attributes) {

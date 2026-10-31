@@ -61,6 +61,13 @@ public class RbacAuthorizationController extends AuthorizationController {
             "getServerId"                  // Server identification
     ));
 
+    // rbac's own operations that only the admin role may call, by composite name, with the
+    // reason a refusal gives. They are registered under View Roles and Manage Roles so they are
+    // never unknown, and refused here for anyone else, so the audit records the refusal.
+    private static final Map<String, String> ADMIN_ONLY_OPERATIONS = Map.of(
+            RbacServletInterface.PLUGIN_NAME + "#exportRoles", RoleTransferService.EXPORT_NEEDS_ADMIN,
+            RbacServletInterface.PLUGIN_NAME + "#importRoles", RoleTransferService.IMPORT_NEEDS_ADMIN);
+
     // Core engine read operations annotated @DontCheckAuthorized: the engine servlet calls
     // isUserAuthorized() itself and, when it returns false, degrades gracefully (empty list,
     // null, or self-only) instead of erroring. RBAC's normal denial path THROWS a 403 to
@@ -220,6 +227,15 @@ public class RbacAuthorizationController extends AuthorizationController {
 
         if (operation == null) {
             return auditAndAllow(audit, userId, operation, parameterMap, address);
+        }
+
+        // Admin-only operations: admins returned above, so this caller isn't one.
+        String adminOnlyReason = ADMIN_ONLY_OPERATIONS.get(operation.getName());
+        if (adminOnlyReason != null) {
+            if (audit) {
+                auditAuthorizationRequest(userId, operation, parameterMap, ServerEvent.Outcome.FAILURE, address);
+            }
+            throw forbidden(adminOnlyReason);
         }
 
         // Allow infrastructure operations needed for UI login/setup

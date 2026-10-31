@@ -50,6 +50,8 @@ The end-to-end suite expects `schema_version` 3. On SQL Server every upgrade sce
 
 ## 2026-10-30: role export and import on the server
 
+Superseded in part before release: export and import became admin-only, and names are compared exactly. See 2026-10-31 below.
+
 Roles can be exported to a file and imported on the same engine or another one (issue #39). The format, and what an import does with a file, are in [role-export-format.md](role-export-format.md).
 
 The work is on the server, behind two new permissions, Export Roles and Import Roles. The Administrators only upload, preview and confirm. That puts the permission checks where they can't be skipped, makes the import one transaction, and lets channel matching see every channel on the engine, not only the ones the importing user can see. An operation declares one permission, so the second each one needs is checked in the servlet: export also needs View Roles, because the file shows every role in it, and import also needs Manage Roles, so it can't write anything its user couldn't write by hand.
@@ -62,3 +64,13 @@ An import is previewed, then applied with the roles the user picked and the toke
 
 - A database failure partway through an import, except on MySQL. There the end-to-end check of two names that differ only by an accent inserts the first role, stops at the second, and neither is left. On the other databases the rollback is tested with a mocked session.
 - The Swing and web Administrators' buttons for export and import come in a separate change.
+
+## 2026-10-31: export and import are for the admin role only
+
+Before 1.3.0 shipped, the Export Roles and Import Roles permissions above were taken out again. Only a user holding the admin role can export or import now. Importing roles was admin-level power with or without its own permission: a user with Manage Roles can already give their own account any role. An export by a user restricted to some channels would also have named channels that user can't see, and the admin role sees every channel. Starting narrow is the safe direction: a grantable permission can be added later without changing anyone's roles, while taking one away after release would change what existing roles can do.
+
+The operations are still registered, export under View Roles and import under Manage Roles, because rbac allows any operation it has no permission for. rbac's authorization check refuses them to any user without the admin role, with "Exporting roles needs the admin role." or "Importing roles needs the admin role.", before the permission lookup. Refusing there rather than in the servlet matters for the audit: a refusal in the servlet comes after the check has already recorded the call as authorized, so the event log would show a success. The servlet checks again for a caller that doesn't go through rbac's check.
+
+The file reader now compares role names exactly. Postgres, Derby and Oracle hold "Lab" and "LAB" as two roles, and refusing names that were equal ignoring case meant an export holding both could not be imported anywhere. Where the database holds two of the file's names as one, the import still says so: the preview refuses the file when two of them are one existing role, and the apply refuses two new ones the database treats as one name.
+
+A preview row for an overwrite now lists the permissions and channels it adds and removes, and whether the description changes, so the user sees what an overwrite does before picking it. A change between every channel and some channels is a note instead, since every channel has no list to compare. The import's audit event now records each written role's permissions and channels: the file is kept out of the engine's audit of the call, so without them the event named the roles and not what they were given.

@@ -23,6 +23,7 @@ class Api:
         self.username = username
         self.password = password
         self.reason = None
+        self.content_type = None
         # The test engine generates a self-signed certificate on first start.
         context = ssl.create_default_context()
         context.check_hostname = False
@@ -34,7 +35,8 @@ class Api:
     def request(self, method, path, body=None, content_type="application/xml",
                 accept="application/xml", query=None, timeout=300):
         """Returns (status, text). Never raises for an HTTP error status. The reason phrase is kept in
-        self.reason: rbac puts "Missing permission: <permission>" there when it refuses a call."""
+        self.reason: rbac puts "Missing permission: <permission>" there when it refuses a call. The response's
+        Content-Type header is kept in self.content_type."""
         url = self.base + path
         if query:
             url += "?" + urllib.parse.urlencode(query, doseq=True)
@@ -47,9 +49,11 @@ class Api:
         try:
             with self.opener.open(req, timeout=timeout) as resp:
                 self.reason = resp.reason
+                self.content_type = resp.headers.get("Content-Type")
                 return resp.status, resp.read().decode("utf-8")
         except urllib.error.HTTPError as e:
             self.reason = e.reason
+            self.content_type = e.headers.get("Content-Type")
             return e.code, e.read().decode("utf-8", "replace")
 
     def login(self, wait=900, alive=lambda: True):

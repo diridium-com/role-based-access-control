@@ -42,9 +42,10 @@ class RbacServletInterfacePermissionsTest {
     }
 
     @Test
-    void exportAndImport_requireTheirOwnPermissionsAndAreAudited() throws Exception {
-        assertPermission("exportRoles", RbacServletInterface.PERMISSION_EXPORT, true);
-        assertPermission("importRoles", RbacServletInterface.PERMISSION_IMPORT, true);
+    void exportAndImport_areGatedByViewAndManage_andAudited() throws Exception {
+        // The servlet also requires the admin role for both.
+        assertPermission("exportRoles", RbacServletInterface.PERMISSION_VIEW, true);
+        assertPermission("importRoles", RbacServletInterface.PERMISSION_MANAGE, true);
     }
 
     @Test

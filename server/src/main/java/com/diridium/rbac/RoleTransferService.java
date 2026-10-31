@@ -3,13 +3,12 @@
 
 package com.diridium.rbac;
 
-import static com.diridium.rbac.RbacServletInterface.PERMISSION_MANAGE;
-import static com.diridium.rbac.RbacServletInterface.PERMISSION_VIEW;
-
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.Supplier;
@@ -23,19 +22,23 @@ import com.diridium.rbac.RoleTransferFormat.ExportedRole;
 import com.mirth.connect.client.core.api.MirthApiException;
 
 /**
- * Role export and import: the second permission each needs, the preview-then-apply
- * exchange, and the audit event. Extracted from {@link RbacServlet} like
- * {@link RoleService}, so it can be tested without {@code MirthServlet}.
+ * Role export and import: who may, the preview-then-apply exchange, and the audit
+ * event. Extracted from {@link RbacServlet} like {@link RoleService}, so it can be
+ * tested without {@code MirthServlet}.
  *
- * <p>An operation declares one permission, so the engine checks Export Roles or
- * Import Roles and this class checks the other: export also needs View Roles, since
- * the file shows every role it holds, and import also needs Manage Roles, so it
- * can't write anything its caller couldn't write by hand.</p>
+ * <p>Both are for the admin role only. Importing a role is admin-level power already,
+ * since Manage Roles lets its holder give themselves any role, and the admin role sees
+ * every channel, so an export can name each one. {@link RbacAuthorizationController}
+ * refuses everyone else before the servlet runs, so the audit records the refusal; the
+ * check here is the second layer, for a caller that doesn't go through the controller.</p>
  *
  * <p>An apply re-plans the file and refuses it (409) unless the plan's token equals
  * the one from the preview, so it writes exactly what the user saw.</p>
  */
 class RoleTransferService {
+
+    static final String EXPORT_NEEDS_ADMIN = "Exporting roles needs the admin role.";
+    static final String IMPORT_NEEDS_ADMIN = "Importing roles needs the admin role.";
 
     private final RbacRepository repo;
     private final RbacAuditLog auditLog;
@@ -64,16 +67,21 @@ class RoleTransferService {
     }
 
     /**
-     * @param callerPermissions the caller's effective permissions
-     * @param roleIds           the roles to export; empty for every role but the admin role
+     * @param callerIsAdmin whether the caller holds the admin role
+     * @param roleIds       the roles to export; empty for every role but the admin role
      * @return the export file's text
-     * @throws MirthApiException 403 without View Roles; 400 for an unknown id, the
-     *                           admin role's id, or nothing to export
+     * @throws MirthApiException 403 without the admin role; 400 for an id with no value, an
+     *                           unknown id, the admin role's id, or nothing to export
      */
-    String export(Set<String> callerPermissions, Set<Integer> roleIds) {
-        requirePermission(callerPermissions, PERMISSION_VIEW);
+    String export(boolean callerIsAdmin, Set<Integer> roleIds) {
+        requireAdmin(callerIsAdmin, EXPORT_NEEDS_ADMIN);
+        // Refused rather than dropped: dropping the only id would export every role.
+        if (roleIds != null && roleIds.stream().anyMatch(Objects::isNull)) {
+            throw badRequest("A roleId has no value.");
+        }
         List<Role> roles = new ArrayList<>();
-        if (roleIds == null || roleIds.isEmpty()) {
+        Set<Integer> ids = roleIds != null ? new TreeSet<>(roleIds) : new TreeSet<>();
+        if (ids.isEmpty()) {
             for (Role role : repo.getAllRoles()) {
                 if (!role.isAdmin()) {
                     roles.add(role);
@@ -83,7 +91,7 @@ class RoleTransferService {
                 throw badRequest("There are no roles to export. The admin role is never exported.");
             }
         } else {
-            for (int roleId : new TreeSet<>(roleIds)) {
+            for (int roleId : ids) {
                 Role role = repo.getRoleById(roleId);
                 if (role == null) {
                     throw badRequest("There's no role with id " + roleId + ".");
@@ -118,27 +126,28 @@ class RoleTransferService {
     /**
      * Previews (dry run) or applies a role export file.
      *
-     * @param callerPermissions the caller's effective permissions
-     * @param pick              for an apply, the positions in the file of the roles to write
-     * @param planToken         for an apply, the token from the preview
+     * @param callerIsAdmin whether the caller holds the admin role
+     * @param pick          for an apply, the positions in the file of the roles to write
+     * @param planToken     for an apply, the token from the preview
      * @return the preview; for an apply, the rows written
-     * @throws MirthApiException 403 without Manage Roles; for an apply, 400 for a refused
+     * @throws MirthApiException 403 without the admin role; for an apply, 400 for a refused
      *                           file, a missing token, a bad pick, or two new roles the
-     *                           database treats as one name, and 409 if the roles
+     *                           database holds as one name, and 409 if the roles
      *                           changed since the preview
      */
-    RoleImportResult importRoles(Set<String> callerPermissions, String file, boolean dryRun, boolean applyChannels,
+    RoleImportResult importRoles(boolean callerIsAdmin, String file, boolean dryRun, boolean applyChannels,
             List<Integer> pick, String planToken) {
-        requirePermission(callerPermissions, PERMISSION_MANAGE);
+        requireAdmin(callerIsAdmin, IMPORT_NEEDS_ADMIN);
         RoleImportResult result = new RoleImportResult();
         result.setApplyChannels(applyChannels);
 
+        Map<String, String> channelNames = channelNamesById.get();
         ExportFile parsed;
         RoleImportPlanner.Plan plan;
         try {
             parsed = RoleTransferFormat.parse(file);
             plan = new RoleImportPlanner(repo::findRoleIdByName, repo::getRoleById, repo.getAdminRoleId(),
-                    catalog.get(), channelNamesById.get()).plan(parsed, applyChannels);
+                    catalog.get(), channelNames).plan(parsed, applyChannels);
         } catch (RoleTransferFormat.Refusal e) {
             if (!dryRun) {
                 throw badRequest(e.getMessage());
@@ -156,14 +165,20 @@ class RoleTransferService {
             result.setRows(plan.rows());
             return result;
         }
+        result.setRows(apply(plan, withoutNulls(pick), planToken, channelNames, applyChannels));
+        result.setApplied(true);
+        return result;
+    }
 
+    /** Writes the picked rows of a plan, then clears the cache and audits. Returns the rows written. */
+    private List<RoleImportRow> apply(RoleImportPlanner.Plan plan, Set<Integer> picked, String planToken,
+            Map<String, String> channelNames, boolean applyChannels) {
         if (planToken == null || planToken.isBlank()) {
             throw badRequest("Preview the import first, and send the preview's planToken with the apply.");
         }
         if (!plan.token().equals(planToken)) {
             throw conflict("The roles changed since the preview. Preview the import again.");
         }
-        Set<Integer> picked = pick != null ? new TreeSet<>(pick) : new TreeSet<>();
         if (picked.isEmpty()) {
             throw badRequest("No roles were picked.");
         }
@@ -189,20 +204,22 @@ class RoleTransferService {
             throw e.changedSincePreview() ? conflict(e.getMessage()) : badRequest(e.getMessage());
         }
         cacheInvalidator.run();
-        List<String> created = new ArrayList<>();
-        List<String> overwritten = new ArrayList<>();
-        for (RoleImportPlanner.PlannedRole write : writes) {
-            (write.existingId() == null ? created : overwritten).add(write.role().getName());
-        }
-        auditLog.rolesImported(created, overwritten, applyChannels);
-        result.setApplied(true);
-        result.setRows(written);
-        return result;
+        auditLog.rolesImported(writes, channelNames, applyChannels);
+        return written;
     }
 
-    private static void requirePermission(Set<String> callerPermissions, String permission) {
-        if (callerPermissions == null || !callerPermissions.contains(permission)) {
-            throw RbacAuthorizationController.forbidden("Missing permission: " + permission);
+    /** The picks in order, without null elements, which name no position. */
+    private static Set<Integer> withoutNulls(Collection<Integer> values) {
+        Set<Integer> kept = new TreeSet<>();
+        if (values != null) {
+            values.stream().filter(Objects::nonNull).forEach(kept::add);
+        }
+        return kept;
+    }
+
+    private static void requireAdmin(boolean callerIsAdmin, String reason) {
+        if (!callerIsAdmin) {
+            throw RbacAuthorizationController.forbidden(reason);
         }
     }
 
