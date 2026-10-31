@@ -73,6 +73,7 @@ final class RoleImportPlanner {
     private final Integer adminRoleId;
     private final Set<String> catalog;
     private final Map<String, String> channelNamesById;
+    private final Map<String, List<String>> channelIdsByName = new HashMap<>();
 
     /**
      * @param findRoleIdByName the repository's name lookup
@@ -88,15 +89,13 @@ final class RoleImportPlanner {
         this.adminRoleId = adminRoleId;
         this.catalog = catalog;
         this.channelNamesById = channelNamesById;
+        channelNamesById.forEach((id, name) -> channelIdsByName.computeIfAbsent(name, n -> new ArrayList<>()).add(id));
     }
 
     /**
      * @throws Refusal if two roles in the file are the same role in this engine's database
      */
     Plan plan(ExportFile file, boolean applyChannels) throws Refusal {
-        Map<String, List<String>> channelIdsByName = new HashMap<>();
-        channelNamesById.forEach((id, name) -> channelIdsByName.computeIfAbsent(name, n -> new ArrayList<>()).add(id));
-
         List<RoleImportRow> rows = new ArrayList<>();
         Map<Integer, PlannedRole> writes = new LinkedHashMap<>();
         Map<Integer, Integer> fileIndexByExistingId = new HashMap<>();
@@ -107,9 +106,7 @@ final class RoleImportPlanner {
             ExportedRole fileRole = roles.get(index);
             Integer existingId = findRoleIdByName.apply(fileRole.name());
             Role existing = existingId != null ? getRoleById.apply(existingId) : null;
-            if (existing == null) {
-                existingId = null;
-            } else {
+            if (existing != null) {
                 Integer earlier = fileIndexByExistingId.put(existingId, index);
                 if (earlier != null) {
                     throw new Refusal("The roles '" + roles.get(earlier).name() + "' and '" + fileRole.name()
@@ -123,7 +120,7 @@ final class RoleImportPlanner {
             row.setIndex(index);
             row.setName(fileRole.name());
             rows.add(row);
-            PlannedRole planned = planRole(row, fileRole, existingId, existing, applyChannels, channelIdsByName);
+            PlannedRole planned = planRole(row, fileRole, existing, applyChannels);
             if (planned != null && row.getAction() != Action.UNCHANGED) {
                 writes.put(index, planned);
             }
@@ -135,10 +132,11 @@ final class RoleImportPlanner {
     /**
      * Sets the row's action, and any note and changes, for one role in the file.
      *
+     * @param existing the role here with the file role's name, or {@code null}
      * @return the role as it would be written, or {@code null} for a skipped role
      */
-    private PlannedRole planRole(RoleImportRow row, ExportedRole fileRole, Integer existingId, Role existing,
-            boolean applyChannels, Map<String, List<String>> channelIdsByName) {
+    private PlannedRole planRole(RoleImportRow row, ExportedRole fileRole, Role existing, boolean applyChannels) {
+        Integer existingId = existing != null ? existing.getId() : null;
         if (existingId != null && existingId.equals(adminRoleId)) {
             row.setAction(Action.SKIP);
             row.setReason("This is the name of this engine's admin role, which an import never changes.");
@@ -154,11 +152,11 @@ final class RoleImportPlanner {
             }
         }
 
-        Set<String> channelIds = new LinkedHashSet<>();
+        Set<String> channelIds;
         boolean writeChannels = true;
         if (applyChannels) {
             row.setChannels(Channels.FROM_FILE);
-            channelIds = matchChannels(row, fileRole, channelIdsByName);
+            channelIds = matchChannels(row, fileRole);
             if (fileRole.restricted() && channelIds.isEmpty()) {
                 row.setAction(Action.SKIP);
                 row.setReason("None of its " + fileRole.channels().size() + " channels exist on this engine,"
@@ -167,9 +165,10 @@ final class RoleImportPlanner {
             }
         } else if (existing != null) {
             row.setChannels(Channels.KEPT);
-            channelIds.addAll(existing.getChannelIds());
+            channelIds = new LinkedHashSet<>(existing.getChannelIds());
             writeChannels = false;
         } else {
+            channelIds = new LinkedHashSet<>();
             row.setChannels(Channels.EVERY_CHANNEL);
             if (fileRole.restricted()) {
                 row.setReason("Sees every channel here; where it was exported it was restricted to "
@@ -195,11 +194,10 @@ final class RoleImportPlanner {
     }
 
     /** The ids here of the file role's channels. The ones not found are listed on the row. */
-    private Set<String> matchChannels(RoleImportRow row, ExportedRole fileRole,
-            Map<String, List<String>> channelIdsByName) {
+    private Set<String> matchChannels(RoleImportRow row, ExportedRole fileRole) {
         Set<String> channelIds = new LinkedHashSet<>();
         for (RoleTransferFormat.Channel channel : fileRole.channels()) {
-            String id = match(channel, channelIdsByName);
+            String id = match(channel);
             if (id != null) {
                 channelIds.add(id);
             } else {
@@ -212,7 +210,7 @@ final class RoleImportPlanner {
     }
 
     /** The id of the channel here that a file channel names: by id, then by a name only one channel has. */
-    private String match(RoleTransferFormat.Channel channel, Map<String, List<String>> channelIdsByName) {
+    private String match(RoleTransferFormat.Channel channel) {
         if (channelNamesById.containsKey(channel.id())) {
             return channel.id();
         }

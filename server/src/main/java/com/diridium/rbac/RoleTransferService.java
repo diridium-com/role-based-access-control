@@ -28,14 +28,17 @@ import com.mirth.connect.client.core.api.MirthApiException;
  *
  * <p>Both are for the admin role only. Importing a role is admin-level power already,
  * since Manage Roles lets its holder give themselves any role, and the admin role sees
- * every channel, so an export can name each one. The engine has already checked View
- * Roles (export) or Manage Roles (import), which keeps a role without them out
- * with the usual reason.</p>
+ * every channel, so an export can name each one. {@link RbacAuthorizationController}
+ * refuses everyone else before the servlet runs, so the audit records the refusal; the
+ * check here is the second layer, for a caller that doesn't go through the controller.</p>
  *
  * <p>An apply re-plans the file and refuses it (409) unless the plan's token equals
  * the one from the preview, so it writes exactly what the user saw.</p>
  */
 class RoleTransferService {
+
+    static final String EXPORT_NEEDS_ADMIN = "Exporting roles needs the admin role.";
+    static final String IMPORT_NEEDS_ADMIN = "Importing roles needs the admin role.";
 
     private final RbacRepository repo;
     private final RbacAuditLog auditLog;
@@ -67,13 +70,17 @@ class RoleTransferService {
      * @param callerIsAdmin whether the caller holds the admin role
      * @param roleIds       the roles to export; empty for every role but the admin role
      * @return the export file's text
-     * @throws MirthApiException 403 without the admin role; 400 for an unknown id, the
-     *                           admin role's id, or nothing to export
+     * @throws MirthApiException 403 without the admin role; 400 for an id with no value, an
+     *                           unknown id, the admin role's id, or nothing to export
      */
     String export(boolean callerIsAdmin, Set<Integer> roleIds) {
-        requireAdmin(callerIsAdmin, "Exporting roles needs the admin role.");
+        requireAdmin(callerIsAdmin, EXPORT_NEEDS_ADMIN);
+        // Refused rather than dropped: dropping the only id would export every role.
+        if (roleIds != null && roleIds.stream().anyMatch(Objects::isNull)) {
+            throw badRequest("A roleId has no value.");
+        }
         List<Role> roles = new ArrayList<>();
-        Set<Integer> ids = withoutNulls(roleIds);
+        Set<Integer> ids = roleIds != null ? new TreeSet<>(roleIds) : new TreeSet<>();
         if (ids.isEmpty()) {
             for (Role role : repo.getAllRoles()) {
                 if (!role.isAdmin()) {
@@ -130,7 +137,7 @@ class RoleTransferService {
      */
     RoleImportResult importRoles(boolean callerIsAdmin, String file, boolean dryRun, boolean applyChannels,
             List<Integer> pick, String planToken) {
-        requireAdmin(callerIsAdmin, "Importing roles needs the admin role.");
+        requireAdmin(callerIsAdmin, IMPORT_NEEDS_ADMIN);
         RoleImportResult result = new RoleImportResult();
         result.setApplyChannels(applyChannels);
 
@@ -201,7 +208,7 @@ class RoleTransferService {
         return written;
     }
 
-    /** The values in order, without null elements, which name no role and no position. */
+    /** The picks in order, without null elements, which name no position. */
     private static Set<Integer> withoutNulls(Collection<Integer> values) {
         Set<Integer> kept = new TreeSet<>();
         if (values != null) {

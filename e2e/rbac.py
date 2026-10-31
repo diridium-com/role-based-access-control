@@ -161,6 +161,15 @@ def plugin_events(api, attribute_search):
     return events
 
 
+def authorization_events(api, name, user_id, outcome):
+    """How many of the engine's authorization audit events named like name (for an extension operation,
+    "<display name> invoked through <plugin>") one user has with the given outcome, SUCCESS or FAILURE."""
+    status, text = api.request("GET", "/events", query={"name": name, "userId": user_id, "outcome": outcome})
+    if status != 200:
+        raise ApiError(f"GET /events -> HTTP {status} {api.reason}: {text[:200]}")
+    return sum(1 for _ in ET.fromstring(text).iter("event"))
+
+
 def my_permissions(api):
     status, text = api.request("GET", RBAC + "/my-permissions")
     if status != 200:

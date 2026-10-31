@@ -25,6 +25,7 @@ import com.mirth.connect.client.core.Operation;
 import com.mirth.connect.client.core.Operation.ExecuteType;
 import com.mirth.connect.client.core.api.MirthApiException;
 import com.mirth.connect.model.ExtensionPermission;
+import com.mirth.connect.model.ServerEvent;
 import com.mirth.connect.server.controllers.ChannelAuthorizer;
 import com.mirth.connect.server.controllers.ChannelController;
 import com.mirth.connect.server.controllers.ConfigurationController;
@@ -34,6 +35,7 @@ import com.mirth.connect.server.controllers.EventController;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -337,6 +339,42 @@ class RbacAuthorizationControllerTest {
         MirthApiException e = assertThrows(MirthApiException.class,
                 () -> controller.isUserAuthorized(2, op(plugin + "#assignUserRole"), null, "127.0.0.1", false));
         assertTrue(e.getResponse().getStatusInfo().getReasonPhrase().contains("Manage Roles"));
+    }
+
+    // ========== isUserAuthorized: admin-only operations ==========
+
+    @Test
+    void exportAndImport_refuseANonAdminHoldingTheirPermissions_andAuditTheRefusal() {
+        String plugin = RbacServletInterface.PLUGIN_NAME;
+        controller.addExtensionPermission(new ExtensionPermission(
+                plugin, "View Roles", "desc", new String[]{"exportRoles"}, new String[]{}));
+        controller.addExtensionPermission(new ExtensionPermission(
+                plugin, "Manage Roles", "desc", new String[]{"importRoles"}, new String[]{}));
+        givenUserHasRole(2, 5, Set.of("View Roles", "Manage Roles"), null);
+        Operation export = new Operation(plugin + "#exportRoles", "Export roles", ExecuteType.ASYNC, true);
+        Operation importRoles = new Operation(plugin + "#importRoles", "Import roles", ExecuteType.SYNC, true);
+
+        MirthApiException e = assertThrows(MirthApiException.class,
+                () -> controller.isUserAuthorized(2, export, Map.of(), "127.0.0.1", true));
+        assertEquals(403, e.getResponse().getStatus());
+        assertEquals("Exporting roles needs the admin role.", e.getResponse().getStatusInfo().getReasonPhrase());
+        e = assertThrows(MirthApiException.class,
+                () -> controller.isUserAuthorized(2, importRoles, Map.of(), "127.0.0.1", true));
+        assertEquals("Importing roles needs the admin role.", e.getResponse().getStatusInfo().getReasonPhrase());
+
+        ArgumentCaptor<ServerEvent> events = ArgumentCaptor.forClass(ServerEvent.class);
+        verify(eventController, times(2)).dispatchEvent(events.capture());
+        for (ServerEvent event : events.getAllValues()) {
+            assertEquals(ServerEvent.Outcome.FAILURE, event.getOutcome(), "the refusal is audited, not a success");
+        }
+    }
+
+    @Test
+    void exportAndImport_allowTheAdminRole() throws Exception {
+        String plugin = RbacServletInterface.PLUGIN_NAME;
+        givenUserHasRole(2, 5, Set.of(), null, true);
+        assertTrue(controller.isUserAuthorized(2, op(plugin + "#exportRoles"), null, "127.0.0.1", false));
+        assertTrue(controller.isUserAuthorized(2, op(plugin + "#importRoles"), null, "127.0.0.1", false));
     }
 
     // ========== isUserAuthorized: self-user-edit carve-out ==========

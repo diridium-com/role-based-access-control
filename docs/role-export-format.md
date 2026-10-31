@@ -49,7 +49,7 @@ The whole file is refused, with the reason, and nothing is written, if:
 - a field above that is required is missing, or a value is too long;
 - it has an element or attribute format 1 doesn't define, or text where format 1 has none;
 - it isn't XML 1.0, or it has a DOCTYPE;
-- two roles in it have the same name, or are the same role on this engine's database (a database that holds two names as one, such as MySQL, whose default collation ignores case and accents);
+- two roles in it have the same name, or name the same existing role on this engine (a database can hold two names as one: MySQL's default collation ignores case and accents);
 - it is larger than 5 MB.
 
 Comments and whitespace between elements are fine. A later rbac that adds to the format gives it a new version, so an older rbac refuses the file instead of dropping what it doesn't understand.
@@ -63,7 +63,7 @@ An import is previewed first. The preview lists every role in the file with what
 - **UNCHANGED**: one does, and it already matches.
 - **SKIP**: the role can't come in, and the preview says why.
 
-Then the user picks the roles to import (new roles start picked, overwrites don't), and the picked roles are written in one transaction: all of them, or none if anything fails. If any role the file names changed since the preview, the import is refused and has to be previewed again.
+Then the user picks the roles to import (new roles start picked, overwrites don't), and the picked roles are written in one transaction: all of them, or none if anything fails. If any role the file names changed since the preview, the import is refused and has to be previewed again. Two new roles whose names this database holds as one, such as "Café" and "Cafe" on MySQL, both show as new in the preview; picking both is refused, with the reason, and writes neither.
 
 Along the way:
 
@@ -76,11 +76,11 @@ Along the way:
 
 Only a user holding the admin role can export or import, the preview included. A user with Manage Roles can already give their own account any role, so importing roles is admin-level work either way.
 
-The engine's own check comes first: a role without View Roles is refused an export, and one without Manage Roles an import, with "Missing permission: View Roles" or "Missing permission: Manage Roles". Any other role but the admin role is refused with "Exporting roles needs the admin role." or "Importing roles needs the admin role."
+Any other user is refused (403) with "Exporting roles needs the admin role." or "Importing roles needs the admin role.", whatever permissions their role has. The engine's event log records the refusal as a failure.
 
 ## REST
 
-- `GET /api/extensions/rbac/roles/_export?roleId=3&roleId=7` answers the file as `text/plain`. With no `roleId`, every role but the admin role. An id that doesn't exist, or the admin role's, is refused (400).
+- `GET /api/extensions/rbac/roles/_export?roleId=3&roleId=7` answers the file as `text/plain; charset=UTF-8`. With no `roleId`, every role but the admin role. An id that doesn't exist, the admin role's, or a `roleId` with no value is refused (400).
 - `POST /api/extensions/rbac/roles/_import` takes the file as a `text/plain` body and answers a `RoleImportResult`. Query parameters:
   - `dryRun`: `true` (the default) previews. The answer has a row per role in the file and a `planToken`.
   - `applyChannels`: `true` (the default) applies the file's channel restrictions.

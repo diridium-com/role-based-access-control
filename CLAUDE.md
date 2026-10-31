@@ -59,7 +59,7 @@ Output: `package/target/rbac-1.2.0.zip`
 - Users: GET `/users/{userId}/role`, POST `/users/{userId}/role/{roleId}`, DELETE `/users/{userId}/role`
 - Permissions: GET `/permissions` (all available), GET `/my-permissions` (current user's granted permissions), GET `/permissions/extensions` (extension permission → publishing plugin, for the role editors' per-plugin headers), GET `/task-permissions` (extension task → permission, whitelisted for all users)
 - Export/import: GET `/roles/_export?roleId=` (the file, `text/plain`), POST `/roles/_import?dryRun=&applyChannels=&pick=&planToken=` (the file as a `text/plain` body; preview, then apply the picked roles in one transaction). Format and rules: `docs/role-export-format.md`
-- `@MirthOperation` annotations with `PERMISSION_VIEW = "View Roles"` and `PERMISSION_MANAGE = "Manage Roles"`. Export and import are admin-only: their operations are registered under View Roles and Manage Roles (so never unknown), and `RoleTransferService` refuses any caller without the admin role
+- `@MirthOperation` annotations with `PERMISSION_VIEW = "View Roles"` and `PERMISSION_MANAGE = "Manage Roles"`. Export and import are admin-only: their operations are registered under View Roles and Manage Roles (so never unknown), `RbacAuthorizationController` refuses them to anyone without the admin role (`ADMIN_ONLY_OPERATIONS`, so the audit records a FAILURE, not a success), and `RoleTransferService` checks again
 
 ### Role Export and Import
 - `RoleTransferFormat` writes and strictly reads the file (format 1; DOCTYPE refused; no XStream). Unknown elements, attributes or format versions refuse the whole file, so a newer file is never partly read

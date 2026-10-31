@@ -103,10 +103,11 @@ class RoleTransferServiceTest {
     }
 
     @Test
-    void export_ignoresANullId() throws Exception {
-        Set<Integer> ids = new HashSet<>(Arrays.asList(6, null));
-        RoleTransferFormat.ExportFile file = RoleTransferFormat.parse(service.export(ADMIN, ids));
-        assertEquals(List.of("Everyone"), file.roles().stream().map(RoleTransferFormat.ExportedRole::name).toList());
+    void export_refusesAnIdWithNoValue_ratherThanExportingEveryRole() {
+        assertStatus(400, "A roleId has no value.",
+                () -> service.export(ADMIN, new HashSet<>(Arrays.asList(6, null))));
+        assertStatus(400, "A roleId has no value.",
+                () -> service.export(ADMIN, new HashSet<>(Arrays.asList((Integer) null))));
     }
 
     @Test
@@ -172,6 +173,13 @@ class RoleTransferServiceTest {
     }
 
     // ========== Import: apply ==========
+
+    @Test
+    void apply_needsTheAdminRole() {
+        assertForbidden(() -> service.importRoles(false, file(), false, true, List.of(0), "t"),
+                "Importing roles needs the admin role.");
+        verify(repo, never()).importRoles(any());
+    }
 
     @Test
     void apply_writesThePickedRoles_thenClearsTheCacheAndAudits() {

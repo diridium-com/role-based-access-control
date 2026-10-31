@@ -147,7 +147,7 @@ public interface RbacServletInterface extends BaseServletInterface {
      */
     @GET
     @Path("/roles/_export")
-    @Produces(MediaType.TEXT_PLAIN)
+    @Produces(MediaType.TEXT_PLAIN + ";charset=UTF-8")
     @Operation(summary = "Returns the chosen roles as a role export file")
     @MirthOperation(name = "exportRoles", display = "Export roles", permission = PERMISSION_VIEW, type = ExecuteType.ASYNC)
     String exportRoles(@Param("roleIds") @Parameter(description = "The IDs of the roles to export. If absent, every role but the admin role is exported.") @QueryParam("roleId") Set<Integer> roleIds) throws ClientException;
