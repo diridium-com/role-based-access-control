@@ -39,6 +39,11 @@ public class RoleImportRow implements Serializable {
     private List<String> unmatchedChannels = new ArrayList<>();
     private int matchedChannelCount;
     private Channels channels;
+    private boolean descriptionChanged;
+    private List<String> addedPermissions = new ArrayList<>();
+    private List<String> removedPermissions = new ArrayList<>();
+    private List<String> addedChannels = new ArrayList<>();
+    private List<String> removedChannels = new ArrayList<>();
 
     /** @return the role's position in the file, from 0 */
     public int getIndex() {
@@ -108,5 +113,53 @@ public class RoleImportRow implements Serializable {
 
     public void setChannels(Channels channels) {
         this.channels = channels;
+    }
+
+    // What an OVERWRITE changes in the existing role. Empty, or false, on every other row.
+    // A change between every channel and some channels is a note in the reason instead.
+
+    /** @return whether an overwrite changes the role's description */
+    public boolean isDescriptionChanged() {
+        return descriptionChanged;
+    }
+
+    public void setDescriptionChanged(boolean descriptionChanged) {
+        this.descriptionChanged = descriptionChanged;
+    }
+
+    /** @return permissions an overwrite gives the role, sorted */
+    public List<String> getAddedPermissions() {
+        return addedPermissions;
+    }
+
+    public void setAddedPermissions(List<String> addedPermissions) {
+        this.addedPermissions = addedPermissions;
+    }
+
+    /** @return permissions an overwrite takes from the role, sorted */
+    public List<String> getRemovedPermissions() {
+        return removedPermissions;
+    }
+
+    public void setRemovedPermissions(List<String> removedPermissions) {
+        this.removedPermissions = removedPermissions;
+    }
+
+    /** @return channels an overwrite adds to the role's restrictions, by name here (the id if it has none), sorted */
+    public List<String> getAddedChannels() {
+        return addedChannels;
+    }
+
+    public void setAddedChannels(List<String> addedChannels) {
+        this.addedChannels = addedChannels;
+    }
+
+    /** @return channels an overwrite takes out of the role's restrictions, by name here (the id if it has none), sorted */
+    public List<String> getRemovedChannels() {
+        return removedChannels;
+    }
+
+    public void setRemovedChannels(List<String> removedChannels) {
+        this.removedChannels = removedChannels;
     }
 }

@@ -66,11 +66,12 @@ class RoleTransferFormatTest {
                 () -> RoleTransferFormat.write("1.3.0", "4.7.0", roles));
         assertEquals("The role 'Lab' has a character a role export file can't hold, in its description.",
                 e.getMessage());
+        assertTrue(e.getCause() instanceof IllegalArgumentException, "the cause is kept");
     }
 
     @Test
     void read_acceptsCommentsWhitespaceCdataAndAByteOrderMark() throws Exception {
-        String text = "﻿" + HEADER + "<!-- exported for the lab -->\n"
+        String text = "\uFEFF" + HEADER + "<!-- exported for the lab -->\n"
                 + "<role>\n <name>Lab</name>\n <description><![CDATA[a < b]]></description>\n"
                 + " <permissions/>\n <channels restricted=\"false\"/>\n</role>\n</rbacRoles>";
         ExportedRole role = RoleTransferFormat.parse(text).roles().get(0);
@@ -199,9 +200,16 @@ class RoleTransferFormatTest {
     }
 
     @Test
-    void duplicateRoleNames_ignoringCase_areRefused() {
-        assertRefused(HEADER + LAB + LAB.replace("<name>Lab</name>", "<name>LAB</name>") + "</rbacRoles>",
-                "more than one role named 'LAB' (ignoring case)");
+    void duplicateRoleNames_areRefused() {
+        assertRefused(HEADER + LAB + LAB + "</rbacRoles>", "The file has more than one role named 'Lab'.");
+    }
+
+    @Test
+    void namesThatDifferOnlyInCase_areTwoRoles() throws Exception {
+        // Postgres, Derby and Oracle hold them as two roles, so their export has to read back.
+        ExportFile file = RoleTransferFormat.parse(
+                HEADER + LAB + LAB.replace("<name>Lab</name>", "<name>LAB</name>") + "</rbacRoles>");
+        assertEquals(List.of("Lab", "LAB"), file.roles().stream().map(ExportedRole::name).toList());
     }
 
     @Test
@@ -220,6 +228,14 @@ class RoleTransferFormatTest {
         assertRefused(HEADER + LAB, "isn't well-formed XML");
         assertRefused(HEADER + LAB.replace("<description>d", "<description>&undeclared;") + "</rbacRoles>",
                 "isn't well-formed XML");
+    }
+
+    @Test
+    void xml11_isRefused() {
+        // XML 1.1 can carry a bell character, which XML 1.0, and so an export, can't.
+        assertRefused(HEADER.replace("version=\"1.0\"", "version=\"1.1\"")
+                + LAB.replace(">d<", ">&#x7;<") + "</rbacRoles>",
+                "The file is XML 1.1. Role export files are XML 1.0.");
     }
 
     @Test

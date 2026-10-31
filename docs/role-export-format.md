@@ -32,7 +32,7 @@ rbac can write roles to a file and read them back, on the same engine or another
 | `rbacRoles/@formatVersion` | yes | The format of the file. This page describes format 1. |
 | `rbacRoles/@rbacVersion` | yes | The rbac version that wrote the file. |
 | `rbacRoles/@engineVersion` | yes | The engine version it was written on. |
-| `role` | one or more | One role. Role names are unique in a file, ignoring case. |
+| `role` | one or more | One role. Role names are unique in a file. Names that differ only in case are different names. |
 | `role/name` | yes | The role's name, at most 255 characters. |
 | `role/description` | no | At most 1024 characters. Missing means empty. |
 | `role/permissions` | yes | The role's permissions, one `permission` each, at most 255 characters, no repeats. May be empty. |
@@ -48,8 +48,8 @@ The whole file is refused, with the reason, and nothing is written, if:
 - its `formatVersion` is missing or isn't one this rbac reads. A file from a later rbac says so: "This file is format 2, written by rbac 1.4.0. This rbac reads format 1."
 - a field above that is required is missing, or a value is too long;
 - it has an element or attribute format 1 doesn't define, or text where format 1 has none;
-- it has a DOCTYPE;
-- two roles in it have the same name, ignoring case, or are the same role on this engine's database (a database such as MySQL that compares names without regard to case or accents);
+- it isn't XML 1.0, or it has a DOCTYPE;
+- two roles in it have the same name, or are the same role on this engine's database (a database that holds two names as one, such as MySQL, whose default collation ignores case and accents);
 - it is larger than 5 MB.
 
 Comments and whitespace between elements are fine. A later rbac that adds to the format gives it a new version, so an older rbac refuses the file instead of dropping what it doesn't understand.
@@ -59,7 +59,7 @@ Comments and whitespace between elements are fine. A later rbac that adds to the
 An import is previewed first. The preview lists every role in the file with what would happen to it:
 
 - **CREATE**: no role with that name exists here.
-- **OVERWRITE**: one does, and the file's version differs. The existing role keeps its name and its users; its description, permissions and channels are replaced.
+- **OVERWRITE**: one does, and the file's version differs. The existing role keeps its name and its users; its description, permissions and channels are replaced. The preview lists the permissions and channels it adds and removes, and says whether the description changes. A change from some channels to every channel, or the other way, is a note on the row instead.
 - **UNCHANGED**: one does, and it already matches.
 - **SKIP**: the role can't come in, and the preview says why.
 
@@ -72,9 +72,11 @@ Along the way:
 - **Channel restrictions applied** (the default): each channel is matched by its id, then by its name if exactly one channel here has that name. Channels found neither way are listed. A restricted role none of whose channels exist here is skipped, because rbac stores "every channel" as an empty list and the role would otherwise see everything.
 - **Channel restrictions not applied**: an existing role keeps the channel restrictions it has, and a new role sees every channel. The preview marks those new roles. They have no users until someone assigns one, so set their channels first.
 
-## Permissions
+## Who can export and import
 
-Exporting needs **Export Roles** and **View Roles**. Importing, the preview included, needs **Import Roles** and **Manage Roles**, so an import can't do anything its user couldn't do by hand.
+Only a user holding the admin role can export or import, the preview included. A user with Manage Roles can already give their own account any role, so importing roles is admin-level work either way.
+
+The engine's own check comes first: a role without View Roles is refused an export, and one without Manage Roles an import, with "Missing permission: View Roles" or "Missing permission: Manage Roles". Any other role but the admin role is refused with "Exporting roles needs the admin role." or "Importing roles needs the admin role."
 
 ## REST
 
@@ -84,4 +86,6 @@ Exporting needs **Export Roles** and **View Roles**. Importing, the preview incl
   - `applyChannels`: `true` (the default) applies the file's channel restrictions.
   - `pick` and `planToken`, for `dryRun=false`: the positions in the file (from 0) of the roles to write, and the preview's token. The answer has the rows written.
 
-  An apply answers 400 for a refused file, a missing token, or a pick that is out of range, skipped or unchanged, and 409 if the roles changed since the preview.
+  An apply answers 400 for a refused file, a missing token, a pick that is out of range, skipped or unchanged, or two new names this database holds as one, and 409 if the roles changed since the preview.
+
+Both answer 403 for a user without the admin role.

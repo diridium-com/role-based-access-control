@@ -74,7 +74,7 @@ Install the zip through the Administrator's Extensions view and restart OIE. On 
 
 ## Export and import roles
 
-Roles can be written to a file and read back, on the same engine or another one, through `GET /api/extensions/rbac/roles/_export` and `POST /api/extensions/rbac/roles/_import`. Export needs the Export Roles and View Roles permissions; import needs Import Roles and Manage Roles. An import is previewed first, writes only the roles picked, in one transaction, and never changes the admin role. Applying the file's channel restrictions is a choice. The file format and the import rules are in [docs/role-export-format.md](docs/role-export-format.md).
+Roles can be written to a file and read back, on the same engine or another one, through `GET /api/extensions/rbac/roles/_export` and `POST /api/extensions/rbac/roles/_import`. Only users holding the admin role can export or import. An import is previewed first, showing what each role would become and what an overwrite changes, writes only the roles picked, in one transaction, and never changes the admin role. Applying the file's channel restrictions is a choice. The file format and the import rules are in [docs/role-export-format.md](docs/role-export-format.md).
 
 ## What RBAC enforces
 

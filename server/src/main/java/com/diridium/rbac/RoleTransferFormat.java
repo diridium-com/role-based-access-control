@@ -10,7 +10,6 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -114,7 +113,7 @@ final class RoleTransferFormat {
                 writeRole(out, role);
             } catch (IllegalArgumentException e) {
                 throw new IllegalArgumentException("The role '" + role.name() + "' has a character a role export file"
-                        + " can't hold, in " + e.getMessage() + ".");
+                        + " can't hold, in " + e.getMessage() + ".", e);
             }
         }
         return out.append("</rbacRoles>\n").toString();
@@ -198,10 +197,11 @@ final class RoleTransferFormat {
         if (text.length() > MAX_CHARS) {
             throw new Refusal("The file is larger than 5 MB, far more than a role export needs.");
         }
-        if (text.charAt(0) == '﻿') {
+        if (text.charAt(0) == '\uFEFF') {
             text = text.substring(1);
         }
-        Element root = parseDocument(text).getDocumentElement();
+        Document document = parseDocument(text);
+        Element root = document.getDocumentElement();
         if (!"rbacRoles".equals(root.getTagName())) {
             throw new Refusal("This isn't a role export file: its top element is <" + root.getTagName()
                     + ">, not <rbacRoles>.");
@@ -218,6 +218,10 @@ final class RoleTransferFormat {
                     + (rbacVersion != null ? ", written by rbac " + rbacVersion : "")
                     + ". This rbac reads format " + FORMAT_VERSION + ".");
         }
+        // The parser also reads XML 1.1, which can carry control characters an export can't write back.
+        if (!"1.0".equals(document.getXmlVersion())) {
+            throw new Refusal("The file is XML " + document.getXmlVersion() + ". Role export files are XML 1.0.");
+        }
         allowAttributes(root, "formatVersion", "rbacVersion", "engineVersion");
         rbacVersion = requireAttribute(root, "rbacVersion");
         String engineVersion = requireAttribute(root, "engineVersion");
@@ -229,8 +233,10 @@ final class RoleTransferFormat {
                 throw undefined(element, "<rbacRoles>");
             }
             ExportedRole role = parseRole(element, roles.size() + 1);
-            if (!names.add(role.name().toLowerCase(Locale.ROOT))) {
-                throw new Refusal("The file has more than one role named '" + role.name() + "' (ignoring case).");
+            // Exact, not ignoring case: Postgres, Derby and Oracle hold "Lab" and "LAB" as two roles, and their
+            // export has to read back. Where the database holds two names as one, the import says so.
+            if (!names.add(role.name())) {
+                throw new Refusal("The file has more than one role named '" + role.name() + "'.");
             }
             roles.add(role);
         }
@@ -269,7 +275,29 @@ final class RoleTransferFormat {
                     + " characters.");
         }
 
-        Element permissionsElement = require(fields, "permissions", where);
+        List<String> permissions = parsePermissions(require(fields, "permissions", where), name, where);
+
+        Element channelsElement = require(fields, "channels", where);
+        allowAttributes(channelsElement, "restricted");
+        String restrictedText = requireAttribute(channelsElement, "restricted");
+        if (!"true".equals(restrictedText) && !"false".equals(restrictedText)) {
+            throw new Refusal("The role '" + name + "' has restricted=\"" + restrictedText
+                    + "\" on <channels>; it must be true or false.");
+        }
+        boolean restricted = Boolean.parseBoolean(restrictedText);
+        List<Channel> channels = parseChannels(channelsElement, name, where);
+        if (!restricted && !channels.isEmpty()) {
+            throw new Refusal("The role '" + name + "' sees every channel (restricted=\"false\") but also lists"
+                    + " channels.");
+        }
+        if (restricted && channels.isEmpty()) {
+            throw new Refusal("The role '" + name + "' is restricted to channels but lists none.");
+        }
+        return new ExportedRole(name, description, permissions, restricted, channels);
+    }
+
+    private static List<String> parsePermissions(Element permissionsElement, String name, String where)
+            throws Refusal {
         allowAttributes(permissionsElement);
         List<String> permissions = new ArrayList<>();
         for (Element child : children(permissionsElement, where)) {
@@ -289,15 +317,10 @@ final class RoleTransferFormat {
             }
             permissions.add(permission);
         }
+        return permissions;
+    }
 
-        Element channelsElement = require(fields, "channels", where);
-        allowAttributes(channelsElement, "restricted");
-        String restrictedText = requireAttribute(channelsElement, "restricted");
-        if (!"true".equals(restrictedText) && !"false".equals(restrictedText)) {
-            throw new Refusal("The role '" + name + "' has restricted=\"" + restrictedText
-                    + "\" on <channels>; it must be true or false.");
-        }
-        boolean restricted = Boolean.parseBoolean(restrictedText);
+    private static List<Channel> parseChannels(Element channelsElement, String name, String where) throws Refusal {
         List<Channel> channels = new ArrayList<>();
         Set<String> channelIds = new HashSet<>();
         for (Element child : children(channelsElement, where)) {
@@ -318,14 +341,7 @@ final class RoleTransferFormat {
             }
             channels.add(new Channel(id, requireAttribute(child, "name")));
         }
-        if (!restricted && !channels.isEmpty()) {
-            throw new Refusal("The role '" + name + "' sees every channel (restricted=\"false\") but also lists"
-                    + " channels.");
-        }
-        if (restricted && channels.isEmpty()) {
-            throw new Refusal("The role '" + name + "' is restricted to channels but lists none.");
-        }
-        return new ExportedRole(name, description, permissions, restricted, channels);
+        return channels;
     }
 
     private static Document parseDocument(String text) throws Refusal {
@@ -385,13 +401,15 @@ final class RoleTransferFormat {
     /** The text of an element that may hold only text. */
     private static String leafText(Element element, String where) throws Refusal {
         allowAttributes(element);
-        for (Element child : children(element)) {
-            throw undefined(child, where);
+        List<Element> nested = childElements(element);
+        if (!nested.isEmpty()) {
+            throw undefined(nested.get(0), where);
         }
         return element.getTextContent();
     }
 
-    private static List<Element> children(Element parent) {
+    /** Returns an element's child elements, ignoring everything else. */
+    private static List<Element> childElements(Element parent) {
         List<Element> elements = new ArrayList<>();
         NodeList nodes = parent.getChildNodes();
         for (int i = 0; i < nodes.getLength(); i++) {
