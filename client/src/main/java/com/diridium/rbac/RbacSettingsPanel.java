@@ -9,28 +9,26 @@ import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.io.File;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import javax.swing.BorderFactory;
-import javax.swing.Box;
-import javax.swing.BoxLayout;
-import javax.swing.JButton;
-import javax.swing.JLabel;
-import javax.swing.JOptionPane;
-import javax.swing.JPanel;
-import javax.swing.JScrollPane;
-import javax.swing.JSplitPane;
-import javax.swing.JTable;
-import javax.swing.JTextArea;
-import javax.swing.ListSelectionModel;
-import javax.swing.SwingWorker;
+import javax.swing.*;
 import javax.swing.border.TitledBorder;
 import javax.swing.table.DefaultTableModel;
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.Node;
+import org.w3c.dom.NodeList;
 
 import com.mirth.connect.client.core.ClientException;
 import com.mirth.connect.client.core.api.servlets.ChannelServletInterface;
@@ -40,18 +38,6 @@ import com.mirth.connect.client.ui.Frame;
 import com.mirth.connect.client.ui.PlatformUI;
 import com.mirth.connect.model.User;
 
-/**
- * Settings tab that lists roles and user-role assignments, with buttons to
- * add/edit/delete roles and assign/remove role assignments.
- *
- * <p>Lives under the administrator client's Settings view (one tab per
- * registered {@code SettingsPanelPlugin}). All mutating operations are
- * performed via the {@link RbacServletInterface} REST endpoint; the server
- * side does the actual permission and admin-floor checks.</p>
- *
- * <p>Refresh state is guarded by an {@link AtomicBoolean} so rapid clicks
- * on the panel don't queue overlapping background loads.</p>
- */
 public class RbacSettingsPanel extends AbstractSettingsPanel {
 
     private static final String[] ROLE_COLUMNS = {"ID", "Name", "Description"};
@@ -59,9 +45,6 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
 
     private final Frame parent;
     private final AtomicBoolean refreshing = new AtomicBoolean(false);
-    // Set when a refresh is requested while one is already in flight, so the
-    // in-flight worker re-runs one refresh on completion instead of dropping it
-    // (which could leave the table showing pre-mutation state).
     private final AtomicBoolean refreshPending = new AtomicBoolean(false);
 
     private JTable rolesTable;
@@ -75,21 +58,18 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
     // Whether the last refresh fetched the channel list (read and written on the EDT).
     private boolean channelListLoaded;
 
-    /**
-     * @param tabName the label displayed for this tab in the Settings view
-     */
     public RbacSettingsPanel(String tabName) {
         super(tabName);
         this.parent = PlatformUI.MIRTH_FRAME;
+        this.addTask("doExportRolesXML", "Export XML", "Export Roles in XML.","", new ImageIcon(Frame.class.getResource("images/report_disk.png")));
+        this.addTask("doImportRolesXML", "Import XML", "Import Roles in XML.","", new ImageIcon(Frame.class.getResource("images/report_go.png")));
         initComponents();
+
     }
 
     private void initComponents() {
         setLayout(new BorderLayout());
 
-        // Unlike the other settings tabs, this tab does not stage edits behind
-        // the Save task — every confirmed action is committed via REST on the
-        // spot. Say so up front, before the first click.
         JLabel immediateNotice = new JLabel("Changes on this tab are applied to the server immediately"
                 + " when you confirm each action. The Save button does not stage changes here.");
         immediateNotice.setFont(immediateNotice.getFont().deriveFont(Font.ITALIC));
@@ -185,14 +165,6 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
         add(splitPane, BorderLayout.CENTER);
     }
 
-    /**
-     * {@inheritDoc}
-     * <p>Loads roles, users, permission catalog, and channel id-to-name
-     * map from the server on a {@link SwingWorker} background thread; the
-     * EDT-bound {@code done} hook then repopulates both tables and surfaces
-     * any error. Concurrent refresh calls are dropped via the
-     * {@code refreshing} guard.</p>
-     */
     @Override
     public void doRefresh() {
         if (refreshing.compareAndSet(false, true)) {
@@ -212,8 +184,6 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
                         permissions = parent.mirthClient.getServlet(RbacServletInterface.class).getAvailablePermissions();
                         channelMap = parent.mirthClient.getServlet(ChannelServletInterface.class).getChannelIdsAndNames();
                         try {
-                            // Grouping is cosmetic — a pre-1.1.2 server (404) just
-                            // leaves plugin permissions under "Other".
                             extensionGroups = parent.mirthClient.getServlet(RbacServletInterface.class).getExtensionPermissionGroups();
                         } catch (ClientException ignore) {
                             extensionGroups = new LinkedHashMap<>();
@@ -251,9 +221,6 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
                             cachedChannelMap = channelMap;
                         }
                     } finally {
-                        // Always release the guard, even if a repaint above threw, so the
-                        // panel can never wedge permanently. Then honor a refresh that was
-                        // requested while this one was in flight.
                         refreshing.set(false);
                         if (refreshPending.compareAndSet(true, false)) {
                             doRefresh();
@@ -262,23 +229,12 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
                 }
             }.execute();
         } else {
-            // A refresh is already running; remember to run one more afterward so a
-            // post-mutation refresh is not silently lost.
             refreshPending.set(true);
         }
     }
 
-    /**
-     * {@inheritDoc}
-     * <p>No-op: every role/assignment change is committed via REST in its
-     * own dialog confirm. The Save button on the settings tab is a no-op
-     * (returning {@code true} so the engine treats the panel as clean).</p>
-     *
-     * @return always {@code true}
-     */
     @Override
     public boolean doSave() {
-        // Nothing to save - all changes are immediate via REST
         return true;
     }
 
@@ -306,15 +262,11 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
                 return role.getName();
             }
         } catch (ClientException e) {
-            // Ignore - just show (none)
+            // Ignore
         }
         return null;
     }
 
-    /**
-     * @param roleId the database id to look up among the roles currently loaded
-     * @return the cached {@link Role} with that id, or {@code null} if none match
-     */
     private Role findCachedRole(int roleId) {
         for (Role r : cachedRoles) {
             if (r.getId() != null && r.getId() == roleId) {
@@ -324,16 +276,15 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
         return null;
     }
 
-    /**
-     * Guards the role editor against opening without a permission catalog. If a
-     * partial refresh failure left {@code cachedPermissions} null/empty, opening
-     * the editor would render zero checkboxes and Apply would then persist an
-     * empty permission set — silently wiping the role. Core permissions are
-     * always non-empty when the server is reachable, so null/empty reliably means
-     * "not loaded yet".
-     *
-     * @return {@code true} (after warning the user) if the catalog is not loaded
-     */
+    private Role findRoleByName(String name) {
+        for (Role r : cachedRoles) {
+            if (r.getName() != null && r.getName().equalsIgnoreCase(name)) {
+                return r;
+            }
+        }
+        return null;
+    }
+
     private boolean permissionCatalogNotLoaded() {
         if (cachedPermissions == null || cachedPermissions.isEmpty()) {
             parent.alertWarning(parent, "The permission list has not finished loading. Click Refresh and try again.");
@@ -405,9 +356,6 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
         }
 
         int roleId = (int) rolesTable.getValueAt(row, 0);
-        // Identify the admin role by its flag, not its name — the admin role
-        // can be renamed, so a name match would be unreliable. The server's
-        // AdminRoleGuard enforces this too; this is the friendly client guard.
         Role selectedRole = findCachedRole(roleId);
         if (selectedRole != null && selectedRole.isAdmin()) {
             parent.alertWarning(parent, "The admin role cannot be deleted.");
@@ -459,17 +407,6 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
         }
     }
 
-    /**
-     * Shows what a role grants — the user's current role, the new role, its
-     * channel scope, and the full permission list — so the admin can review
-     * the impact before committing an assignment. Role assignment is easy to
-     * get wrong, so this preview is the safeguard.
-     *
-     * @param username        the target user's display name
-     * @param currentRoleName the user's current role name (or "(none)")
-     * @param role            the role about to be assigned, fully populated
-     * @return {@code true} if the admin confirms the assignment
-     */
     private boolean confirmAssignment(String username, String currentRoleName, Role role) {
         StringBuilder details = new StringBuilder();
         details.append("User:         ").append(username).append('\n');
@@ -525,22 +462,11 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
         return choice == JOptionPane.OK_OPTION;
     }
 
-    /**
-     * A single mutating REST call, allowed to throw {@link ClientException}.
-     */
     @FunctionalInterface
     private interface MutationCall {
         void run() throws ClientException;
     }
 
-    /**
-     * Runs a mutating REST call off the EDT, then on the EDT either surfaces a
-     * {@link ClientException} to the user or refreshes the panel on success.
-     * Centralizes the error/refresh policy shared by every role and assignment
-     * mutation.
-     *
-     * @param call the REST mutation to perform
-     */
     private void runMutation(MutationCall call) {
         new SwingWorker<Void, Void>() {
             private ClientException error;
@@ -579,10 +505,144 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
                 "Remove the role from user \"" + username + "\"?\nThey will lose all access.\n\nThis change takes effect immediately.",
                 "Confirm Remove", JOptionPane.YES_NO_OPTION);
 
-        // The admin floor (don't strip the last admin) is enforced server-side
-        // by AdminRoleGuard, which returns a clear message surfaced below.
         if (confirm == JOptionPane.YES_OPTION) {
             runMutation(() -> parent.mirthClient.getServlet(RbacServletInterface.class).removeUserRole(userId));
         }
+    }
+
+    public void doExportRolesXML() {
+        if (cachedRoles.isEmpty()) {
+            parent.alertWarning(parent, "No roles available to export.");
+            return;
+        }
+        JFileChooser fileChooser = new JFileChooser();
+        fileChooser.setSelectedFile(new File("rbac-roles-export.xml"));
+        if (fileChooser.showSaveDialog(parent) == JFileChooser.APPROVE_OPTION) {
+            File file = fileChooser.getSelectedFile();
+            try {
+                StringBuilder xml = new StringBuilder();
+                xml.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<roles>\n");
+
+                for (Role role : cachedRoles) {
+                    xml.append("  <role>\n");
+                    xml.append("    <name>").append(escapeXml(role.getName())).append("</name>\n");
+                    xml.append("    <description>").append(escapeXml(role.getDescription())).append("</description>\n");
+
+                    xml.append("    <permissions>\n");
+                    if (role.getPermissions() != null) {
+                        for (String perm : role.getPermissions()) {
+                            xml.append("      <permission>").append(escapeXml(perm)).append("</permission>\n");
+                        }
+                    }
+                    xml.append("    </permissions>\n");
+
+                    if (role.getChannelIds() != null && !role.getChannelIds().isEmpty()) {
+                        xml.append("    <channels>\n");
+                        for (String ch : role.getChannelIds()) {
+                            xml.append("      <channel>").append(escapeXml(ch)).append("</channel>\n");
+                        }
+                        xml.append("    </channels>\n");
+                    }
+
+                    xml.append("  </role>\n");
+                }
+                xml.append("</roles>");
+
+                java.nio.file.Files.write(file.toPath(), xml.toString().getBytes(StandardCharsets.UTF_8));
+                JOptionPane.showMessageDialog(parent, "Roles and permissions exported successfully.", "Export", JOptionPane.INFORMATION_MESSAGE);
+            } catch (Exception ex) {
+                parent.alertThrowable(parent, ex);
+            }
+        }
+    }
+
+    public void doImportRolesXML() {
+        if (permissionCatalogNotLoaded()) {
+            return;
+        }
+        JFileChooser fileChooser = new JFileChooser();
+        if (fileChooser.showOpenDialog(parent) == JFileChooser.APPROVE_OPTION) {
+            File file = fileChooser.getSelectedFile();
+            try {
+                DocumentBuilderFactory dbFactory = DocumentBuilderFactory.newInstance();
+                DocumentBuilder dBuilder = dbFactory.newDocumentBuilder();
+                Document doc = dBuilder.parse(file);
+                doc.getDocumentElement().normalize();
+
+                NodeList roleNodes = doc.getElementsByTagName("role");
+                if (roleNodes.getLength() == 0) {
+                    parent.alertWarning(parent, "No roles found in XML file.");
+                    return;
+                }
+
+                for (int i = 0; i < roleNodes.getLength(); i++) {
+                    Node nNode = roleNodes.item(i);
+                    if (nNode.getNodeType() == Node.ELEMENT_NODE) {
+                        Element eElement = (Element) nNode;
+                        String name = getTagValue("name", eElement);
+                        String description = getTagValue("description", eElement);
+
+                        Set<String> permissions = new HashSet<>();
+                        NodeList permNodes = eElement.getElementsByTagName("permission");
+                        for (int j = 0; j < permNodes.getLength(); j++) {
+                            permissions.add(permNodes.item(j).getTextContent().trim());
+                        }
+
+                        Set<String> channels = new HashSet<>();
+                        NodeList channelNodes = eElement.getElementsByTagName("channel");
+                        for (int j = 0; j < channelNodes.getLength(); j++) {
+                            channels.add(channelNodes.item(j).getTextContent().trim());
+                        }
+
+                        Role existingRole = findRoleByName(name);
+                        if (existingRole != null) {
+                            if (existingRole.isAdmin()) {
+                                JOptionPane.showMessageDialog(parent, "Skipping admin role '" + name + "': cannot overwrite admin role.", "Warning", JOptionPane.WARNING_MESSAGE);
+                                continue;
+                            }
+                            int option = JOptionPane.showConfirmDialog(parent,
+                                    "Role '" + name + "' already exists. Do you want to overwrite it?",
+                                    "Role Already Exists", JOptionPane.YES_NO_OPTION);
+                            if (option != JOptionPane.YES_OPTION) {
+                                continue;
+                            }
+
+                            existingRole.setDescription(description);
+                            existingRole.setPermissions(permissions);
+                            existingRole.setChannelIds(channels);
+                            runMutation(() -> parent.mirthClient.getServlet(RbacServletInterface.class).updateRole(existingRole.getId(), existingRole));
+                        } else {
+                            Role newRole = new Role();
+                            newRole.setName(name);
+                            newRole.setDescription(description);
+                            newRole.setPermissions(permissions);
+                            newRole.setChannelIds(channels);
+                            runMutation(() -> parent.mirthClient.getServlet(RbacServletInterface.class).createRole(newRole));
+                        }
+                    }
+                }
+                JOptionPane.showMessageDialog(parent, "Import process triggered successfully.", "Import", JOptionPane.INFORMATION_MESSAGE);
+            } catch (Exception ex) {
+                parent.alertThrowable(parent, ex);
+            }
+        }
+    }
+
+    private String getTagValue(String tag, Element element) {
+        NodeList nlList = element.getElementsByTagName(tag);
+        if (nlList.getLength() > 0 && nlList.item(0).getChildNodes().getLength() > 0) {
+            Node nValue = nlList.item(0).getChildNodes().item(0);
+            return nValue == null ? "" : nValue.getNodeValue().trim();
+        }
+        return "";
+    }
+
+    private String escapeXml(String str) {
+        if (str == null) return "";
+        return str.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&apos;");
     }
 }

@@ -18,7 +18,7 @@
 
         <plugin.supported.mc.versions>${mc.version}</plugin.supported.mc.versions>
 
-        <mc.version>4.7.0</mc.version>
+        <mc.version>4.6.0</mc.version>
         <!-- SHA-256 of the OIE distribution for mc.version (oie_unix_<version>.tar.gz), from
              the release's sha256sums file. scripts/install-engine-jars.sh checks the download
              against it before taking the engine jars from it. Update it with mc.version. -->

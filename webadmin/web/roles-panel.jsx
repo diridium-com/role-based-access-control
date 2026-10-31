@@ -159,16 +159,177 @@ export function registerRolesPanel(platform, api) {
             }
         }, []);
 
+        const canManage = platform.checkTask(RBAC_GROUP, 'doSave');
+
+        function escapeXml(str) {
+            return String(str || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&apos;');
+        }
+
+        const exportXml = React.useCallback(() => {
+            if (roles.length === 0) {
+                ui.toast('No roles to export.', 'warn');
+                return;
+            }
+            let xml = '<?xml version="1.0" encoding="UTF-8"?>\n<roles>\n';
+            roles.forEach((r) => {
+                xml += `  <role>\n`;
+                xml += `    <name>${escapeXml(r.name)}</name>\n`;
+                xml += `    <description>${escapeXml(r.description)}</description>\n`;
+
+                xml += `    <permissions>\n`;
+                const perms = r.permissions;
+                if (perms) {
+                    let permList = [];
+                    if (Array.isArray(perms)) {
+                        permList = perms;
+                    } else if (perms instanceof Set) {
+                        permList = Array.from(perms);
+                    } else if (typeof perms === 'object') {
+                        permList = Object.entries(perms)
+                            .filter(([k, v]) => v === true || v === 'true' || typeof v !== 'boolean')
+                            .map(([k]) => k);
+                    }
+                    permList.forEach((p) => {
+                        xml += `      <permission>${escapeXml(p)}</permission>\n`;
+                    });
+                }
+                xml += `    </permissions>\n`;
+
+                if (r.channels) {
+                    xml += `    <channels>\n`;
+                    const chList = Array.isArray(r.channels) ? r.channels : (r.channels instanceof Set ? Array.from(r.channels) : Object.keys(r.channels));
+                    chList.forEach((c) => {
+                        xml += `      <channel>${escapeXml(c)}</channel>\n`;
+                    });
+                    xml += `    </channels>\n`;
+                }
+
+                xml += `  </role>\n`;
+            });
+            xml += '</roles>';
+
+            const blob = new Blob([xml], { type: 'application/xml;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', 'rbac-roles-export.xml');
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+            ui.toast('Roles and permissions exported successfully.', 'success');
+        }, [roles, ui]);
+
+        const importXml = React.useCallback(() => {
+            if (!catalog || catalog.size === 0) {
+                ui.toast(MSG_CATALOG_NOT_LOADED, 'warn');
+                return;
+            }
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.xml,application/xml';
+            input.onchange = async (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = async (event) => {
+                    try {
+                        const text = event.target.result;
+                        const parser = new DOMParser();
+                        const xmlDoc = parser.parseFromString(text, 'text/xml');
+
+                        if (xmlDoc.querySelector('parsererror')) {
+                            throw new Error('Invalid XML format.');
+                        }
+
+                        const roleNodes = xmlDoc.getElementsByTagName('role');
+                        if (roleNodes.length === 0) {
+                            ui.toast('No roles found in XML.', 'warn');
+                            return;
+                        }
+
+                        for (let i = 0; i < roleNodes.length; i++) {
+                            const rNode = roleNodes[i];
+                            const nameNode = rNode.getElementsByTagName('name')[0];
+                            const descNode = rNode.getElementsByTagName('description')[0];
+                            const permNodes = rNode.getElementsByTagName('permission');
+                            const channelNodes = rNode.getElementsByTagName('channel');
+
+                            if (!nameNode) continue;
+                            const name = nameNode.textContent.trim();
+                            const description = descNode ? descNode.textContent.trim() : '';
+
+                            const permissions = [];
+                            for (let j = 0; j < permNodes.length; j++) {
+                                permissions.push(permNodes[j].textContent.trim());
+                            }
+
+                            const channels = [];
+                            for (let j = 0; j < channelNodes.length; j++) {
+                                channels.push(channelNodes[j].textContent.trim());
+                            }
+
+                            const existingRole = roles.find((r) => r.name === name);
+                            const roleData = {
+                                name,
+                                description,
+                                permissions,
+                                ...(channels.length > 0 ? { channels } : {})
+                            };
+
+                            if (existingRole) {
+                                if (existingRole.isAdmin) {
+                                    ui.toast(`Skipping admin role '${name}': cannot overwrite admin role.`, 'warn');
+                                    continue;
+                                }
+                                const overwrite = await ui.confirmDialog(
+                                    'Role Already Exists',
+                                    `Role '${name}' already exists. Do you want to overwrite it?`,
+                                    { okLabel: 'Overwrite', cancelLabel: 'Keep Existing' }
+                                );
+                                if (!overwrite) continue;
+
+                                await api.updateRole(existingRole.id, {
+                                    id: existingRole.id,
+                                    ...roleData
+                                });
+                            } else {
+                                await api.createRole(roleData);
+                            }
+                        }
+                        ui.toast('Import completed successfully.', 'success');
+                        load();
+                    } catch (err) {
+                        ui.toast(`Import failed: ${err.message || err}`, 'error');
+                    }
+                };
+                reader.readAsText(file);
+            };
+            input.click();
+        }, [catalog, roles, api, load, ui]);
+
         React.useEffect(() => {
             load();
-            // Refresh is the ONLY rail task — no Save participation (the panel
-            // never calls setSave, so it can't trip the settings dirty tracking).
-            setTasks('Role-Based Access Control Tasks', [
-                ui.taskButton('Refresh', 'refresh', () => load(), { task: 'doRefresh', group: RBAC_GROUP })
-            ]);
-        }, [load, setTasks]);
+        }, [load]);
 
-        const canManage = platform.checkTask(RBAC_GROUP, 'doSave');
+        React.useEffect(() => {
+            const tasks = [
+                ui.taskButton('Refresh', 'refresh', () => load(), { task: 'doRefresh', group: RBAC_GROUP })
+            ];
+            if (canManage) {
+                tasks.push(
+                    ui.taskButton('Export XML', 'export', () => exportXml(), { task: 'doRefresh', group: RBAC_GROUP }),
+                    ui.taskButton('Import XML', 'import', () => importXml(), { task: 'doSave', group: RBAC_GROUP })
+                );
+            }
+            setTasks('Role-Based Access Control Tasks', tasks);
+        }, [setTasks, canManage, exportXml, importXml, load, ui]);
+
         const channelMap = React.useMemo(
             () => new Map(channels.map((c) => [c.id, c.name])), [channels]);
         const selectedRole = roles.find((r) => String(r.id) === String(selectedRoleId)) || null;
