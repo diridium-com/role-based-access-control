@@ -207,11 +207,12 @@ public class RbacServlet extends MirthServlet implements RbacServletInterface {
      * <p>Delegates to {@link RoleTransferService#importRoles}.</p>
      */
     @Override
-    public RoleImportResult importRoles(String file, boolean dryRun, boolean applyChannels, List<Integer> pick,
-            String planToken) throws ClientException {
+    public RoleImportResult importRoles(String file, boolean dryRun, boolean applyChannels,
+            boolean matchChannelsByName, List<Integer> pick, String planToken) throws ClientException {
         requireMigrationOk();
         try {
-            return transferService.importRoles(callerIsAdmin(), file, dryRun, applyChannels, pick, planToken);
+            return transferService.importRoles(callerIsAdmin(), file, dryRun, applyChannels, matchChannelsByName, pick,
+                    planToken);
         } catch (MirthApiException e) {
             throw e;
         } catch (Exception e) {

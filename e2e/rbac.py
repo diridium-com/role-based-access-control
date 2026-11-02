@@ -185,9 +185,11 @@ def export_roles(api, role_ids=()):
     return api.request("GET", RBAC + "/roles/_export", query=query, accept="text/plain")
 
 
-def import_roles(api, text, dry_run=True, apply_channels=True, pick=(), token=None):
+def import_roles(api, text, dry_run=True, apply_channels=True, pick=(), token=None, match_by_name=False):
     """(status, text) of an import preview (dry_run) or apply."""
     query = {"dryRun": "true" if dry_run else "false", "applyChannels": "true" if apply_channels else "false"}
+    if match_by_name:
+        query["matchChannelsByName"] = "true"
     if pick:
         query["pick"] = list(pick)
     if token:
@@ -210,8 +212,8 @@ def parse_export(text):
 
 
 def parse_import(text):
-    """An import result: importable, refusal, applied, token, and rows by name (action, reason, channels,
-    dropped permissions, unmatched channels, and what an overwrite changes)."""
+    """An import result: importable, refusal, applied, token, rows by name (action, reason, channels, dropped
+    permissions, unmatched channels, and what an overwrite changes), and the channels matched by name."""
     root = ET.fromstring(text)
     holder = root.find("rows")
     rows = {}
@@ -229,8 +231,12 @@ def parse_import(text):
             "added_channels": [s.text for s in el.findall("addedChannels/string")],
             "removed_channels": [s.text for s in el.findall("removedChannels/string")],
         }
+    holder = root.find("channelNameMatches")
+    matches = [{"name": el.findtext("name"), "file_id": el.findtext("fileChannelId"),
+                "channel_id": el.findtext("channelId")} for el in (holder if holder is not None else [])]
     return {"importable": root.findtext("importable") == "true", "refusal": root.findtext("refusal"),
-            "applied": root.findtext("applied") == "true", "token": root.findtext("planToken"), "rows": rows}
+            "applied": root.findtext("applied") == "true", "token": root.findtext("planToken"), "rows": rows,
+            "matches": matches, "match_by_name": root.findtext("matchChannelsByName") == "true"}
 
 
 def role_file(roles, format_version="1"):

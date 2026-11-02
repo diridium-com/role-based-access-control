@@ -17,20 +17,24 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
+import com.mirth.connect.client.core.ExtensionOperation;
 import com.mirth.connect.client.core.Operation;
 import com.mirth.connect.client.core.Operation.ExecuteType;
 import com.mirth.connect.client.core.api.MirthApiException;
 import com.mirth.connect.model.ExtensionPermission;
+import com.mirth.connect.model.PluginMetaData;
 import com.mirth.connect.model.ServerEvent;
 import com.mirth.connect.server.controllers.ChannelAuthorizer;
 import com.mirth.connect.server.controllers.ChannelController;
 import com.mirth.connect.server.controllers.ConfigurationController;
 import com.mirth.connect.server.controllers.ControllerFactory;
 import com.mirth.connect.server.controllers.EventController;
+import com.mirth.connect.server.controllers.ExtensionController;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -54,6 +58,7 @@ import org.mockito.Mockito;
 class RbacAuthorizationControllerTest {
 
     private MockedStatic<ControllerFactory> mockedControllerFactory;
+    private ControllerFactory factory;
     private MockedStatic<RbacRepository> mockedRepo;
     private RbacRepository repo;
     private RbacAuthorizationController controller;
@@ -61,7 +66,7 @@ class RbacAuthorizationControllerTest {
 
     @BeforeEach
     void setUp() {
-        ControllerFactory factory = mock(ControllerFactory.class);
+        factory = mock(ControllerFactory.class);
         eventController = mock(EventController.class);
         when(factory.createEventController()).thenReturn(eventController);
         when(factory.createChannelController()).thenReturn(mock(ChannelController.class));
@@ -375,6 +380,74 @@ class RbacAuthorizationControllerTest {
         givenUserHasRole(2, 5, Set.of(), null, true);
         assertTrue(controller.isUserAuthorized(2, op(plugin + "#exportRoles"), null, "127.0.0.1", false));
         assertTrue(controller.isUserAuthorized(2, op(plugin + "#importRoles"), null, "127.0.0.1", false));
+    }
+
+    // ========== isUserAuthorized: the engine's plugin-settings calls ==========
+
+    private static ExtensionOperation settingsCall(String extensionName, String operation) {
+        return new ExtensionOperation(extensionName, operation, operation, ExecuteType.SYNC, true);
+    }
+
+    private void givenInstalledPlugins(String... names) {
+        ExtensionController extensions = mock(ExtensionController.class);
+        Map<String, PluginMetaData> plugins = new HashMap<>();
+        for (String name : names) {
+            plugins.put(name, mock(PluginMetaData.class));
+        }
+        when(extensions.getPluginMetaData()).thenReturn(plugins);
+        when(extensions.getConnectorMetaData()).thenReturn(Map.of());
+        when(factory.createExtensionController()).thenReturn(extensions);
+    }
+
+    @Test
+    void pluginSettings_refuseANonAdmin_rbacsOwnAndANameNotInstalled_andAuditTheRefusal() {
+        givenInstalledPlugins("Data Pruner", RbacServletInterface.PLUGIN_NAME);
+        givenUserHasRole(2, 5, Set.of("viewChannels"), null);
+
+        MirthApiException e = assertThrows(MirthApiException.class, () -> controller.isUserAuthorized(2,
+                settingsCall(RbacServletInterface.PLUGIN_NAME, "setPluginProperties"), Map.of(), "127.0.0.1", true));
+        assertEquals(403, e.getResponse().getStatus());
+        assertEquals("Changing rbac's settings needs the admin role.",
+                e.getResponse().getStatusInfo().getReasonPhrase());
+        // Measured on MySQL: "data pruner" read and changed Data Pruner's settings past its permission.
+        e = assertThrows(MirthApiException.class, () -> controller.isUserAuthorized(2,
+                settingsCall("data pruner", "setPluginProperties"), Map.of(), "127.0.0.1", true));
+        assertEquals("There's no installed extension named 'data pruner'.",
+                e.getResponse().getStatusInfo().getReasonPhrase());
+
+        ArgumentCaptor<ServerEvent> events = ArgumentCaptor.forClass(ServerEvent.class);
+        verify(eventController, times(2)).dispatchEvent(events.capture());
+        for (ServerEvent event : events.getAllValues()) {
+            assertEquals(ServerEvent.Outcome.FAILURE, event.getOutcome(), "the refusal is audited, not a success");
+        }
+    }
+
+    @Test
+    void pluginSettings_anInstalledExtensionsExactName_takesTheUsualPath() throws Exception {
+        givenInstalledPlugins("Data Pruner", "Thread Viewer");
+        controller.addExtensionPermission(new ExtensionPermission(
+                "Data Pruner", "View Settings", "desc", new String[]{"getPluginProperties"}, new String[]{}));
+        givenUserHasRole(2, 5, Set.of("viewChannels"), null);
+        MirthApiException e = assertThrows(MirthApiException.class, () -> controller.isUserAuthorized(2,
+                settingsCall("Data Pruner", "getPluginProperties"), null, "127.0.0.1", false));
+        assertEquals("Missing permission: View Settings", e.getResponse().getStatusInfo().getReasonPhrase());
+        // A plugin that registers no permission for the call is still allowed by its exact name.
+        assertTrue(controller.isUserAuthorized(2, settingsCall("Thread Viewer", "getPluginProperties"), null,
+                "127.0.0.1", false));
+
+        givenUserHasRole(3, 6, Set.of("View Settings"), null);
+        assertTrue(controller.isUserAuthorized(3, settingsCall("Data Pruner", "getPluginProperties"), null,
+                "127.0.0.1", false));
+    }
+
+    @Test
+    void pluginSettings_allowTheAdminRole_whateverTheName() throws Exception {
+        givenInstalledPlugins("Data Pruner", RbacServletInterface.PLUGIN_NAME);
+        givenUserHasRole(2, 5, Set.of(), null, true);
+        assertTrue(controller.isUserAuthorized(2, settingsCall(RbacServletInterface.PLUGIN_NAME, "getPluginProperties"),
+                null, "127.0.0.1", false));
+        assertTrue(controller.isUserAuthorized(2, settingsCall("data pruner", "setPluginProperties"), null,
+                "127.0.0.1", false));
     }
 
     // ========== isUserAuthorized: self-user-edit carve-out ==========

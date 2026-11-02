@@ -26,9 +26,11 @@ public class RoleImportResult implements Serializable {
     private String sourceRbacVersion;
     private String sourceEngineVersion;
     private boolean applyChannels;
+    private boolean matchChannelsByName;
     private boolean applied;
     private String planToken;
     private List<RoleImportRow> rows = new ArrayList<>();
+    private List<ChannelNameMatch> channelNameMatches = new ArrayList<>();
 
     public boolean isImportable() {
         return importable;
@@ -83,6 +85,15 @@ public class RoleImportResult implements Serializable {
         this.applyChannels = applyChannels;
     }
 
+    /** @return whether a channel whose id isn't on this engine is matched by its name */
+    public boolean isMatchChannelsByName() {
+        return matchChannelsByName;
+    }
+
+    public void setMatchChannelsByName(boolean matchChannelsByName) {
+        this.matchChannelsByName = matchChannelsByName;
+    }
+
     /** @return {@code true} once the picked rows have been written; {@code false} for a dry run */
     public boolean isApplied() {
         return applied;
@@ -106,5 +117,18 @@ public class RoleImportResult implements Serializable {
 
     public void setRows(List<RoleImportRow> rows) {
         this.rows = rows;
+    }
+
+    /**
+     * @return the file's channels that match a channel here only by name, in file order,
+     *         whether or not they are used; empty when the file's channel restrictions
+     *         aren't applied
+     */
+    public List<ChannelNameMatch> getChannelNameMatches() {
+        return channelNameMatches;
+    }
+
+    public void setChannelNameMatches(List<ChannelNameMatch> channelNameMatches) {
+        this.channelNameMatches = channelNameMatches;
     }
 }
