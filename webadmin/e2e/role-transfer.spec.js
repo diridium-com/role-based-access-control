@@ -146,7 +146,8 @@ test.describe('Export Roles', () => {
         await mockEngineWithRbac(page, rbacFixtures({ roles: [ADMIN_ROLE] }));
         await page.goto('/settings');
         await page.getByRole('tab', { name: 'Role-Based Access Control', exact: true }).click();
-        await expect(page.getByRole('cell', { name: 'Administrator', exact: true })).toBeVisible();
+        // The roles table comes first; once users load, their Role column says Administrator too.
+        await expect(page.getByRole('cell', { name: 'Administrator', exact: true }).first()).toBeVisible();
         await task(page, 'Export Roles').click();
         await expect(toast(page, 'There are no roles to export. The admin role is never exported.')).toBeVisible();
         await expect(dialog(page, 'Export Roles')).toHaveCount(0);
