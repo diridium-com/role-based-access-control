@@ -51,6 +51,10 @@ export async function mockEngine(page, overrides = {}) {
             return route.fulfill({ status: 200, contentType: 'text/plain', body: fx });
         }
         if (fx && fx.__status) {
+            // A string body is the engine's plain-text error (a 409 or 400 reason).
+            if (typeof fx.body === 'string') {
+                return route.fulfill({ status: fx.__status, contentType: 'text/plain', body: fx.body });
+            }
             return route.fulfill({ status: fx.__status, contentType: 'application/json', body: JSON.stringify(fx.body ?? {}) });
         }
         return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(fx) });

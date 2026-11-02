@@ -102,3 +102,24 @@ The steps for a move are in [role-export-format.md](role-export-format.md#moving
 - An import of a file exported on Derby (`e2e/fixtures/roles-from-derby.xml`, made by `e2e/make_derby_roles_fixture.py`), on every database: its channels are listed as matches by name and not used until the import matches channels by name, then its roles come in with this engine's channel ids. "e2e Derby Lab" and "e2e Derby LAB" are both written on Derby, PostgreSQL and Oracle, and refused with the reason on MySQL and SQL Server, where the rest goes in without one of them.
 - After each upgrade, the old release's restricted role is exported, deleted and imported back with its channel.
 - The plugin-settings calls as a read-only user: rbac's own settings, and Data Pruner's and rbac's under other cases and with a trailing space.
+
+## 2026-11-02: Export Roles and Import Roles in both Administrators
+
+Users holding the admin role get Export Roles and Import Roles on the Role-Based Access Control settings tab, in the desktop and the web Administrator, with the same dialogs and wording. Export picks the roles and saves the server's file as is. Import previews the file, lets the user pick roles, and has two tick boxes: "Apply channel restrictions from the file" and, under it, "Also match channels by name when the id isn't found". Changing either previews again, and a row keeps the user's tick when it is still the same role with the same action. A failed import shows the server's message and previews again.
+
+**Who sees the buttons.** There is no permission for them, so a client has to know whether the signed-in user holds the admin role, and the permission list can't tell (an admin's list looks like a user granted everything). Measured on OIE 4.7.0: rbac's `GET /users/{id}/role` for the user's own id answers the role with its `isAdmin` flag for the admin and for a View Roles user, and 403 for a user without View Roles, who can't be an admin and can't open the tab. So each Administrator asks it once with the permissions, only for a user holding View Roles. The gating sits in the authorization controllers, not in the panel: the Swing frame runs the controller again whenever it shows a panel's tasks, so a panel hiding its own buttons would be undone.
+
+**Why the Swing controller registers rbac's classes itself.** The Swing Administrator builds rbac's authorization controller and loads its permissions before it constructs the rbac plugin, which is where rbac's classes are allowed through the client's XStream serializer. The admin lookup is the first call there that returns one of rbac's classes. Measured on OIE 4.7.0 before the fix: the lookup's `Role` was refused, and the refusal stayed for the session, so the RBAC tab's own role list failed with `ForbiddenClassException` for every user and the buttons stayed hidden. The same run against main's build opened the tab cleanly. So `RbacClientPlugin.allowModelTypes()` runs in the controller before the lookup as well as in the plugin's constructor; adding the same pattern twice is harmless.
+
+**The file is plain XML.** The Swing Administrator writes it as UTF-8 itself. The engine's own export helper encrypts the file when the engine's export encryption is on, which would make it unreadable on another engine.
+
+**What the web client receives.** The engine's JSON turns a list of one into a bare object or string, an empty list into `null`, and the format version into a number. `normalizeImportResult` in `rbac-api.js` is the only place that knows; its tests use the answers a real engine gave.
+
+### Tests
+
+- Unit tests for the gating, the wording and the default ticks on both sides, and the web parsing against captured answers. Playwright, against the web client CI pins, covers who sees the buttons, export, the preview, the two tick boxes, picks, a failed import and a refused file.
+- On a real OIE 4.7.0 engine: the Swing Administrator driven in-process under xvfb (it needs a Java with JavaFX), and the web Administrator through Web Support 1.2.1 in headless Chromium, as the admin and as a View Roles user. As the admin, both exported, imported the Derby roles file with matching by name, showed the refusal when a role was created behind the preview, and imported after the fresh preview, keeping the ticks; the server then held the new roles with this engine's channel ids. The View Roles user saw neither button.
+
+### Not covered
+
+- The Swing Administrator is not driven in CI. Its check runs on the VM before a release. The class-registration order above is covered only by that check.

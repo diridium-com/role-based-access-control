@@ -7,9 +7,13 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Proxy;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import com.diridium.rbac.RbacServletInterface;
+import com.diridium.rbac.Role;
+import com.mirth.connect.client.core.ClientException;
 import com.mirth.connect.client.core.TaskConstants;
 
 import org.junit.jupiter.api.Test;
@@ -260,7 +264,113 @@ class SecureAuthorizationControllerTest {
         assertTrue(c.checkTask("any", "unrecognized-task"));
     }
 
+    // ========== Admin-only tasks (Export Roles, Import Roles) ==========
+
+    private static final String RBAC_GROUP = TaskConstants.SETTINGS_KEY_PREFIX + "Role-Based Access Control";
+
+    @Test
+    void checkTask_exportAndImportRoles_followTheAdminFlag() throws Exception {
+        SecureAuthorizationController admin = withPermissions(Set.of(RbacServletInterface.PERMISSION_VIEW));
+        setField(admin, "adminRole", true);
+        assertTrue(admin.checkTask(RBAC_GROUP, "doExportRoles"));
+        assertTrue(admin.checkTask(RBAC_GROUP, "doImportRoles"));
+
+        // Holding every permission (View and Manage Roles) is not the admin role.
+        SecureAuthorizationController notAdmin = withPermissions(
+                Set.of(RbacServletInterface.PERMISSION_VIEW, RbacServletInterface.PERMISSION_MANAGE));
+        assertFalse(notAdmin.checkTask(RBAC_GROUP, "doExportRoles"));
+        assertFalse(notAdmin.checkTask(RBAC_GROUP, "doImportRoles"));
+    }
+
+    @Test
+    void checkTask_adminOnlyTasks_areOnlyTheRbacGroupsTwo() throws Exception {
+        SecureAuthorizationController notAdmin = withPermissions(Set.of());
+        // Same task names in another group fall through to "unknown task, allow".
+        assertTrue(notAdmin.checkTask("settings_Other Plugin", "doExportRoles"));
+        // The panel's other tasks are unchanged.
+        assertFalse(notAdmin.checkTask(RBAC_GROUP, TaskConstants.SETTINGS_REFRESH));
+    }
+
+    @Test
+    void checkTask_adminFlagDoesNotOverrideFailClosed() throws Exception {
+        SecureAuthorizationController c = new SecureAuthorizationController();
+        setField(c, "adminRole", true);
+        setField(c, "loaded", true);
+        // permissions never loaded
+        assertFalse(c.checkTask(RBAC_GROUP, "doExportRoles"));
+    }
+
+    @Test
+    void loadAdminFlag_adminRole_true() {
+        Role admin = new Role();
+        admin.setAdmin(true);
+        AtomicInteger askedFor = new AtomicInteger(-1);
+        assertTrue(new SecureAuthorizationController().loadAdminFlag(
+                Set.of(RbacServletInterface.PERMISSION_VIEW), rbacReturning(admin, askedFor), () -> 7));
+        org.junit.jupiter.api.Assertions.assertEquals(7, askedFor.get());
+    }
+
+    @Test
+    void loadAdminFlag_nonAdminOrNoRole_false() {
+        Set<String> view = Set.of(RbacServletInterface.PERMISSION_VIEW);
+        assertFalse(new SecureAuthorizationController().loadAdminFlag(
+                view, rbacReturning(new Role(), new AtomicInteger()), () -> 2));
+        assertFalse(new SecureAuthorizationController().loadAdminFlag(
+                view, rbacReturning(null, new AtomicInteger()), () -> 2));
+    }
+
+    @Test
+    void loadAdminFlag_withoutViewRoles_doesNotCallTheServer() {
+        AtomicInteger calls = new AtomicInteger();
+        RbacServletInterface rbac = (RbacServletInterface) Proxy.newProxyInstance(
+                getClass().getClassLoader(), new Class<?>[] {RbacServletInterface.class},
+                (proxy, method, args) -> {
+                    calls.incrementAndGet();
+                    return null;
+                });
+        SecureAuthorizationController c = new SecureAuthorizationController();
+        assertFalse(c.loadAdminFlag(Set.of("viewChannels"), rbac, () -> {
+            calls.incrementAndGet();
+            return 1;
+        }));
+        assertFalse(c.loadAdminFlag(null, rbac, () -> 1));
+        org.junit.jupiter.api.Assertions.assertEquals(0, calls.get());
+    }
+
+    @Test
+    void loadAdminFlag_getUserRoleFails_falseAndNoException() {
+        RbacServletInterface rbac = (RbacServletInterface) Proxy.newProxyInstance(
+                getClass().getClassLoader(), new Class<?>[] {RbacServletInterface.class},
+                (proxy, method, args) -> {
+                    throw new ClientException("Method failed: HTTP/1.1 404 Not Found");
+                });
+        assertFalse(new SecureAuthorizationController().loadAdminFlag(
+                Set.of(RbacServletInterface.PERMISSION_VIEW), rbac, () -> 1));
+    }
+
+    @Test
+    void loadAdminFlag_currentUserLookupFails_false() {
+        assertFalse(new SecureAuthorizationController().loadAdminFlag(
+                Set.of(RbacServletInterface.PERMISSION_VIEW),
+                rbacReturning(new Role(), new AtomicInteger()),
+                () -> {
+                    throw new ClientException("no current user");
+                }));
+    }
+
     // ========== Helpers ==========
+
+    private RbacServletInterface rbacReturning(Role role, AtomicInteger askedFor) {
+        return (RbacServletInterface) Proxy.newProxyInstance(
+                getClass().getClassLoader(), new Class<?>[] {RbacServletInterface.class},
+                (proxy, method, args) -> {
+                    if (method.getName().equals("getUserRole")) {
+                        askedFor.set((Integer) args[0]);
+                        return role;
+                    }
+                    throw new UnsupportedOperationException(method.getName());
+                });
+    }
 
     private SecureAuthorizationController withPermissions(Set<String> perms) throws Exception {
         SecureAuthorizationController c = new SecureAuthorizationController();

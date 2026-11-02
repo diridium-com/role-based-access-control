@@ -228,6 +228,19 @@ export const GROUP_TASK_PERMISSIONS = {
 };
 
 /**
+ * "taskGroup/taskName" composites that need the admin role, not a permission:
+ * Export Roles and Import Roles on the RBAC settings panel (the server refuses
+ * them to anyone without the admin role, and there is no permission to grant).
+ * checkTask answers them from the signed-in user's admin flag. Swing keeps its
+ * own set in SecureAuthorizationController; the order here matches the JSON's
+ * adminOnlyTasks.
+ */
+export const ADMIN_ONLY_TASKS = [
+    'settings_Role-Based Access Control/doExportRoles',
+    'settings_Role-Based Access Control/doImportRoles',
+];
+
+/**
  * Catalog identifiers (RBAC.md §3, as "taskGroup/taskName") that are known and
  * deliberately NOT mapped, so they fall through checkTask's unknown-task allow
  * branch. The map-completeness unit test requires every catalog identifier to
@@ -292,7 +305,8 @@ export function mergeExtensionTaskPermissions(extensionTaskPerms) {
  * platform.setAuthorizationController() — the web port of the Swing
  * controller's checkTask()/lazy-retry semantics.
  *
- * Resolution order: (1) GROUP_TASK_PERMISSIONS["group/task"]; (2)
+ * Resolution order: (0) an ADMIN_ONLY_TASKS composite answers the admin flag;
+ * (1) GROUP_TASK_PERMISSIONS["group/task"]; (2)
  * TASK_PERMISSIONS[task]; (3) unknown task — allow (the server enforces the
  * real check). If getPermissions() returns null/undefined the controller
  * fails closed (denies EVERYTHING, mapped or not) and fires reload()
@@ -303,11 +317,13 @@ export function mergeExtensionTaskPermissions(extensionTaskPerms) {
  * @param {object} deps
  * @param {() => (Set<string>|string[]|null)} deps.getPermissions the user's
  *        loaded permission set, or null while it could not be loaded
+ * @param {() => boolean} [deps.getIsAdmin] whether the signed-in user holds the
+ *        admin role; answers ADMIN_ONLY_TASKS (absent = not an admin)
  * @param {() => (void|Promise<void>)} [deps.reload] re-fetches permissions;
  *        fired fire-and-forget from the fail-closed path
  * @returns {{ checkTask(taskGroup: string, taskName: string): boolean }}
  */
-export function createController({ getPermissions, reload }) {
+export function createController({ getPermissions, getIsAdmin, reload }) {
     let lastReloadAttemptMs = 0;
     return {
         checkTask(taskGroup, taskName) {
@@ -324,6 +340,9 @@ export function createController({ getPermissions, reload }) {
             }
 
             const composite = `${taskGroup}/${taskName}`;
+            if (ADMIN_ONLY_TASKS.includes(composite)) {
+                return typeof getIsAdmin === 'function' && getIsAdmin() === true;
+            }
             let required;
             if (Object.hasOwn(GROUP_TASK_PERMISSIONS, composite)) {
                 required = GROUP_TASK_PERMISSIONS[composite];

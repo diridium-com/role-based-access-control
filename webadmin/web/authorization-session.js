@@ -12,6 +12,7 @@ export async function registerAuthorization(platform, api, registerRoles) {
     const owner = userKey(platform.store.getState('user'));
     let active = owner !== null;
     let permissions = null;
+    let isAdmin = false;
     let panelRegistered = false;
     let inFlight = null;
     let retryTimer = null;
@@ -31,6 +32,7 @@ export async function registerAuthorization(platform, api, registerRoles) {
         if (userKey(user) !== owner) {
             active = false;
             permissions = null;
+            isAdmin = false;
             clearRetry();
             unsubscribe?.();
         }
@@ -45,6 +47,20 @@ export async function registerAuthorization(platform, api, registerRoles) {
                 api.getMyPermissions(),
                 api.getExtensionTaskPermissions()
             ]);
+            // Export and Import Roles are for the admin role only. Only a user
+            // holding View Roles can be one (an admin holds every permission),
+            // so nobody else is asked. A failure here means "not an admin": it
+            // never fails the permission load.
+            let admin = false;
+            const userId = platform.store.getState('user')?.id;
+            if (perms.has(PERMISSION_VIEW) && isCurrent() && userId != null) {
+                try {
+                    const role = await api.getUserRole(userId);
+                    admin = !!role && role.isAdmin === true;
+                } catch (e) {
+                    console.warn('[rbac] could not read the current user\'s role - treating as not an admin:', e);
+                }
+            }
             // Neither the permissions nor extension mappings may cross a
             // session boundary or be applied from a partially successful load.
             if (!isCurrent()) return;
@@ -54,6 +70,7 @@ export async function registerAuthorization(platform, api, registerRoles) {
                 panelRegistered = true;
             }
             permissions = perms;
+            isAdmin = admin;
             if (notify) {
                 // Settings definitions, navigation and tasks must all observe
                 // a Roles panel registered during recovery without a reload.
@@ -90,6 +107,7 @@ export async function registerAuthorization(platform, api, registerRoles) {
     }
     platform.setAuthorizationController(createController({
         getPermissions: () => isCurrent() ? permissions : null,
+        getIsAdmin: () => isCurrent() && isAdmin,
         reload: () => fetchPermissions(true)
     }));
 }

@@ -11,8 +11,10 @@
  * never participates in the settings view's Save/dirty tracking (it registers
  * no save()), and says so up front via the italic notice.
  *
- * Task pane = Refresh only (settings_Role-Based Access Control/doRefresh →
- * "View Roles"); the Add/Edit/Delete and Assign/Remove buttons are gated on
+ * Task pane = Refresh (settings_Role-Based Access Control/doRefresh →
+ * "View Roles") plus Export Roles and Import Roles, shown to the admin role
+ * only (the controller answers doExportRoles/doImportRoles from the admin
+ * flag; see role-transfer.jsx); the Add/Edit/Delete and Assign/Remove buttons are gated on
  * checkTask(…, 'doSave') → "Manage Roles" (the Config Map Add Row precedent).
  * When the users list is denied (listing users needs manageUsers, which a
  * View-Roles-only user lacks) the roles table still renders and the
@@ -26,10 +28,12 @@ import {
     MSG_NO_ROLES, deleteRoleConfirmText, TITLE_CONFIRM_DELETE,
     removeRoleConfirmText, TITLE_CONFIRM_REMOVE, assignRolePromptText,
     TITLE_ASSIGN_ROLE, buildAssignmentPreview, ASSIGN_PREVIEW_HEADER,
-    ASSIGN_PREVIEW_FOOTER, TITLE_CONFIRM_ASSIGNMENT
+    ASSIGN_PREVIEW_FOOTER, TITLE_CONFIRM_ASSIGNMENT,
+    TASK_EXPORT_ROLES, TASK_EXPORT_ROLES_TOOLTIP, TASK_IMPORT_ROLES, TASK_IMPORT_ROLES_TOOLTIP
 } from './rbac-core.js';
 import { mapEntries } from './rbac-api.js';
 import { makeRoleEditor } from './role-editor.jsx';
+import { makeRoleTransfer } from './role-transfer.jsx';
 
 const RBAC_GROUP = 'settings_Role-Based Access Control';
 
@@ -37,6 +41,7 @@ export function registerRolesPanel(platform, api) {
     const React = platform.React;
     const ui = platform.ui;
     const RoleEditor = makeRoleEditor(platform);
+    const { startExport, startImport, TransferDialogs } = makeRoleTransfer(platform, api);
 
     /* Role picker for Assign Role (Swing's showInputDialog with the role-name
        combo). Resolves the chosen role id, or null on cancel. */
@@ -91,8 +96,11 @@ export function registerRolesPanel(platform, api) {
         const [selectedRoleId, setSelectedRoleId] = React.useState(null);
         const [selectedUserId, setSelectedUserId] = React.useState(null);
         const [editor, setEditor] = React.useState(null);         // { role: Role|null } while open
+        const [transfer, setTransfer] = React.useState(null);     // export/import dialog value while open
         const [loading, setLoading] = React.useState(true);
 
+        const rolesRef = React.useRef(roles); // the export task reads the latest list
+        rolesRef.current = roles;
         const loadingRef = React.useRef(false);
         const pendingRef = React.useRef(false);
 
@@ -161,10 +169,15 @@ export function registerRolesPanel(platform, api) {
 
         React.useEffect(() => {
             load();
-            // Refresh is the ONLY rail task — no Save participation (the panel
-            // never calls setSave, so it can't trip the settings dirty tracking).
+            // No Save participation (the panel never calls setSave, so it can't
+            // trip the settings dirty tracking). Export and Import Roles are
+            // for the admin role only; the controller hides them from anyone else.
             setTasks('Role-Based Access Control Tasks', [
-                ui.taskButton('Refresh', 'refresh', () => load(), { task: 'doRefresh', group: RBAC_GROUP })
+                ui.taskButton('Refresh', 'refresh', () => load(), { task: 'doRefresh', group: RBAC_GROUP }),
+                ui.taskButton(TASK_EXPORT_ROLES, 'export', () => setTransfer(startExport(rolesRef.current)),
+                    { task: 'doExportRoles', group: RBAC_GROUP, title: TASK_EXPORT_ROLES_TOOLTIP }),
+                ui.taskButton(TASK_IMPORT_ROLES, 'import', async () => setTransfer(await startImport()),
+                    { task: 'doImportRoles', group: RBAC_GROUP, title: TASK_IMPORT_ROLES_TOOLTIP })
             ]);
         }, [load, setTasks]);
 
@@ -358,6 +371,11 @@ export function registerRolesPanel(platform, api) {
                         onApply={applyEditor}
                         onCancel={() => setEditor(null)} />
                 ) : null}
+
+                <TransferDialogs
+                    transfer={transfer}
+                    onClose={() => setTransfer(null)}
+                    onImported={() => { setTransfer(null); load(); }} />
             </div>
         );
     }

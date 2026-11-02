@@ -81,6 +81,73 @@ export function normalizeRole(raw) {
     };
 }
 
+/* ---- import preview/apply result ------------------------------------------- */
+
+const RESULT_FQCN = 'com.diridium.rbac.RoleImportResult';
+const ROW_FQCN = 'com.diridium.rbac.RoleImportRow';
+const MATCH_FQCN = 'com.diridium.rbac.ChannelNameMatch';
+
+// A List<String> after the host's unwrap: null when empty, {string:'x'} for one
+// element, {string:[...]} for several. Order is kept (the server sorts them).
+function stringList(v) {
+    if (v && typeof v === 'object' && !Array.isArray(v)) v = v.string;
+    return toArray(v).map(String);
+}
+
+// A List<Bean> after the host's unwrap: null when empty, {<FQCN>: bean} for one
+// element, {<FQCN>: [beans]} for several.
+function beanList(v, fqcn) {
+    if (v && typeof v === 'object' && !Array.isArray(v) && v[fqcn] !== undefined) v = v[fqcn];
+    return toArray(v).filter((x) => x && typeof x === 'object');
+}
+
+const text = (v) => (v === undefined || v === null ? '' : String(v));
+
+function normalizeImportRow(raw) {
+    return {
+        index: Number(raw.index),
+        name: text(raw.name),
+        action: text(raw.action),
+        reason: text(raw.reason),
+        droppedPermissions: stringList(raw.droppedPermissions),
+        unmatchedChannels: stringList(raw.unmatchedChannels),
+        matchedChannelCount: Number(raw.matchedChannelCount) || 0,
+        channels: text(raw.channels),
+        descriptionChanged: raw.descriptionChanged === true || raw.descriptionChanged === 'true',
+        addedPermissions: stringList(raw.addedPermissions),
+        removedPermissions: stringList(raw.removedPermissions),
+        addedChannels: stringList(raw.addedChannels),
+        removedChannels: stringList(raw.removedChannels)
+    };
+}
+
+/* Turn a RoleImportResult (after the host's unwrap of its root key) into a plain
+   shape: lists are always arrays of plain strings or plain objects, formatVersion
+   and the version strings are strings, flags are booleans. This is the only
+   place that knows the wire quirks (a one-element list arrives as a bare
+   object or string, an empty list as null, formatVersion as a number). */
+export function normalizeImportResult(raw) {
+    if (raw && typeof raw === 'object' && raw[RESULT_FQCN] !== undefined) raw = raw[RESULT_FQCN];
+    if (!raw || typeof raw !== 'object') raw = {};
+    return {
+        importable: raw.importable === true || raw.importable === 'true',
+        refusal: text(raw.refusal),
+        formatVersion: text(raw.formatVersion),
+        sourceRbacVersion: text(raw.sourceRbacVersion),
+        sourceEngineVersion: text(raw.sourceEngineVersion),
+        applyChannels: raw.applyChannels === true || raw.applyChannels === 'true',
+        matchChannelsByName: raw.matchChannelsByName === true || raw.matchChannelsByName === 'true',
+        applied: raw.applied === true || raw.applied === 'true',
+        planToken: text(raw.planToken),
+        rows: beanList(raw.rows, ROW_FQCN).map(normalizeImportRow),
+        channelNameMatches: beanList(raw.channelNameMatches, MATCH_FQCN).map((m) => ({
+            name: text(m.name),
+            fileChannelId: text(m.fileChannelId),
+            channelId: text(m.channelId)
+        }))
+    };
+}
+
 /* ---- XStream XML writes ----------------------------------------------------- */
 
 function escapeXml(s) {
@@ -111,7 +178,7 @@ export function roleXml(role, { includeId = false } = {}) {
     return `<${ROLE_FQCN}>${parts.join('')}</${ROLE_FQCN}>`;
 }
 
-/* ---- REST client (the 11 servlet endpoints) --------------------------------- */
+/* ---- REST client (the servlet endpoints) --------------------------------- */
 
 export function makeApi(api) {
     // Roles come back {list:{'com.diridium.rbac.Role':[...]}}; tolerate an
@@ -137,6 +204,17 @@ export function makeApi(api) {
         // Permission discovery
         getAvailablePermissions: async () => stringSet(await api.get(`${EXT}/permissions`)),
         getMyPermissions: async () => stringSet(await api.get(`${EXT}/my-permissions`)),
+        // Export: the file as the server wrote it (text/plain), byte for byte.
+        exportRoles: (roleIds) =>
+            api.get(`${EXT}/roles/_export`, { roleId: [...roleIds] }, { raw: true }),
+        // Import: the file as a text/plain body. dryRun previews; an apply also
+        // needs pick (the rows' index values) and the preview's planToken. A
+        // 409/400 comes back as an Error whose message is the server's text.
+        importRoles: async (file, { dryRun, applyChannels, matchChannelsByName, pick, planToken }) =>
+            normalizeImportResult(await api.post(`${EXT}/roles/_import`, file, {
+                params: { dryRun, applyChannels, matchChannelsByName, pick, planToken },
+                contentType: 'text/plain'
+            })),
         getExtensionTaskPermissions: async () =>
             Object.fromEntries(mapEntries(await api.get(`${EXT}/task-permissions`))),
         // Permission display name -> publishing plugin name; drives the

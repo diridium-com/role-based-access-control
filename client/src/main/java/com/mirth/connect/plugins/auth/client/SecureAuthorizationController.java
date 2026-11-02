@@ -10,7 +10,9 @@ import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.diridium.rbac.RbacClientPlugin;
 import com.diridium.rbac.RbacServletInterface;
+import com.diridium.rbac.Role;
 import com.mirth.connect.client.core.TaskConstants;
 import com.mirth.connect.client.ui.AuthorizationController;
 import com.mirth.connect.client.ui.PlatformUI;
@@ -42,6 +44,22 @@ public class SecureAuthorizationController implements AuthorizationController {
 
     private volatile Set<String> userPermissions;
     private volatile boolean loaded = false;
+
+    // Whether the signed-in user holds the admin role. Export Roles and Import Roles are
+    // gated on it, not on a permission. Loaded with the permissions; false when unknown.
+    private volatile boolean adminRole = false;
+
+    // Settings tasks only users holding the admin role may see (composite "group/task" keys).
+    // Web twin: "adminOnlyTasks" in webadmin/web/task-permission-map.json.
+    private static final Set<String> ADMIN_ONLY_TASKS = Set.of(
+            TaskConstants.SETTINGS_KEY_PREFIX + RbacServletInterface.PLUGIN_NAME + "/doExportRoles",
+            TaskConstants.SETTINGS_KEY_PREFIX + RbacServletInterface.PLUGIN_NAME + "/doImportRoles");
+
+    /** Looks up the id of the signed-in user; a seam so tests need no running client. */
+    @FunctionalInterface
+    interface CurrentUserId {
+        int get() throws Exception;
+    }
 
     // Backoff for the lazy retry in checkTask. The engine calls checkTask once per task
     // component on the EDT for every view switch, so a persistently failing load (e.g. the
@@ -87,12 +105,38 @@ public class SecureAuthorizationController implements AuthorizationController {
             RbacServletInterface rbac = PlatformUI.MIRTH_FRAME.mirthClient.getServlet(RbacServletInterface.class);
             userPermissions = rbac.getMyPermissions();
             mergeExtensionTaskPermissions(rbac.getExtensionTaskPermissions());
+            // The engine calls this before it constructs RbacClientPlugin, which whitelists rbac's
+            // classes; the admin lookup reads a Role, so the whitelist has to come first.
+            RbacClientPlugin.allowModelTypes();
+            adminRole = loadAdminFlag(userPermissions, rbac,
+                    () -> PlatformUI.MIRTH_FRAME.mirthClient.getCurrentUser().getId());
             loaded = true;
             log.info("RBAC: Loaded {} permissions for current user", userPermissions.size());
         } catch (Exception e) {
             log.error("RBAC: Failed to load user permissions", e);
             userPermissions = null;
+            adminRole = false;
             loaded = false;
+        }
+    }
+
+    /**
+     * Whether the signed-in user holds the admin role. Asked only when the user holds
+     * "View Roles": admins hold every permission, and a user without it never sees the
+     * RBAC tab. Any failure counts as "not an admin" and is logged, so the rest of the
+     * permission load still counts.
+     */
+    boolean loadAdminFlag(Set<String> permissions, RbacServletInterface rbac, CurrentUserId currentUserId) {
+        if (permissions == null || !permissions.contains(RbacServletInterface.PERMISSION_VIEW)) {
+            return false;
+        }
+        try {
+            Role role = rbac.getUserRole(currentUserId.get());
+            return role != null && role.isAdmin();
+        } catch (Exception e) {
+            log.warn("RBAC: Could not tell whether the current user holds the admin role; "
+                    + "Export Roles and Import Roles stay hidden", e);
+            return false;
         }
     }
 
@@ -156,8 +200,14 @@ public class SecureAuthorizationController implements AuthorizationController {
             return false; // Fail-closed - permissions couldn't be loaded
         }
 
-        // Check group-specific mapping first (for settings panels with shared task names)
         String compositeKey = taskGroup + "/" + taskName;
+
+        // Export Roles and Import Roles: shown to the admin role only (not a permission)
+        if (ADMIN_ONLY_TASKS.contains(compositeKey)) {
+            return adminRole;
+        }
+
+        // Check group-specific mapping first (for settings panels with shared task names)
         String requiredPermission = groupTaskPermissionMap.get(compositeKey);
 
         // Fall back to task-name-only mapping
@@ -197,7 +247,10 @@ public class SecureAuthorizationController implements AuthorizationController {
      * {@code webadmin/web/task-permission-map.js}, with
      * {@code webadmin/web/task-permission-map.json} as the checked-in parity
      * artifact both sides can diff against. When a mapping here changes,
-     * change all three.</p>
+     * change all three. The admin-only tasks ({@code ADMIN_ONLY_TASKS}) are the
+     * third top-level entry of the JSON ({@code adminOnlyTasks}) and the web module's
+     * {@code ADMIN_ONLY_TASKS}; they are not permissions, so they are in none of
+     * these maps.</p>
      */
     private void buildPermissionMaps() {
         // ========== View Navigation ==========

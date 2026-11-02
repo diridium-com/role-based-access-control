@@ -19,6 +19,7 @@ import {
     RELOAD_BACKOFF_MS,
     mergeExtensionTaskPermissions,
     createController,
+    ADMIN_ONLY_TASKS,
 } from './task-permission-map.js';
 
 /* ---- helpers ---------------------------------------------------------------- */
@@ -257,4 +258,37 @@ test('Data Pruner permissions are independent of channel control and settings pe
             assert.equal(controller.checkTask('dashboard', task), permission === 'startStopChannels');
         }
     }
+});
+
+/* ---- admin-only tasks (Export Roles, Import Roles) ---------------------------- */
+
+const RBAC_GROUP = 'settings_Role-Based Access Control';
+const adminController = (permissions, isAdmin) =>
+    createController({ getPermissions: () => permissions, getIsAdmin: () => isAdmin });
+
+test('admin-only tasks answer the admin flag, whatever the permissions', () => {
+    assert.deepEqual(ADMIN_ONLY_TASKS, [`${RBAC_GROUP}/doExportRoles`, `${RBAC_GROUP}/doImportRoles`]);
+    for (const task of ['doExportRoles', 'doImportRoles']) {
+        const all = new Set(['View Roles', 'Manage Roles']);
+        assert.equal(adminController(all, true).checkTask(RBAC_GROUP, task), true, `${task} admin`);
+        assert.equal(adminController(all, false).checkTask(RBAC_GROUP, task), false, `${task} Manage Roles holder`);
+        assert.equal(adminController(new Set(), true).checkTask(RBAC_GROUP, task), true, `${task} admin, no permissions`);
+    }
+});
+
+test('admin-only tasks are denied without a getIsAdmin, and for a non-boolean answer', () => {
+    assert.equal(controllerFor(new Set(['View Roles'])).checkTask(RBAC_GROUP, 'doExportRoles'), false);
+    assert.equal(createController({ getPermissions: () => new Set(), getIsAdmin: () => 'yes' })
+        .checkTask(RBAC_GROUP, 'doImportRoles'), false);
+});
+
+test('the admin flag does not widen anything else, and the same task name elsewhere stays unknown-allowed', () => {
+    const admin = adminController(new Set(['View Roles']), true);
+    assert.equal(admin.checkTask(RBAC_GROUP, 'doSave'), false, 'Manage Roles is still a permission');
+    assert.equal(admin.checkTask('view', 'doShowDashboard'), false);
+    assert.equal(admin.checkTask('settings_Other', 'doExportRoles'), true, 'only the panel\'s composite is admin-only');
+});
+
+test('admin-only tasks fail closed while permissions are not loaded, even for an admin', () => {
+    assert.equal(adminController(null, true).checkTask(RBAC_GROUP, 'doExportRoles'), false);
 });

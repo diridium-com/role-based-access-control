@@ -19,6 +19,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
+import javax.swing.ImageIcon;
 import javax.swing.JButton;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
@@ -66,6 +67,7 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
 
     private JTable rolesTable;
     private JTable usersTable;
+    private final RoleTransferActions transfer;
 
     private List<Role> cachedRoles = new ArrayList<>();
     private List<User> cachedUsers = new ArrayList<>();
@@ -81,8 +83,17 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
     public RbacSettingsPanel(String tabName) {
         super(tabName);
         this.parent = PlatformUI.MIRTH_FRAME;
+        this.transfer = new RoleTransferActions(parent, this::doRefresh);
         initComponents();
+        addTask("doExportRoles", "Export Roles", "Export roles to a file.", "", new ImageIcon(Frame.class.getResource("images/report_go.png")));
+        addTask("doImportRoles", "Import Roles", "Import roles from a file.", "", new ImageIcon(Frame.class.getResource("images/report_disk.png")));
     }
+
+    /** Task callback: Export Roles. */
+    public void doExportRoles() { transfer.exportRoles(); }
+
+    /** Task callback: Import Roles. */
+    public void doImportRoles() { transfer.importRoles(); }
 
     private void initComponents() {
         setLayout(new BorderLayout());

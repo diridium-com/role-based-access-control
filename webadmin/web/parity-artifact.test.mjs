@@ -20,13 +20,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { TASK_PERMISSIONS, GROUP_TASK_PERMISSIONS } from './task-permission-map.js';
+import { TASK_PERMISSIONS, GROUP_TASK_PERMISSIONS, ADMIN_ONLY_TASKS } from './task-permission-map.js';
 
 const artifact = JSON.parse(
     readFileSync(new URL('./task-permission-map.json', import.meta.url), 'utf8'));
 
-test('artifact has exactly the two expected top-level objects', () => {
-    assert.deepEqual(Object.keys(artifact), ['taskPermissions', 'groupTaskPermissions']);
+test('artifact has exactly the three expected top-level entries, in order', () => {
+    assert.deepEqual(Object.keys(artifact), ['taskPermissions', 'groupTaskPermissions', 'adminOnlyTasks']);
 });
 
 test('taskPermissions equals TASK_PERMISSIONS exactly', () => {
@@ -50,5 +50,21 @@ test('every mapping value is a non-empty permission string', () => {
             assert.ok(typeof permission === 'string' && permission.length > 0,
                 `${name}["${task}"] must be a non-empty string`);
         }
+    }
+});
+
+test('adminOnlyTasks equals ADMIN_ONLY_TASKS exactly, in the same order', () => {
+    assert.deepEqual(artifact.adminOnlyTasks, ADMIN_ONLY_TASKS);
+    assert.deepEqual(artifact.adminOnlyTasks, [
+        'settings_Role-Based Access Control/doExportRoles',
+        'settings_Role-Based Access Control/doImportRoles',
+    ]);
+});
+
+test('an admin-only task is not also a permission mapping', () => {
+    for (const composite of artifact.adminOnlyTasks) {
+        assert.ok(composite.includes('/'), `"${composite}" must be a group/task composite`);
+        assert.ok(!Object.hasOwn(artifact.groupTaskPermissions, composite), `${composite} is permission-mapped`);
+        assert.ok(!Object.hasOwn(artifact.taskPermissions, composite.split('/')[1]), `${composite} is bare-mapped`);
     }
 });

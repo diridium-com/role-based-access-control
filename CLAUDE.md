@@ -45,6 +45,8 @@ Output: `package/target/rbac-1.2.0.zip`
 - `checkTask(taskGroup, taskName)` maps TaskConstants to permission strings; `Frame.setVisibleTasks()` calls this to hide/show buttons
 - `initialize()` calls `getMyPermissions()` REST endpoint; lazy retry on first `checkTask()` if initial load fails
 - Fail-closed: if permissions can't be loaded, tasks are denied
+- Export Roles and Import Roles (`settings_Role-Based Access Control/doExportRoles`, `/doImportRoles`) are admin-only tasks, not permissions: `checkTask` answers them from an admin flag loaded with the permissions (only when the user holds View Roles: the current user's id, then `getUserRole`; a failure means not admin). Gated in the controller, not the panel, because `Frame.setVisibleTasks` re-runs `checkTask` whenever it shows tasks. Web twin: `ADMIN_ONLY_TASKS` in `task-permission-map.js` and `adminOnlyTasks` in `task-permission-map.json`
+- The export and import flows live in `RoleTransferActions`, `RoleExportDialog`, `RoleImportDialog` and `RoleImportText` (wording, default ticks; web twin in `rbac-core.js`). The file is written as plain UTF-8, never through `Frame.exportFile`, which encrypts when export encryption is on
 
 ### Database
 - 4 tables: `rbac_role`, `rbac_role_permission`, `rbac_role_channel`, `rbac_user_role`
@@ -74,6 +76,7 @@ Output: `package/target/rbac-1.2.0.zip`
 ### XStream Serialization (CRITICAL)
 - Plugin DTOs MUST be whitelisted: `ObjectXMLSerializer.getInstance().allowTypes(emptyList, asList("com.diridium.rbac.**"), emptyList)`
 - Required on BOTH client (RbacClientPlugin constructor) AND server (RbacServicePlugin.start())
+- Client: `RbacClientPlugin.allowModelTypes()` also runs in `SecureAuthorizationController.loadPermissions` before the admin lookup. The engine builds the controller and loads permissions before it constructs the plugin, and a `Role` read before the whitelist stays refused for the session (measured: the RBAC tab's `getRoles` then failed for everyone)
 - Without this: `ForbiddenClassException` on any REST call returning plugin types
 
 ### `getMyPermissions()` endpoint
