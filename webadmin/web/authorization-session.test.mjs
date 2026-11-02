@@ -24,6 +24,8 @@ function harness(t) {
     const calls = { permissions: 0, tasks: 0 };
     let permissions = async () => new Set(['View Roles']);
     let tasks = async () => ({});
+    const roleCalls = [];
+    let userRole = async () => ({ isAdmin: false });
     const platform = {
         store: {
             getState: key => state[key],
@@ -43,14 +45,16 @@ function harness(t) {
     };
     const api = {
         getMyPermissions() { calls.permissions++; return permissions(); },
-        getExtensionTaskPermissions() { calls.tasks++; return tasks(); }
+        getExtensionTaskPermissions() { calls.tasks++; return tasks(); },
+        getUserRole(userId) { roleCalls.push(userId); return userRole(userId); }
     };
     t.after(() => platform.store.setState('user', null));
     return {
-        platform, api, calls, registrations, changes,
+        platform, api, calls, registrations, changes, roleCalls,
         register: () => registerAuthorization(platform, api, () => registrations.push('Roles')),
         permissions: fn => { permissions = fn; },
         tasks: fn => { tasks = fn; },
+        userRole: fn => { userRole = fn; },
         retry: () => {
             now += RELOAD_BACKOFF_MS + 1;
             assert.equal(platform.controller.checkTask('settings_Role-Based Access Control', 'doRefresh'), false);
@@ -238,4 +242,82 @@ test('automatic retries exhaust their budget; later lazy checks can still recove
     assert.deepEqual(h.registrations, ['Roles']);
     assert.deepEqual(h.changes, ['webPlugins']);
     assert.equal(h.platform.controller.checkTask('settings_Role-Based Access Control', 'doRefresh'), true);
+});
+
+/* ---- admin flag for Export Roles and Import Roles ------------------------------ */
+
+const EXPORT_TASK = ['settings_Role-Based Access Control', 'doExportRoles'];
+const IMPORT_TASK = ['settings_Role-Based Access Control', 'doImportRoles'];
+
+test('a View Roles holder in the admin role sees both tasks; the role is read with the current user id', async t => {
+    const h = harness(t);
+    h.userRole(async () => ({ isAdmin: true }));
+    await h.register();
+    assert.deepEqual(h.roleCalls, [7]);
+    assert.equal(h.platform.controller.checkTask(...EXPORT_TASK), true);
+    assert.equal(h.platform.controller.checkTask(...IMPORT_TASK), true);
+});
+
+test('a View Roles holder in another role sees neither task', async t => {
+    const h = harness(t);
+    await h.register();
+    assert.deepEqual(h.roleCalls, [7]);
+    assert.equal(h.platform.controller.checkTask(...EXPORT_TASK), false);
+    assert.equal(h.platform.controller.checkTask(...IMPORT_TASK), false);
+});
+
+test('without View Roles the role is never read and the tasks stay hidden', async t => {
+    const h = harness(t);
+    h.permissions(async () => new Set(['viewChannels', 'Manage Roles']));
+    await h.register();
+    assert.deepEqual(h.roleCalls, []);
+    assert.equal(h.platform.controller.checkTask(...EXPORT_TASK), false);
+});
+
+test('a failed or empty role read means not an admin and does not fail the permission load', async t => {
+    for (const read of [async () => { throw new Error('403'); }, async () => null]) {
+        const h = harness(t);
+        h.userRole(read);
+        await h.register();
+        assert.deepEqual(h.registrations, ['Roles'], 'the permission load still counts');
+        assert.equal(h.platform.controller.checkTask('settings_Role-Based Access Control', 'doRefresh'), true);
+        assert.equal(h.platform.controller.checkTask(...EXPORT_TASK), false);
+        assert.deepEqual(h.calls, { permissions: 1, tasks: 1 });
+    }
+});
+
+test('the admin flag is read again with a recovered load', async t => {
+    const h = harness(t);
+    h.permissions(async () => { throw new Error('unavailable'); });
+    await h.register();
+    assert.deepEqual(h.roleCalls, [], 'no permissions, no role read');
+    h.permissions(async () => new Set(['View Roles']));
+    h.userRole(async () => ({ isAdmin: true }));
+    h.retry();
+    await flush();
+    assert.equal(h.platform.controller.checkTask(...EXPORT_TASK), true);
+});
+
+test('a role answer arriving after logout cannot make anyone an admin', async t => {
+    const h = harness(t);
+    const role = deferred();
+    h.userRole(() => role.promise);
+    const pending = h.register();
+    await flush();
+    h.setUser(null);
+    role.resolve({ isAdmin: true });
+    await pending;
+    assert.equal(h.platform.controller, undefined, 'no controller from an ended session');
+    assert.deepEqual(h.registrations, []);
+});
+
+test('the admin flag is dropped when the user changes', async t => {
+    const h = harness(t);
+    h.userRole(async () => ({ isAdmin: true }));
+    await h.register();
+    assert.equal(h.platform.controller.checkTask(...EXPORT_TASK), true);
+    h.setUser({ id: 8 });
+    assert.equal(h.platform.controller.checkTask(...EXPORT_TASK), false);
+    h.setUser({ id: 7 });
+    assert.equal(h.platform.controller.checkTask(...EXPORT_TASK), false, 'an ended session never comes back');
 });

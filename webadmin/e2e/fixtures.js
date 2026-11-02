@@ -202,3 +202,43 @@ export function rbacFixtures({
         'GET /extensions/rbac/users/*/role': { 'com.diridium.rbac.Role': userRole }
     };
 }
+
+/* ---- role export and import (verbatim from the wire probe, rbac 1.2.0 on OIE 4.7.0) ---- */
+
+// GET /extensions/rbac/roles/_export: text/plain, the file as written.
+export const EXPORT_FILE = `<?xml version="1.0" encoding="UTF-8"?>
+<rbacRoles formatVersion="1" rbacVersion="1.2.0" engineVersion="4.7.0">
+  <role>
+    <name>probe lab</name>
+    <description>rbac e2e</description>
+    <permissions>
+      <permission>viewChannels</permission>
+      <permission>viewDashboard</permission>
+    </permissions>
+    <channels restricted="true">
+      <channel id="4c468ff3-0cf7-4e8b-88e7-a7d8a3b538bf" name="probe one"/>
+      <channel id="ee366a8b-755b-4f73-9f1b-abe1801cc121" name="probe two"/>
+    </channels>
+  </role>
+  <role>
+    <name>probe everyone</name>
+    <description>rbac e2e</description>
+    <permissions>
+      <permission>viewChannels</permission>
+    </permissions>
+    <channels restricted="false"/>
+  </role>
+</rbacRoles>
+`;
+
+// POST /extensions/rbac/roles/_import answers, as the engine sends them.
+export const IMPORT_PREVIEW_TWO_ROWS = JSON.parse(
+    '{"com.diridium.rbac.RoleImportResult":{"importable":true,"formatVersion":1,"sourceRbacVersion":"1.2.0","sourceEngineVersion":"4.7.0","applyChannels":true,"matchChannelsByName":false,"applied":false,"planToken":"5ba1268962581bdbd0ddb491d164bea2910cd8c2b77dfc0d71fe1e0346647395","rows":{"com.diridium.rbac.RoleImportRow":[{"index":0,"name":"probe lab","action":"CREATE","droppedPermissions":null,"unmatchedChannels":null,"matchedChannelCount":2,"channels":"FROM_FILE","descriptionChanged":false,"addedPermissions":null,"removedPermissions":null,"addedChannels":null,"removedChannels":null},{"index":1,"name":"probe everyone","action":"UNCHANGED","droppedPermissions":null,"unmatchedChannels":null,"matchedChannelCount":0,"channels":"FROM_FILE","descriptionChanged":false,"addedPermissions":null,"removedPermissions":null,"addedChannels":null,"removedChannels":null}]},"channelNameMatches":null}}');
+export const IMPORT_NAME_MATCH_OFF = JSON.parse(
+    '{"com.diridium.rbac.RoleImportResult":{"importable":true,"formatVersion":1,"sourceRbacVersion":"e2e","sourceEngineVersion":"e2e","applyChannels":true,"matchChannelsByName":false,"applied":false,"planToken":"43d8bc80c396901a0a702aa5d8f18dd57477abf2dea2de533a00c5ebfc897146","rows":{"com.diridium.rbac.RoleImportRow":{"index":0,"name":"probe moved one","action":"SKIP","reason":"None of its 1 channels exist on this engine, and a role with no channels sees every channel. Matching channels by name finds 1 of them.","droppedPermissions":null,"unmatchedChannels":{"string":"probe one (8163af3f-7ed2-4a0c-b326-34830263c504)"},"matchedChannelCount":0,"channels":"FROM_FILE","descriptionChanged":false,"addedPermissions":null,"removedPermissions":null,"addedChannels":null,"removedChannels":null}},"channelNameMatches":{"com.diridium.rbac.ChannelNameMatch":{"name":"probe one","fileChannelId":"8163af3f-7ed2-4a0c-b326-34830263c504","channelId":"4c468ff3-0cf7-4e8b-88e7-a7d8a3b538bf"}}}}');
+export const IMPORT_NAME_MATCH_ON = JSON.parse(
+    '{"com.diridium.rbac.RoleImportResult":{"importable":true,"formatVersion":1,"sourceRbacVersion":"e2e","sourceEngineVersion":"e2e","applyChannels":true,"matchChannelsByName":true,"applied":false,"planToken":"b7fdd89af2d6b418cb36fe1ebeb910f9a47b18458cf7b03832896537756eaf45","rows":{"com.diridium.rbac.RoleImportRow":{"index":0,"name":"probe moved one","action":"CREATE","droppedPermissions":null,"unmatchedChannels":null,"matchedChannelCount":1,"channels":"FROM_FILE","descriptionChanged":false,"addedPermissions":null,"removedPermissions":null,"addedChannels":null,"removedChannels":null}},"channelNameMatches":{"com.diridium.rbac.ChannelNameMatch":{"name":"probe one","fileChannelId":"8163af3f-7ed2-4a0c-b326-34830263c504","channelId":"4c468ff3-0cf7-4e8b-88e7-a7d8a3b538bf"}}}}');
+export const IMPORT_APPLIED = JSON.parse(
+    '{"com.diridium.rbac.RoleImportResult":{"importable":true,"formatVersion":1,"sourceRbacVersion":"1.2.0","sourceEngineVersion":"4.7.0","applyChannels":true,"matchChannelsByName":false,"applied":true,"planToken":"5ba1268962581bdbd0ddb491d164bea2910cd8c2b77dfc0d71fe1e0346647395","rows":{"com.diridium.rbac.RoleImportRow":{"index":0,"name":"probe lab","action":"CREATE","droppedPermissions":null,"unmatchedChannels":null,"matchedChannelCount":2,"channels":"FROM_FILE","descriptionChanged":false,"addedPermissions":null,"removedPermissions":null,"addedChannels":null,"removedChannels":null}},"channelNameMatches":null}}');
+export const IMPORT_REFUSED = JSON.parse(
+    '{"com.diridium.rbac.RoleImportResult":{"importable":false,"refusal":"This file is format 2, written by rbac 9. This rbac reads format 1.","applyChannels":true,"matchChannelsByName":false,"applied":false,"rows":null,"channelNameMatches":null}}');

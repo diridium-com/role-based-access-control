@@ -309,3 +309,101 @@ export const TITLE_ASSIGN_ROLE = 'Assign Role';
 export const ASSIGN_PREVIEW_HEADER = 'Review the access this role grants before assigning:';
 export const ASSIGN_PREVIEW_FOOTER = 'This assignment takes effect immediately.';
 export const TITLE_CONFIRM_ASSIGNMENT = 'Confirm Role Assignment';
+
+/* ---- role export and import (strings and logic match the Swing client) ------ */
+
+// Settings panel tasks.
+export const TASK_EXPORT_ROLES = 'Export Roles';
+export const TASK_EXPORT_ROLES_TOOLTIP = 'Export roles to a file.';
+export const TASK_IMPORT_ROLES = 'Import Roles';
+export const TASK_IMPORT_ROLES_TOOLTIP = 'Import roles from a file.';
+
+// Export dialog.
+export const TITLE_EXPORT_ROLES = 'Export Roles';
+export const EXPORT_PROMPT = 'Pick the roles to export. The admin role is never exported.';
+export const MSG_NO_ROLES_TO_EXPORT = 'There are no roles to export. The admin role is never exported.';
+export const EXPORT_FILE_NAME = 'rbac-roles.xml';
+export function exportedText(count) {
+    return 'Exported ' + count + ' role(s).';
+}
+
+// Import dialog.
+export const TITLE_IMPORT_ROLES = 'Import Roles';
+export const IMPORT_APPLY_CHANNELS = 'Apply channel restrictions from the file';
+export const IMPORT_MATCH_BY_NAME = "Also match channels by name when the id isn't found";
+export const IMPORT_COLUMNS = ['', 'Role', 'Action', 'Details'];
+export const NAME_MATCH_HEADING = 'Channels in the file that match a channel here only by name:';
+export const NAME_MATCH_HINT = 'Tick "Also match channels by name" to use them.';
+export function importRefusedText(refusal) {
+    return "This file can't be imported: " + refusal;
+}
+export function importSourceText(sourceRbacVersion, sourceEngineVersion) {
+    return 'From rbac ' + sourceRbacVersion + ' on OIE ' + sourceEngineVersion + '.';
+}
+export function importedText(count) {
+    return 'Imported ' + count + ' role(s).';
+}
+
+const ACTION_LABELS = { CREATE: 'New', OVERWRITE: 'Overwrite', UNCHANGED: 'Unchanged', SKIP: 'Skipped' };
+
+// The Action column text for a row's action.
+export function actionLabel(action) {
+    return Object.hasOwn(ACTION_LABELS, action) ? ACTION_LABELS[action] : String(action);
+}
+
+// Only New and Overwrite rows can be picked.
+export function canTick(row) {
+    return row.action === 'CREATE' || row.action === 'OVERWRITE';
+}
+
+// New starts ticked, Overwrite starts unticked.
+export function defaultTick(row) {
+    return row.action === 'CREATE';
+}
+
+// Ticks for a fresh preview of the same file. A row keeps the user's choice if
+// it was shown before with the same name and action; any other row starts at
+// its default. Returns a Set of row index values.
+export function mergeTicks(previousRows, previousTicks, rows) {
+    const next = new Set();
+    for (const row of rows) {
+        if (!canTick(row)) continue;
+        const before = previousRows.find((p) => p.index === row.index);
+        const same = before && before.name === row.name && before.action === row.action;
+        if (same ? previousTicks.has(row.index) : defaultTick(row)) next.add(row.index);
+    }
+    return next;
+}
+
+// The ticked rows' index values, in ascending order, for the pick parameter.
+export function pickedIndexes(rows, ticks) {
+    return rows.filter((row) => canTick(row) && ticks.has(row.index)).map((row) => row.index).sort((a, b) => a - b);
+}
+
+// The Details column text: the parts that apply, in this order, joined with "; ".
+export function detailsText(row) {
+    const parts = [];
+    if (row.reason) parts.push(row.reason);
+    if (row.addedPermissions.length) parts.push('Adds permissions: ' + row.addedPermissions.join(', '));
+    if (row.removedPermissions.length) parts.push('Removes permissions: ' + row.removedPermissions.join(', '));
+    if (row.addedChannels.length) parts.push('Adds channels: ' + row.addedChannels.join(', '));
+    if (row.removedChannels.length) parts.push('Removes channels: ' + row.removedChannels.join(', '));
+    if (row.descriptionChanged) parts.push('Changes the description');
+    if (row.channels === 'KEPT') parts.push('Keeps its channels here');
+    if (row.droppedPermissions.length) parts.push('Left out, not on this engine: ' + row.droppedPermissions.join(', '));
+    if (row.unmatchedChannels.length) parts.push('Channels not found: ' + row.unmatchedChannels.join(', '));
+    if (row.action === 'UNCHANGED' && parts.length === 0) parts.push('Same as the role here');
+    return parts.join('; ');
+}
+
+// The list of channels that match only by name: shown while channel restrictions
+// are applied and there are some. The hint is added while name matching is off.
+// Returns null when nothing is shown.
+export function nameMatchSection(applyChannels, matchChannelsByName, channelNameMatches) {
+    if (!applyChannels || channelNameMatches.length === 0) return null;
+    return {
+        heading: NAME_MATCH_HEADING,
+        names: channelNameMatches.map((m) => m.name),
+        hint: matchChannelsByName ? null : NAME_MATCH_HINT
+    };
+}

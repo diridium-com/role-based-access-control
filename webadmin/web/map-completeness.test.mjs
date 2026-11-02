@@ -22,6 +22,7 @@ import {
     TASK_PERMISSIONS,
     GROUP_TASK_PERMISSIONS,
     DELIBERATELY_UNMAPPED,
+    ADMIN_ONLY_TASKS,
 } from './task-permission-map.js';
 
 const catalog = JSON.parse(
@@ -120,5 +121,16 @@ test('every bare mapping targets a catalog task', () => {
         if (SWING_PARITY_ONLY_TASKS.includes(task)) continue;
         assert.ok(allTasks.has(task),
             `TASK_PERMISSIONS["${task}"] is not a task in the catalog snapshot (stale mapping?)`);
+    }
+});
+
+test('admin-only tasks are the panel\'s own, resolved by the admin flag and never by a mapping', () => {
+    for (const composite of ADMIN_ONLY_TASKS) {
+        const [group, task] = composite.split('/');
+        assert.equal(group, 'settings_Role-Based Access Control');
+        assert.ok(!allComposites.has(composite), `${composite} is a host catalog identifier?`);
+        assert.ok(!Object.hasOwn(GROUP_TASK_PERMISSIONS, composite));
+        assert.ok(!Object.hasOwn(TASK_PERMISSIONS, task));
+        assert.ok(!DELIBERATELY_UNMAPPED.includes(composite));
     }
 });

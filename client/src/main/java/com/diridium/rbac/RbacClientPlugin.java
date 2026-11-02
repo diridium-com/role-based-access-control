@@ -42,11 +42,23 @@ public class RbacClientPlugin extends SettingsPanelPlugin {
      */
     public RbacClientPlugin(String name) {
         super(name);
+        allowModelTypes();
+        installAuthorizationController();
+        settingsPanel = new RbacSettingsPanel(RbacServletInterface.PLUGIN_NAME);
+    }
+
+    /**
+     * Whitelists rbac's model classes with the client-side XStream serializer. Also called by
+     * {@link SecureAuthorizationController} before it reads a {@link Role}: the engine builds that
+     * controller and loads its permissions before it constructs this plugin, and a Role read
+     * before the whitelist stays refused for the rest of the session (measured on OIE 4.7.0: every
+     * later {@code getRoles} failed with {@code ForbiddenClassException}). Adding the same
+     * wildcard again is harmless.
+     */
+    public static void allowModelTypes() {
         ObjectXMLSerializer.getInstance().allowTypes(Collections.emptyList(),
                 Arrays.asList(Role.class.getPackage().getName() + ".**"),
                 Collections.emptyList());
-        installAuthorizationController();
-        settingsPanel = new RbacSettingsPanel(RbacServletInterface.PLUGIN_NAME);
     }
 
     /**
