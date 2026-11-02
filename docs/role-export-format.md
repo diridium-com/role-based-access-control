@@ -69,8 +69,23 @@ Along the way:
 
 - A role with the admin role's name is skipped. An import never changes the admin role.
 - Permissions this engine doesn't offer are left out and listed. rbac stores any permission name it's given, and a stored grant for a disabled extension would take effect as soon as that extension is enabled.
-- **Channel restrictions applied** (the default): each channel is matched by its id, then by its name if exactly one channel here has that name. Channels found neither way are listed. A restricted role none of whose channels exist here is skipped, because rbac stores "every channel" as an empty list and the role would otherwise see everything.
+- **Channel restrictions applied** (the default): each channel is matched by its id. A channel whose id isn't here, but whose name exactly one channel here has, is a match by name. The preview always lists the matches by name, and the import uses them only when it matches channels by name, which is off unless chosen. Channels found neither way are listed. A restricted role none of whose channels are found is skipped, because rbac stores "every channel" as an empty list and the role would otherwise see everything. If some of its channels match by name, the reason says how many.
 - **Channel restrictions not applied**: an existing role keeps the channel restrictions it has, and a new role sees every channel. The preview marks those new roles. They have no users until someone assigns one, so set their channels first.
+
+## Role names
+
+Role names are compared exactly as typed: "Lab" and "LAB" are two roles. Whether a database can hold both depends on the database. Derby, PostgreSQL and Oracle can. MySQL and SQL Server compare names ignoring case by default, and MySQL ignores accents too, so there only one of the two can exist. On those databases a role in a file matches an existing role whose name differs only in case, and an overwrite keeps the existing name. An import holding both "Lab" and "LAB" as new roles is refused there with "Rename one of them in the file.", and nothing is written. The rest of the file can still be imported without one of the two.
+
+## Moving roles to a new engine
+
+The engine's own backup (Backup Config in the Administrator) doesn't include rbac's roles or role assignments, and restoring one leaves rbac's roles as they are. It doesn't include the engine's users either. To move to a new engine:
+
+1. Export the roles on the old engine.
+2. Install rbac on the new engine and restart it.
+3. Restore the engine's backup. Channels keep their ids, so the roles file matches them by id.
+4. Create the users.
+5. Import the roles file.
+6. Assign each user a role.
 
 ## Who can export and import
 
@@ -84,6 +99,7 @@ Any other user is refused (403) with "Exporting roles needs the admin role." or 
 - `POST /api/extensions/rbac/roles/_import` takes the file as a `text/plain` body and answers a `RoleImportResult`. Query parameters:
   - `dryRun`: `true` (the default) previews. The answer has a row per role in the file and a `planToken`.
   - `applyChannels`: `true` (the default) applies the file's channel restrictions.
+  - `matchChannelsByName`: `true` also matches a channel whose id isn't on this engine by its name. The default is `false`. The answer's `channelNameMatches` lists every match by name either way, each with the channel's `name`, its id in the file (`fileChannelId`) and the id of the channel here (`channelId`). The plan token covers this setting, so preview again after changing it.
   - `pick` and `planToken`, for `dryRun=false`: the positions in the file (from 0) of the roles to write, and the preview's token. The answer has the rows written.
 
   An apply answers 400 for a refused file, a missing token, a pick that is out of range, skipped or unchanged, or two new names this database holds as one, and 409 if the roles changed since the preview.

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rbacRoles formatVersion="1" rbacVersion="1.2.0" engineVersion="4.7.0">
+  <role>
+    <name>e2e Derby Lab</name>
+    <description>rbac e2e</description>
+    <permissions>
+      <permission>viewChannels</permission>
+      <permission>viewMessages</permission>
+    </permissions>
+    <channels restricted="true">
+      <channel id="fc86e082-f21a-4239-a99b-466941adee7e" name="rbac e2e Derby Lab In"/>
+    </channels>
+  </role>
+  <role>
+    <name>e2e Derby LAB</name>
+    <description>rbac e2e</description>
+    <permissions>
+      <permission>viewChannels</permission>
+    </permissions>
+    <channels restricted="true">
+      <channel id="22c29279-c9ec-462b-88a0-36a9d710741e" name="rbac e2e Derby ADT Out"/>
+      <channel id="fc86e082-f21a-4239-a99b-466941adee7e" name="rbac e2e Derby Lab In"/>
+    </channels>
+  </role>
+  <role>
+    <name>e2e Derby everyone</name>
+    <description>rbac e2e</description>
+    <permissions>
+      <permission>viewDashboard</permission>
+    </permissions>
+    <channels restricted="false"/>
+  </role>
+</rbacRoles>

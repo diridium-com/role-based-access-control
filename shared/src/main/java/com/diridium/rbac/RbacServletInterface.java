@@ -161,6 +161,8 @@ public interface RbacServletInterface extends BaseServletInterface {
      * @param file          the role export file's text
      * @param dryRun        {@code true} to preview without writing
      * @param applyChannels {@code true} to apply the file's channel restrictions
+     * @param matchChannelsByName {@code true} to also match a channel whose id isn't on this
+     *                            engine by its name; the preview lists those matches either way
      * @param pick          for an apply, the positions in the file (from 0) of the roles to write
      * @param planToken     for an apply, the token from the preview
      * @return the preview, or the outcome of the apply
@@ -177,6 +179,7 @@ public interface RbacServletInterface extends BaseServletInterface {
             @Param(value = "file", excludeFromAudit = true) @Parameter(description = "The role export file", required = true) String file,
             @Param("dryRun") @Parameter(description = "Preview without writing") @QueryParam("dryRun") @DefaultValue("true") boolean dryRun,
             @Param("applyChannels") @Parameter(description = "Apply the file's channel restrictions") @QueryParam("applyChannels") @DefaultValue("true") boolean applyChannels,
+            @Param("matchChannelsByName") @Parameter(description = "Also match a channel whose ID isn't on this engine by its name") @QueryParam("matchChannelsByName") @DefaultValue("false") boolean matchChannelsByName,
             @Param("pick") @Parameter(description = "For an apply, the positions in the file of the roles to write") @QueryParam("pick") List<Integer> pick,
             @Param("planToken") @Parameter(description = "For an apply, the token from the preview") @QueryParam("planToken") String planToken) throws ClientException;
 

@@ -127,6 +127,8 @@ class RoleTransferService {
      * Previews (dry run) or applies a role export file.
      *
      * @param callerIsAdmin whether the caller holds the admin role
+     * @param matchChannelsByName whether a channel whose id isn't on this engine is matched by
+     *                            its name
      * @param pick          for an apply, the positions in the file of the roles to write
      * @param planToken     for an apply, the token from the preview
      * @return the preview; for an apply, the rows written
@@ -136,10 +138,11 @@ class RoleTransferService {
      *                           changed since the preview
      */
     RoleImportResult importRoles(boolean callerIsAdmin, String file, boolean dryRun, boolean applyChannels,
-            List<Integer> pick, String planToken) {
+            boolean matchChannelsByName, List<Integer> pick, String planToken) {
         requireAdmin(callerIsAdmin, IMPORT_NEEDS_ADMIN);
         RoleImportResult result = new RoleImportResult();
         result.setApplyChannels(applyChannels);
+        result.setMatchChannelsByName(matchChannelsByName);
 
         Map<String, String> channelNames = channelNamesById.get();
         ExportFile parsed;
@@ -147,7 +150,7 @@ class RoleTransferService {
         try {
             parsed = RoleTransferFormat.parse(file);
             plan = new RoleImportPlanner(repo::findRoleIdByName, repo::getRoleById, repo.getAdminRoleId(),
-                    catalog.get(), channelNames).plan(parsed, applyChannels);
+                    catalog.get(), channelNames).plan(parsed, applyChannels, matchChannelsByName);
         } catch (RoleTransferFormat.Refusal e) {
             if (!dryRun) {
                 throw badRequest(e.getMessage());
@@ -161,6 +164,7 @@ class RoleTransferService {
         result.setSourceRbacVersion(parsed.rbacVersion());
         result.setSourceEngineVersion(parsed.engineVersion());
         result.setPlanToken(plan.token());
+        result.setChannelNameMatches(plan.channelNameMatches());
         if (dryRun) {
             result.setRows(plan.rows());
             return result;

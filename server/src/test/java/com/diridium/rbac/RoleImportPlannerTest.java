@@ -191,18 +191,56 @@ class RoleImportPlannerTest {
     // ========== Channels, applied ==========
 
     @Test
-    void channels_matchById_thenByAUniqueName_andListTheRest() throws Exception {
-        Plan plan = plan(true, fileRole("Lab", List.of(), true,
+    void channels_matchById_andListMatchesByName_usedOnlyWhenMatchingByName() throws Exception {
+        ExportedRole lab = fileRole("Lab", List.of(), true,
                 new Channel("id-lab", "Renamed since"),
                 new Channel("id-elsewhere", "ADT Out"),
                 new Channel("id-gone", "Twin"),
                 new Channel("id-gone2", "Nowhere"),
-                new Channel("id-gone3", "")));
+                new Channel("id-gone3", ""));
+        Plan plan = plan(true, lab);
         RoleImportRow row = plan.rows().get(0);
-        assertEquals(Set.of("id-lab", "id-adt"), plan.writes().get(0).role().getChannelIds());
-        assertEquals(2, row.getMatchedChannelCount());
-        assertEquals(List.of("Twin (id-gone)", "Nowhere (id-gone2)", "id-gone3"), row.getUnmatchedChannels(),
-                "a name two channels share matches neither");
+        assertEquals(Set.of("id-lab"), plan.writes().get(0).role().getChannelIds(), "by id, whatever its name now");
+        assertEquals(1, row.getMatchedChannelCount());
+        assertEquals(List.of("ADT Out (id-elsewhere)", "Twin (id-gone)", "Nowhere (id-gone2)", "id-gone3"),
+                row.getUnmatchedChannels(), "a name two channels share is no match");
+        assertEquals(1, plan.channelNameMatches().size());
+        ChannelNameMatch match = plan.channelNameMatches().get(0);
+        assertEquals("ADT Out", match.getName());
+        assertEquals("id-elsewhere", match.getFileChannelId());
+        assertEquals("id-adt", match.getChannelId());
+
+        Plan byName = planMatchingByName(lab);
+        assertEquals(Set.of("id-lab", "id-adt"), byName.writes().get(0).role().getChannelIds());
+        assertEquals(2, byName.rows().get(0).getMatchedChannelCount());
+        assertEquals(List.of("Twin (id-gone)", "Nowhere (id-gone2)", "id-gone3"),
+                byName.rows().get(0).getUnmatchedChannels());
+        assertEquals(1, byName.channelNameMatches().size(), "listed whether or not it is used");
+    }
+
+    @Test
+    void aMatchByName_isListedOnce_andUsedForEveryRoleThatNamesIt() throws Exception {
+        Plan plan = planMatchingByName(
+                fileRole("Lab", List.of(), true, new Channel("id-elsewhere", "ADT Out")),
+                fileRole("ADT", List.of(), true,
+                        new Channel("id-elsewhere", "ADT Out"), new Channel("id-lab", "Lab In")));
+        assertEquals(1, plan.channelNameMatches().size(), "listed once");
+        assertEquals(Set.of("id-adt"), plan.writes().get(0).role().getChannelIds());
+        assertEquals(Set.of("id-adt", "id-lab"), plan.writes().get(1).role().getChannelIds());
+    }
+
+    @Test
+    void aRestrictedRoleWhoseChannelsMatchOnlyByName_isSkipped_andSaysHowManyCould() throws Exception {
+        ExportedRole lab = fileRole("Lab", List.of(), true,
+                new Channel("id-elsewhere", "Lab In"), new Channel("id-gone", "Gone"));
+        RoleImportRow row = plan(true, lab).rows().get(0);
+        assertEquals(Action.SKIP, row.getAction());
+        assertEquals("None of its 2 channels exist on this engine, and a role with no channels sees every channel."
+                + " Matching channels by name finds 1 of them.", row.getReason());
+
+        Plan byName = planMatchingByName(lab);
+        assertEquals(Action.CREATE, byName.rows().get(0).getAction());
+        assertEquals(Set.of("id-lab"), byName.writes().get(0).role().getChannelIds());
     }
 
     @Test
@@ -255,6 +293,12 @@ class RoleImportPlannerTest {
     }
 
     @Test
+    void channelsNotApplied_listNoMatchesByName() throws Exception {
+        Plan plan = plan(false, fileRole("Lab", List.of(), true, new Channel("id-elsewhere", "ADT Out")));
+        assertTrue(plan.channelNameMatches().isEmpty());
+    }
+
+    @Test
     void channelsNotApplied_aNewUnrestrictedRoleNeedsNoNote() throws Exception {
         RoleImportRow row = plan(false, fileRole("Lab", List.of(), false)).rows().get(0);
         assertEquals(Channels.EVERY_CHANNEL, row.getChannels());
@@ -294,6 +338,13 @@ class RoleImportPlannerTest {
     }
 
     @Test
+    void theToken_changes_withMatchingByName() throws Exception {
+        ExportedRole lab = fileRole("Lab", List.of(), true, new Channel("id-elsewhere", "ADT Out"),
+                new Channel("id-lab", "Lab In"));
+        assertNotEquals(plan(true, lab).token(), planMatchingByName(lab).token());
+    }
+
+    @Test
     void theToken_changes_whenAChannelIsDeletedHere() throws Exception {
         ExportedRole lab = fileRole("Lab", List.of(), true, new Channel("id-lab", "Lab In"),
                 new Channel("id-adt", "ADT Out"));
@@ -306,7 +357,12 @@ class RoleImportPlannerTest {
 
     private Plan plan(boolean applyChannels, ExportedRole... fileRoles) throws Refusal {
         return new RoleImportPlanner(this::findRoleIdByName, roles::get, ADMIN_ID, CATALOG, channels)
-                .plan(new ExportFile("1", "1.3.0", "4.7.0", List.of(fileRoles)), applyChannels);
+                .plan(new ExportFile("1", "1.3.0", "4.7.0", List.of(fileRoles)), applyChannels, false);
+    }
+
+    private Plan planMatchingByName(ExportedRole... fileRoles) throws Refusal {
+        return new RoleImportPlanner(this::findRoleIdByName, roles::get, ADMIN_ID, CATALOG, channels)
+                .plan(new ExportFile("1", "1.3.0", "4.7.0", List.of(fileRoles)), true, true);
     }
 
     /** Matches like Postgres (exact), or like MySQL's default collation (no case, no accents). */

@@ -91,6 +91,12 @@ class RoleSerializationTest {
         original.setApplyChannels(true);
         original.setPlanToken("abc");
         original.setRows(new ArrayList<>(Arrays.asList(row)));
+        ChannelNameMatch match = new ChannelNameMatch();
+        match.setName("Lab In");
+        match.setFileChannelId("id-elsewhere");
+        match.setChannelId("id-lab");
+        original.setChannelNameMatches(new ArrayList<>(Arrays.asList(match)));
+        original.setMatchChannelsByName(true);
 
         RoleImportResult restored = (RoleImportResult) xstream.fromXML(xstream.toXML(original));
 
@@ -114,5 +120,10 @@ class RoleSerializationTest {
         assertEquals(row.getRemovedPermissions(), back.getRemovedPermissions());
         assertEquals(row.getAddedChannels(), back.getAddedChannels());
         assertEquals(row.getRemovedChannels(), back.getRemovedChannels());
+        ChannelNameMatch matchBack = restored.getChannelNameMatches().get(0);
+        assertEquals("Lab In", matchBack.getName());
+        assertEquals("id-elsewhere", matchBack.getFileChannelId());
+        assertEquals("id-lab", matchBack.getChannelId());
+        assertEquals(true, restored.isMatchChannelsByName());
     }
 }

@@ -14,6 +14,7 @@ import zipfile
 
 import checks as k
 import rbac as b
+import transfer_checks as tk
 from oie import Api
 
 PASSWORD = "Rbac-e2e-" + b.new_id()[:12] + "!"
@@ -155,7 +156,8 @@ def fresh(r, engine, db, dbname, new_zip, **_):
     k.admin_floor(r, w, admin_role)
     k.matrix(r, w)
     k.data_pruner(r, w)
-    k.export_import(r, w)
+    k.plugin_settings(r, w)
+    tk.export_import(r, w, db.server)
     k.cache(r, w)
     k.unknown_operations(r, engine)
 
@@ -269,6 +271,20 @@ def upgrade(r, engine, db, dbname, new_zip, old_zip, upgrade_engine=None, **_):
         status, ids = b.channel_ids(viewer)
         r.check("after the upgrade, the channel-limited user still sees only its channel",
                 status == 200 and ids == {channel}, f"HTTP {status}: {ids}")
+        # Export and import on an engine upgraded from an older rbac: the old release's role goes out to a file and
+        # comes back in with its channel.
+        status, exported = b.export_roles(api, [rid])
+        r.check("after the upgrade: the old release's role exports", status == 200, f"HTTP {status}: {exported[:200]}")
+        b.delete_role(api, rid)
+        status, body = b.import_roles(api, exported)
+        plan = b.parse_import(body) if status == 200 else {"rows": {}, "token": None}
+        row = plan["rows"].get("e2e upgrade channel A", {})
+        status, body = b.import_roles(api, exported, dry_run=False, pick=[row.get("index", 0)], token=plan["token"])
+        back = next((role for role in b.roles(api).values() if role["name"] == "e2e upgrade channel A"), {})
+        r.check("after the upgrade: the old release's role imports back with its permissions and channel",
+                status == 200 and row.get("action") == "CREATE" and back.get("channelIds") == {channel}
+                and back.get("permissions") == snapshot[rid]["permissions"],
+                f"HTTP {status}: {body[:200]}; planned {row}; now {back}")
     k.unicode_role_name(r, api, "after the upgrade: ")
     check_schema_version(r, db, dbname, "after the upgrade: ")
     # 1.1.2's failed seed on Oracle is the known defect above.

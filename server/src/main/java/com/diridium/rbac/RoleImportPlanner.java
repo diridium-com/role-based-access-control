@@ -38,10 +38,11 @@ import com.diridium.rbac.RoleTransferFormat.Refusal;
  *   <li>Permissions this engine doesn't offer are left out and listed. rbac stores any
  *       permission name, and a stored grant for a disabled extension would take effect
  *       as soon as that extension is enabled.</li>
- *   <li>With channel restrictions applied, each channel is matched by id, then by a
- *       name only one channel here has. A restricted role none of whose channels is
- *       found is skipped: rbac stores "every channel" as an empty list, so writing it
- *       with no channels would let it see everything.</li>
+ *   <li>With channel restrictions applied, each channel is matched by id. A channel whose
+ *       id isn't here but whose name only one channel here has is listed as a match by
+ *       name, and used only when the import matches channels by name. A restricted role
+ *       none of whose channels is found is skipped: rbac stores "every channel" as an
+ *       empty list, so writing it with no channels would let it see everything.</li>
  *   <li>Without them, an existing role keeps its own channel restrictions and a new role
  *       sees every channel. A new role has no users yet, so that grants nothing until
  *       someone assigns one.</li>
@@ -52,8 +53,9 @@ import com.diridium.rbac.RoleTransferFormat.Refusal;
  *
  * <p>Names are matched with the repository's own lookup, so a database that compares
  * names without regard to case or accents matches the same way it enforces uniqueness.
- * The plan's token is a hash of every row and of the current state of every role the
- * file names, so an apply can tell whether anything changed since the preview.</p>
+ * The plan's token is a hash of every row, of the matches by name and whether they are
+ * used, and of the current state of every role the file names, so an apply can tell
+ * whether anything changed since the preview.</p>
  */
 final class RoleImportPlanner {
 
@@ -64,8 +66,9 @@ final class RoleImportPlanner {
     record PlannedRole(Integer existingId, Role role, boolean writeChannels) {
     }
 
-    /** Every row in file order; the writable ones by position; the token. */
-    record Plan(List<RoleImportRow> rows, Map<Integer, PlannedRole> writes, String token) {
+    /** Every row in file order; the writable ones by position; the channels matched by name; the token. */
+    record Plan(List<RoleImportRow> rows, Map<Integer, PlannedRole> writes, List<ChannelNameMatch> channelNameMatches,
+            String token) {
     }
 
     private final Function<String, Integer> findRoleIdByName;
@@ -93,13 +96,15 @@ final class RoleImportPlanner {
     }
 
     /**
+     * @param matchChannelsByName whether a channel whose id isn't here is matched by its name
      * @throws Refusal if two roles in the file are the same role in this engine's database
      */
-    Plan plan(ExportFile file, boolean applyChannels) throws Refusal {
+    Plan plan(ExportFile file, boolean applyChannels, boolean matchChannelsByName) throws Refusal {
         List<RoleImportRow> rows = new ArrayList<>();
         Map<Integer, PlannedRole> writes = new LinkedHashMap<>();
         Map<Integer, Integer> fileIndexByExistingId = new HashMap<>();
-        Token token = new Token().add(applyChannels);
+        ChannelMatcher channels = applyChannels ? new ChannelMatcher(matchChannelsByName) : null;
+        Token token = new Token().add(applyChannels).add(matchChannelsByName);
 
         List<ExportedRole> roles = file.roles();
         for (int index = 0; index < roles.size(); index++) {
@@ -120,22 +125,28 @@ final class RoleImportPlanner {
             row.setIndex(index);
             row.setName(fileRole.name());
             rows.add(row);
-            PlannedRole planned = planRole(row, fileRole, existing, applyChannels);
+            PlannedRole planned = planRole(row, fileRole, existing, channels);
             if (planned != null && row.getAction() != Action.UNCHANGED) {
                 writes.put(index, planned);
             }
             token.addRow(row, planned != null ? planned.role() : null);
         }
-        return new Plan(rows, writes, token.hex());
+        List<ChannelNameMatch> nameMatches = channels != null ? channels.nameMatches() : new ArrayList<>();
+        for (ChannelNameMatch match : nameMatches) {
+            token.add(match.getFileChannelId()).add(match.getName()).add(match.getChannelId());
+        }
+        return new Plan(rows, writes, nameMatches, token.hex());
     }
 
     /**
      * Sets the row's action, and any note and changes, for one role in the file.
      *
      * @param existing the role here with the file role's name, or {@code null}
+     * @param channels the file's channel matching, or {@code null} when the file's channel
+     *                 restrictions aren't applied
      * @return the role as it would be written, or {@code null} for a skipped role
      */
-    private PlannedRole planRole(RoleImportRow row, ExportedRole fileRole, Role existing, boolean applyChannels) {
+    private PlannedRole planRole(RoleImportRow row, ExportedRole fileRole, Role existing, ChannelMatcher channels) {
         Integer existingId = existing != null ? existing.getId() : null;
         if (existingId != null && existingId.equals(adminRoleId)) {
             row.setAction(Action.SKIP);
@@ -154,13 +165,15 @@ final class RoleImportPlanner {
 
         Set<String> channelIds;
         boolean writeChannels = true;
-        if (applyChannels) {
+        if (channels != null) {
             row.setChannels(Channels.FROM_FILE);
-            channelIds = matchChannels(row, fileRole);
+            channelIds = matchChannels(row, fileRole, channels);
             if (fileRole.restricted() && channelIds.isEmpty()) {
                 row.setAction(Action.SKIP);
+                long byName = fileRole.channels().stream().filter(channels::matchesByName).count();
                 row.setReason("None of its " + fileRole.channels().size() + " channels exist on this engine,"
-                        + " and a role with no channels sees every channel.");
+                        + " and a role with no channels sees every channel."
+                        + (byName > 0 ? " Matching channels by name finds " + byName + " of them." : ""));
                 return null;
             }
         } else if (existing != null) {
@@ -193,11 +206,11 @@ final class RoleImportPlanner {
         return new PlannedRole(existingId, planned, writeChannels);
     }
 
-    /** The ids here of the file role's channels. The ones not found are listed on the row. */
-    private Set<String> matchChannels(RoleImportRow row, ExportedRole fileRole) {
+    /** The ids here of the file role's channels. The ones not used are listed on the row. */
+    private Set<String> matchChannels(RoleImportRow row, ExportedRole fileRole, ChannelMatcher channels) {
         Set<String> channelIds = new LinkedHashSet<>();
         for (RoleTransferFormat.Channel channel : fileRole.channels()) {
-            String id = match(channel);
+            String id = channels.match(channel);
             if (id != null) {
                 channelIds.add(id);
             } else {
@@ -209,13 +222,44 @@ final class RoleImportPlanner {
         return channelIds;
     }
 
-    /** The id of the channel here that a file channel names: by id, then by a name only one channel has. */
-    private String match(RoleTransferFormat.Channel channel) {
-        if (channelNamesById.containsKey(channel.id())) {
-            return channel.id();
+    /** Matches one file's channels to this engine's, and keeps the matches by name. */
+    private final class ChannelMatcher {
+        private final boolean byName;
+        private final Map<String, ChannelNameMatch> nameMatchesByFileId = new LinkedHashMap<>();
+
+        ChannelMatcher(boolean byName) {
+            this.byName = byName;
         }
-        List<String> named = channelIdsByName.get(channel.name());
-        return named != null && named.size() == 1 && !channel.name().isEmpty() ? named.get(0) : null;
+
+        /**
+         * The id of the channel here that a file channel names: its own id, or for a channel
+         * matched by a name only one channel here has, that channel's id when matching by name.
+         */
+        String match(RoleTransferFormat.Channel channel) {
+            if (channelNamesById.containsKey(channel.id())) {
+                return channel.id();
+            }
+            List<String> named = channelIdsByName.get(channel.name());
+            if (named == null || named.size() != 1 || channel.name().isEmpty()) {
+                return null;
+            }
+            ChannelNameMatch match = nameMatchesByFileId.computeIfAbsent(channel.id(), id -> {
+                ChannelNameMatch m = new ChannelNameMatch();
+                m.setName(channel.name());
+                m.setFileChannelId(id);
+                m.setChannelId(named.get(0));
+                return m;
+            });
+            return byName ? match.getChannelId() : null;
+        }
+
+        boolean matchesByName(RoleTransferFormat.Channel channel) {
+            return nameMatchesByFileId.containsKey(channel.id());
+        }
+
+        List<ChannelNameMatch> nameMatches() {
+            return new ArrayList<>(nameMatchesByFileId.values());
+        }
     }
 
     /** Puts on an OVERWRITE row what it changes in the existing role. */

@@ -128,6 +128,9 @@ public class RbacAuthorizationController extends AuthorizationController {
     // Cache: userId -> cached auth info
     private final ConcurrentHashMap<Integer, UserAuthCache> cache = new ConcurrentHashMap<>();
 
+    // The engine's plugin-settings calls, decided before the permission lookup.
+    private final PluginSettingsGuard pluginSettingsGuard = new PluginSettingsGuard();
+
     /**
      * Builds the operation→permission map immediately so every later
      * {@link #isUserAuthorized} call is a pure map lookup. The engine's
@@ -229,13 +232,18 @@ public class RbacAuthorizationController extends AuthorizationController {
             return auditAndAllow(audit, userId, operation, parameterMap, address);
         }
 
-        // Admin-only operations: admins returned above, so this caller isn't one.
-        String adminOnlyReason = ADMIN_ONLY_OPERATIONS.get(operation.getName());
-        if (adminOnlyReason != null) {
+        // Admin-only operations, and the engine's plugin-settings calls for rbac's own settings or
+        // for a name that isn't exactly an installed extension's: admins returned above, so this
+        // caller isn't one.
+        String refusal = ADMIN_ONLY_OPERATIONS.get(operation.getName());
+        if (refusal == null) {
+            refusal = pluginSettingsGuard.refusal(operation);
+        }
+        if (refusal != null) {
             if (audit) {
                 auditAuthorizationRequest(userId, operation, parameterMap, ServerEvent.Outcome.FAILURE, address);
             }
-            throw forbidden(adminOnlyReason);
+            throw forbidden(refusal);
         }
 
         // Allow infrastructure operations needed for UI login/setup

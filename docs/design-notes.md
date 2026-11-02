@@ -74,3 +74,31 @@ The operations are still registered, export under View Roles and import under Ma
 The file reader now compares role names exactly. Postgres, Derby and Oracle hold "Lab" and "LAB" as two roles, and refusing names that were equal ignoring case meant an export holding both could not be imported anywhere. Where the database holds two of the file's names as one, the import still says so: the preview refuses the file when two of them are one existing role, and the apply refuses two new ones the database treats as one name.
 
 A preview row for an overwrite now lists the permissions and channels it adds and removes, and whether the description changes, so the user sees what an overwrite does before picking it. A change between every channel and some channels is a note instead, since every channel has no list to compare. The import's audit event now records each written role's permissions and channels: the file is kept out of the engine's audit of the call, so without them the event named the roles and not what they were given.
+
+## 2026-11-01: channels matched by name, the engine's backup, role names, and plugin settings
+
+**A channel matched only by name is used only when the import matches channels by name.** A file from another engine names its channels by that engine's ids. Until now an import fell back, silently, to a channel here with the same name. A channel with the same name isn't necessarily the same channel, and restricting a role to the wrong one shows its users the wrong messages. Matching by name is now a choice, off unless chosen, and the preview lists every match by name either way, so the importer sees what it would use. One setting rather than a choice per channel: where channels match only by name, as between test and production engines built by hand, a channel with the same name is meant to be the same one, and the list in the preview is there for the exceptions. A choice per channel can be added later without changing the setting.
+
+**rbac's roles are not in the engine's backup.** Measured on OIE 4.7.0: the engine's backup (`GET /api/server/configuration`) holds rbac's `schema_version` and nothing else of rbac's, and restoring it leaves rbac's roles as they were. Putting the roles in it was considered and dropped:
+
+- The backup doesn't carry the engine's users either, so moving to a new engine is manual work already, and importing a roles file is one more step in it.
+- A restore onto the same engine loses nothing, since rbac's roles live in its own tables.
+- The engine's Backup and Restore permissions can be given to roles without the admin role, which would be a second way to read and replace every role, beside an import only the admin role may use.
+- It can be added later without changing anything that exists. A restore that deletes roles, once shipped, could not be taken back as easily.
+
+The steps for a move are in [role-export-format.md](role-export-format.md#moving-roles-to-a-new-engine).
+
+**Role names are compared exactly as typed.** To rbac, "Lab" and "LAB" are two names. MySQL and SQL Server compare names ignoring case by default, so there only one of them can exist: the end-to-end suite measured the second refused (409) on MySQL and with both SQL Server drivers, and kept on Derby, PostgreSQL and Oracle. Making rbac ignore case on every database was considered and dropped. The import says what to do when a file holds a pair the database can't hold.
+
+**The engine's plugin-settings calls.** `GET` and `PUT /api/extensions/{name}/properties` are checked under the name exactly as the URL spells it, and the engine reads and writes the settings with `WHERE CATEGORY = <name>`. On MySQL, which compares that ignoring case, a user whose role had only View Channels read Data Pruner's settings as "data pruner", past the View Settings permission rbac holds for "Data Pruner", and wiped them with one save. Measured on OIE 4.7.0 with MySQL 8.4; on Derby the same requests reached nothing. rbac now refuses those two calls, to anyone without the admin role, for a name that isn't exactly an installed plugin's or connector's. rbac never registered a permission for its own settings, so they were open to any role; they are for the admin role only now.
+
+### Accepted
+
+- A database failure partway through an import is undone by the database: the import is one transaction, never committed after a failure. The end-to-end suite shows it on MySQL only. Making an import fail on purpose on the other databases would need a test switch in the shipped plugin.
+- From the code, not measured: when two admins change roles at the same moment, the one whose import loses the race gets HTTP 500 rather than "preview again", and nothing is half-written.
+
+### Tests added
+
+- An import of a file exported on Derby (`e2e/fixtures/roles-from-derby.xml`, made by `e2e/make_derby_roles_fixture.py`), on every database: its channels are listed as matches by name and not used until the import matches channels by name, then its roles come in with this engine's channel ids. "e2e Derby Lab" and "e2e Derby LAB" are both written on Derby, PostgreSQL and Oracle, and refused with the reason on MySQL and SQL Server, where the rest goes in without one of them.
+- After each upgrade, the old release's restricted role is exported, deleted and imported back with its channel.
+- The plugin-settings calls as a read-only user: rbac's own settings, and Data Pruner's and rbac's under other cases and with a trailing space.

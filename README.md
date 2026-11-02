@@ -74,11 +74,17 @@ Install the zip through the Administrator's Extensions view and restart OIE. On 
 
 ## Export and import roles
 
-Roles can be written to a file and read back, on the same engine or another one, through `GET /api/extensions/rbac/roles/_export` and `POST /api/extensions/rbac/roles/_import`. Only users holding the admin role can export or import. An import is previewed first, showing what each role would become and what an overwrite changes, writes only the roles picked, in one transaction, and never changes the admin role. Applying the file's channel restrictions is a choice. The file format and the import rules are in [docs/role-export-format.md](docs/role-export-format.md).
+Roles can be written to a file and read back, on the same engine or another one, through `GET /api/extensions/rbac/roles/_export` and `POST /api/extensions/rbac/roles/_import`. Only users holding the admin role can export or import. An import is previewed first, showing what each role would become and what an overwrite changes, writes only the roles picked, in one transaction, and never changes the admin role. Applying the file's channel restrictions is a choice. A channel whose id isn't on the engine but whose name matches one there is used only if you choose to match channels by name. The file format and the import rules are in [docs/role-export-format.md](docs/role-export-format.md).
+
+The engine's own backup doesn't include rbac's roles or role assignments, or the engine's users. To move to a new engine, export the roles as well. On the new engine, install rbac, restore the backup, create the users, import the roles file, then assign the roles.
+
+Role names are compared exactly as typed, so "Lab" and "LAB" are two roles. MySQL and SQL Server compare names ignoring case by default, so on those databases only one of the two can exist, and an import holding both asks you to rename one.
 
 ## What RBAC enforces
 
 RBAC checks each request against the permission the engine, or the plugin that owns the operation, declares for it. An operation that declares no permission is allowed for any logged-in user who has a role, and the server logs a warning each time (`RBAC: allowing unknown operation ...`). OIE 4.7.0 has dozens of these, mostly helpers behind screens that are already gated, such as the database connectors' table lookup (`getTables`). Gating them belongs in the engine. RBAC reads the engine's permission declarations at startup, so once the engine declares one, RBAC enforces it with no plugin change.
+
+The engine's plugin-settings calls (`/api/extensions/{name}/properties`) are allowed only under the exact name of an installed extension, and rbac's own settings only to the admin role.
 
 ## License
 
