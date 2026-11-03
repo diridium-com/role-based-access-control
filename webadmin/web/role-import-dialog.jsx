@@ -12,10 +12,11 @@
 
 import {
     TITLE_IMPORT_ROLES, IMPORT_APPLY_CHANNELS, IMPORT_MATCH_BY_NAME, IMPORT_COLUMNS,
-    importRefusedText, importSourceText, importedText, actionLabel, canTick, detailsText,
-    mergeTicks, pickedIndexes, nameMatchSection
+    importRefusedText, importSourceText, importedText, actionLabel, canTick, notesText,
+    mergeTicks, pickedIndexes, nameMatchHint, channelsNowLines, channelsAfterLines, permissionsAfterLines
 } from './rbac-core.js';
 import { makeTransferShell } from './role-transfer-shell.jsx';
+import { makeListCell } from './role-table-cells.jsx';
 
 const errorText = (e) => String(e && e.message || e);
 
@@ -23,6 +24,7 @@ export function makeRoleImportDialog(platform, api) {
     const React = platform.React;
     const ui = platform.ui;
     const Shell = makeTransferShell(React);
+    const ListCell = makeListCell(React);
 
     /* props: fileText (the picked file), initial (the first preview, importable),
        onClose(), onImported() (after a successful apply) */
@@ -93,7 +95,7 @@ export function makeRoleImportDialog(platform, api) {
             return next;
         });
 
-        const matches = nameMatchSection(applyChannels, matchByName, result.channelNameMatches);
+        const hint = nameMatchHint(result.channelNameMatches.length, applyChannels, matchByName);
         const nothingPicked = pickedIndexes(result.rows, ticks).length === 0;
 
         return (
@@ -117,18 +119,10 @@ export function makeRoleImportDialog(platform, api) {
                         onChange={(e) => changeMatchByName(e.target.checked)} />
                     {IMPORT_MATCH_BY_NAME}
                 </label>
-                {matches ? (
-                    <div style={{ marginTop: 8 }}>
-                        <div>{matches.heading}</div>
-                        <div className="rbac-xfer-list">
-                            {matches.names.map((name, i) => <div key={i}>{name}</div>)}
-                        </div>
-                        {matches.hint ? <div>{matches.hint}</div> : null}
-                    </div>
-                ) : null}
+                {hint ? <div style={{ marginTop: 8 }}>{hint}</div> : null}
                 <table className="dt rbac-xfer-table">
                     <thead>
-                        <tr>{IMPORT_COLUMNS.map((c, i) => <th key={i} style={i === 0 ? { width: 30 } : null}>{c}</th>)}</tr>
+                        <tr>{IMPORT_COLUMNS.map((c, i) => <th key={i}>{c}</th>)}</tr>
                     </thead>
                     <tbody>
                         {result.rows.map((row) => (
@@ -141,7 +135,13 @@ export function makeRoleImportDialog(platform, api) {
                                 </td>
                                 <td>{row.name}</td>
                                 <td>{actionLabel(row.action)}</td>
-                                <td>{detailsText(row)}</td>
+                                <td>{row.descriptionNow}</td>
+                                <td>{row.descriptionAfter}</td>
+                                <ListCell lines={row.permissionsNow} />
+                                <ListCell lines={permissionsAfterLines(row)} />
+                                <ListCell lines={channelsNowLines(row)} />
+                                <ListCell lines={channelsAfterLines(row)} />
+                                <td>{notesText(row)}</td>
                             </tr>
                         ))}
                     </tbody>

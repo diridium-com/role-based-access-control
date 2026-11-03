@@ -103,6 +103,21 @@ function beanList(v, fqcn) {
 
 const text = (v) => (v === undefined || v === null ? '' : String(v));
 
+const CHANNEL_FQCN = 'com.diridium.rbac.RoleImportChannel';
+
+// name and fileName stay null when the wire has null: the cells word a channel
+// differently when it has no name or no name in the file.
+function normalizeImportChannel(raw) {
+    const orNull = (v) => (v === undefined || v === null ? null : String(v));
+    return {
+        id: text(raw.id),
+        name: orNull(raw.name),
+        fileName: orNull(raw.fileName),
+        match: text(raw.match),
+        used: raw.used === true || raw.used === 'true'
+    };
+}
+
 function normalizeImportRow(raw) {
     return {
         index: Number(raw.index),
@@ -110,14 +125,15 @@ function normalizeImportRow(raw) {
         action: text(raw.action),
         reason: text(raw.reason),
         droppedPermissions: stringList(raw.droppedPermissions),
-        unmatchedChannels: stringList(raw.unmatchedChannels),
         matchedChannelCount: Number(raw.matchedChannelCount) || 0,
         channels: text(raw.channels),
-        descriptionChanged: raw.descriptionChanged === true || raw.descriptionChanged === 'true',
-        addedPermissions: stringList(raw.addedPermissions),
-        removedPermissions: stringList(raw.removedPermissions),
-        addedChannels: stringList(raw.addedChannels),
-        removedChannels: stringList(raw.removedChannels)
+        existsHere: raw.existsHere === true || raw.existsHere === 'true',
+        descriptionNow: text(raw.descriptionNow),
+        descriptionAfter: text(raw.descriptionAfter),
+        permissionsNow: stringList(raw.permissionsNow),
+        permissionsAfter: stringList(raw.permissionsAfter),
+        channelsNow: beanList(raw.channelsNow, CHANNEL_FQCN).map(normalizeImportChannel),
+        channelsAfter: beanList(raw.channelsAfter, CHANNEL_FQCN).map(normalizeImportChannel)
     };
 }
 

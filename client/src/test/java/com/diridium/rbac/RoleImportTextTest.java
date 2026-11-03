@@ -10,7 +10,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 
@@ -65,12 +68,6 @@ class RoleImportTextTest {
         assertFalse(ticked[1]);
     }
 
-    private static ChannelNameMatch match(String name) {
-        ChannelNameMatch m = new ChannelNameMatch();
-        m.setName(name);
-        return m;
-    }
-
     @Test
     void actionLabels() {
         assertEquals("New", RoleImportText.actionLabel(RoleImportRow.Action.CREATE));
@@ -91,43 +88,105 @@ class RoleImportTextTest {
         assertFalse(RoleImportText.tickable(RoleImportRow.Action.SKIP));
     }
 
+    private static RoleImportChannel ch(String id, String name, String fileName, RoleImportChannel.Match match,
+            boolean used) {
+        RoleImportChannel c = new RoleImportChannel();
+        c.setId(id);
+        c.setName(name);
+        c.setFileName(fileName);
+        c.setMatch(match);
+        c.setUsed(used);
+        return c;
+    }
+
     @Test
-    void details_everyPartInOrder() {
+    void notes_reasonThenKept_thenSameForUnchanged() {
         RoleImportRow r = row(RoleImportRow.Action.OVERWRITE);
         r.setReason("The role exists here.");
-        r.setAddedPermissions(Arrays.asList("a", "b"));
-        r.setRemovedPermissions(Arrays.asList("c"));
-        r.setAddedChannels(Arrays.asList("One", "Two"));
-        r.setRemovedChannels(Arrays.asList("Three"));
-        r.setDescriptionChanged(true);
         r.setChannels(RoleImportRow.Channels.KEPT);
-        r.setDroppedPermissions(Arrays.asList("x", "y"));
-        r.setUnmatchedChannels(Arrays.asList("Gone"));
-        assertEquals("The role exists here.; Adds permissions: a, b; Removes permissions: c; "
-                + "Adds channels: One, Two; Removes channels: Three; Changes the description; "
-                + "Keeps its channels here; Left out, not on this engine: x, y; Channels not found: Gone",
-                RoleImportText.details(r));
-    }
-
-    @Test
-    void details_onlyWhatApplies_nullListsTolerated() {
-        RoleImportRow r = row(RoleImportRow.Action.CREATE);
-        r.setAddedPermissions(null);
-        r.setDroppedPermissions(null);
+        assertEquals("The role exists here.; Keeps its channels here", RoleImportText.notes(r));
+        r.setReason(null);
+        assertEquals("Keeps its channels here", RoleImportText.notes(r));
         r.setChannels(RoleImportRow.Channels.FROM_FILE);
-        assertEquals("", RoleImportText.details(r));
-        r.setUnmatchedChannels(Collections.singletonList("Solo"));
-        assertEquals("Channels not found: Solo", RoleImportText.details(r));
-    }
-
-    @Test
-    void details_unchangedSaysSameOnlyWhenNothingElseApplies() {
-        assertEquals("Same as the role here", RoleImportText.details(row(RoleImportRow.Action.UNCHANGED)));
+        assertEquals("", RoleImportText.notes(r));
+        assertEquals("Same as the role here", RoleImportText.notes(row(RoleImportRow.Action.UNCHANGED)));
         RoleImportRow withReason = row(RoleImportRow.Action.UNCHANGED);
         withReason.setReason("Nothing to do.");
-        assertEquals("Nothing to do.", RoleImportText.details(withReason));
-        // Other actions with nothing to say stay empty.
-        assertEquals("", RoleImportText.details(row(RoleImportRow.Action.SKIP)));
+        assertEquals("Nothing to do.", RoleImportText.notes(withReason));
+        assertEquals("", RoleImportText.notes(row(RoleImportRow.Action.SKIP)));
+    }
+
+    @Test
+    void channelNowLabel_nameOrDeleted() {
+        assertEquals("Lab feed", RoleImportText.channelNowLabel(ch("a1", "Lab feed", null, RoleImportChannel.Match.BY_ID, true)));
+        assertEquals("a2 (deleted channel)",
+                RoleImportText.channelNowLabel(ch("a2", null, null, RoleImportChannel.Match.NOT_FOUND, true)));
+    }
+
+    @Test
+    void channelAfterLabel_everyCase() {
+        assertEquals("Lab feed", RoleImportText.channelAfterLabel(ch("a", "Lab feed", null, RoleImportChannel.Match.BY_ID, true)));
+        assertEquals("a (deleted channel)",
+                RoleImportText.channelAfterLabel(ch("a", null, null, RoleImportChannel.Match.NOT_FOUND, true)));
+        assertEquals("Lab feed (found by id)",
+                RoleImportText.channelAfterLabel(ch("a", "Lab feed", "Lab feed", RoleImportChannel.Match.BY_ID, true)));
+        assertEquals("New name (found by id, named \"Old name\" in the file)",
+                RoleImportText.channelAfterLabel(ch("a", "New name", "Old name", RoleImportChannel.Match.BY_ID, true)));
+        assertEquals("Lab feed (found by name)",
+                RoleImportText.channelAfterLabel(ch("a", "Lab feed", "Lab feed", RoleImportChannel.Match.BY_NAME, true)));
+        assertEquals("Lab feed (found by name, not used)",
+                RoleImportText.channelAfterLabel(ch("a", "Lab feed", "Lab feed", RoleImportChannel.Match.BY_NAME, false)));
+        assertEquals("Gone (not found here)",
+                RoleImportText.channelAfterLabel(ch("a", "Gone", "Gone", RoleImportChannel.Match.NOT_FOUND, false)));
+        assertEquals("a (not found here)",
+                RoleImportText.channelAfterLabel(ch("a", null, "x", RoleImportChannel.Match.NOT_FOUND, false)));
+    }
+
+    @Test
+    void channelsNowCell() {
+        RoleImportRow r = row(RoleImportRow.Action.CREATE);
+        assertEquals("", RoleImportText.channelsNowCell(r), "no role here");
+        r.setExistsHere(true);
+        assertEquals("Every channel", RoleImportText.channelsNowCell(r));
+        r.setChannelsNow(Arrays.asList(ch("a", "Alpha", null, RoleImportChannel.Match.BY_ID, true),
+                ch("b", null, null, RoleImportChannel.Match.NOT_FOUND, true)));
+        assertEquals("Alpha\nb (deleted channel)", RoleImportText.channelsNowCell(r));
+    }
+
+    @Test
+    void channelsAfterCell() {
+        RoleImportRow r = row(RoleImportRow.Action.OVERWRITE);
+        assertEquals("Every channel", RoleImportText.channelsAfterCell(r));
+        assertEquals("", RoleImportText.channelsAfterCell(row(RoleImportRow.Action.SKIP)), "skipped: nothing looked up");
+        r.setChannelsAfter(Arrays.asList(ch("a", "Alpha", "Alpha", RoleImportChannel.Match.BY_ID, true),
+                ch("b", "Beta", "Beta", RoleImportChannel.Match.BY_NAME, false)));
+        assertEquals("Alpha (found by id)\nBeta (found by name, not used)", RoleImportText.channelsAfterCell(r));
+    }
+
+    @Test
+    void permissionsCells() {
+        RoleImportRow r = row(RoleImportRow.Action.OVERWRITE);
+        assertEquals("", RoleImportText.permissionsNowCell(r));
+        assertEquals("", RoleImportText.permissionsAfterCell(r));
+        r.setPermissionsNow(Arrays.asList("a", "b"));
+        r.setPermissionsAfter(Arrays.asList("a", "c"));
+        r.setDroppedPermissions(Arrays.asList("x"));
+        assertEquals("a\nb", RoleImportText.permissionsNowCell(r));
+        assertEquals("a\nc\nx (not on this engine, left out)", RoleImportText.permissionsAfterCell(r));
+    }
+
+    @Test
+    void exportChannelsCell() {
+        Role role = new Role();
+        assertEquals("Every channel", RoleImportText.exportChannelsCell(role, new HashMap<>()));
+        role.setChannelIds(new HashSet<>(Arrays.asList("c", "b", "a", "z")));
+        Map<String, String> map = new HashMap<>();
+        map.put("a", "Zulu");
+        map.put("b", "Alpha");
+        map.put("c", "Mike");
+        assertEquals("Alpha\nMike\nZulu\nz (deleted channel)", RoleImportText.exportChannelsCell(role, map));
+        assertEquals("a (channel list not loaded)\nb (channel list not loaded)\nc (channel list not loaded)\n"
+                + "z (channel list not loaded)", RoleImportText.exportChannelsCell(role, null));
     }
 
     @Test
@@ -140,16 +199,12 @@ class RoleImportTextTest {
     }
 
     @Test
-    void nameMatchNote() {
-        List<ChannelNameMatch> matches = Arrays.asList(match("probe one"), match("probe two"));
-        assertEquals("Channels in the file that match a channel here only by name:\nprobe one\nprobe two\n"
-                + "Tick \"Also match channels by name\" to use them.",
-                RoleImportText.nameMatchNote(matches, true, false));
-        assertEquals("Channels in the file that match a channel here only by name:\nprobe one\nprobe two",
-                RoleImportText.nameMatchNote(matches, true, true));
-        assertNull(RoleImportText.nameMatchNote(matches, false, false));
-        assertNull(RoleImportText.nameMatchNote(Collections.emptyList(), true, false));
-        assertNull(RoleImportText.nameMatchNote(null, true, false));
+    void nameMatchHint() {
+        assertEquals("2 channel(s) in the file match a channel here only by name. Tick the box above to use them.",
+                RoleImportText.nameMatchHint(2, true, false));
+        assertNull(RoleImportText.nameMatchHint(2, true, true), "gone once the box is ticked");
+        assertNull(RoleImportText.nameMatchHint(2, false, false));
+        assertNull(RoleImportText.nameMatchHint(0, true, false));
     }
 
     @Test

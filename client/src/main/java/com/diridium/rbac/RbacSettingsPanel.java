@@ -83,7 +83,7 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
     public RbacSettingsPanel(String tabName) {
         super(tabName);
         this.parent = PlatformUI.MIRTH_FRAME;
-        this.transfer = new RoleTransferActions(parent, this::doRefresh);
+        this.transfer = new RoleTransferActions(parent, this::doRefresh, this::loadedChannelMap);
         initComponents();
         addTask("doExportRoles", "Export Roles", "Export roles to a file.", "", new ImageIcon(Frame.class.getResource("images/report_go.png")));
         addTask("doImportRoles", "Import Roles", "Import roles from a file.", "", new ImageIcon(Frame.class.getResource("images/report_disk.png")));
@@ -194,6 +194,11 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
         splitPane.setDividerLocation(250);
         splitPane.setResizeWeight(0.5);
         add(splitPane, BorderLayout.CENTER);
+    }
+
+    /** @return the channel id to name map, or {@code null} when the last refresh did not load the channel list */
+    Map<String, String> loadedChannelMap() {
+        return channelListLoaded ? cachedChannelMap : null;
     }
 
     /**

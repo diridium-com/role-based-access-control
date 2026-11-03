@@ -321,6 +321,9 @@ export const TASK_IMPORT_ROLES_TOOLTIP = 'Import roles from a file.';
 // Export dialog.
 export const TITLE_EXPORT_ROLES = 'Export Roles';
 export const EXPORT_PROMPT = 'Pick the roles to export. The admin role is never exported.';
+export const EXPORT_CHANNELS_LINE =
+    'Channel restrictions are included. When importing, you can choose not to apply them.';
+export const EXPORT_COLUMNS = ['Export', 'Role', 'Description', 'Permissions', 'Channels'];
 export const MSG_NO_ROLES_TO_EXPORT = 'There are no roles to export. The admin role is never exported.';
 export const EXPORT_FILE_NAME = 'rbac-roles.xml';
 export function exportedText(count) {
@@ -331,9 +334,11 @@ export function exportedText(count) {
 export const TITLE_IMPORT_ROLES = 'Import Roles';
 export const IMPORT_APPLY_CHANNELS = 'Apply channel restrictions from the file';
 export const IMPORT_MATCH_BY_NAME = "Also match channels by name when the id isn't found";
-export const IMPORT_COLUMNS = ['', 'Role', 'Action', 'Details'];
-export const NAME_MATCH_HEADING = 'Channels in the file that match a channel here only by name:';
-export const NAME_MATCH_HINT = 'Tick "Also match channels by name" to use them.';
+export const IMPORT_COLUMNS = [
+    'Import', 'Role', 'Action', 'Description now', 'Description after',
+    'Permissions now', 'Permissions after', 'Channels now', 'Channels after', 'Notes'
+];
+const EVERY_CHANNEL = 'Every channel';
 export function importRefusedText(refusal) {
     return "This file can't be imported: " + refusal;
 }
@@ -380,30 +385,80 @@ export function pickedIndexes(rows, ticks) {
     return rows.filter((row) => canTick(row) && ticks.has(row.index)).map((row) => row.index).sort((a, b) => a - b);
 }
 
-// The Details column text: the parts that apply, in this order, joined with "; ".
-export function detailsText(row) {
+// The Notes column text: the row's reason, then "Keeps its channels here" when
+// the channels were not applied, then "Same as the role here" for an Unchanged
+// row with nothing else. Joined with "; ".
+export function notesText(row) {
     const parts = [];
     if (row.reason) parts.push(row.reason);
-    if (row.addedPermissions.length) parts.push('Adds permissions: ' + row.addedPermissions.join(', '));
-    if (row.removedPermissions.length) parts.push('Removes permissions: ' + row.removedPermissions.join(', '));
-    if (row.addedChannels.length) parts.push('Adds channels: ' + row.addedChannels.join(', '));
-    if (row.removedChannels.length) parts.push('Removes channels: ' + row.removedChannels.join(', '));
-    if (row.descriptionChanged) parts.push('Changes the description');
     if (row.channels === 'KEPT') parts.push('Keeps its channels here');
-    if (row.droppedPermissions.length) parts.push('Left out, not on this engine: ' + row.droppedPermissions.join(', '));
-    if (row.unmatchedChannels.length) parts.push('Channels not found: ' + row.unmatchedChannels.join(', '));
     if (row.action === 'UNCHANGED' && parts.length === 0) parts.push('Same as the role here');
     return parts.join('; ');
 }
 
-// The list of channels that match only by name: shown while channel restrictions
-// are applied and there are some. The hint is added while name matching is off.
+// The hint under the tick boxes: shown while channel restrictions are applied,
+// some channels match only by name and the match-by-name box is unticked.
 // Returns null when nothing is shown.
-export function nameMatchSection(applyChannels, matchChannelsByName, channelNameMatches) {
-    if (!applyChannels || channelNameMatches.length === 0) return null;
-    return {
-        heading: NAME_MATCH_HEADING,
-        names: channelNameMatches.map((m) => m.name),
-        hint: matchChannelsByName ? null : NAME_MATCH_HINT
-    };
+export function nameMatchHint(count, applyChannels, matchChannelsByName) {
+    if (!applyChannels || matchChannelsByName || count === 0) return null;
+    return count + ' channel(s) in the file match a channel here only by name. Tick the box above to use them.';
+}
+
+// A channel in a Now list, or in an After list that copies it.
+export function channelNowLabel(channel) {
+    return channel.name === null ? channel.id + ' (deleted channel)' : channel.name;
+}
+
+// A channel in an After list, with how it was found.
+export function channelAfterLabel(channel) {
+    if (channel.fileName === null) return channelNowLabel(channel);
+    const shown = channel.name === null ? channel.id : channel.name;
+    if (channel.match === 'BY_ID') {
+        return channel.name === channel.fileName
+            ? shown + ' (found by id)'
+            : shown + ' (found by id, named "' + channel.fileName + '" in the file)';
+    }
+    if (channel.match === 'BY_NAME') {
+        return shown + (channel.used ? ' (found by name)' : ' (found by name, not used)');
+    }
+    return shown + ' (not found here)';
+}
+
+// The cell lines for Channels now: empty with no role here, "Every channel" when
+// the role here has no channel in its list.
+export function channelsNowLines(row) {
+    if (!row.existsHere) return [];
+    if (row.channelsNow.length === 0) return [EVERY_CHANNEL];
+    return row.channelsNow.map(channelNowLabel);
+}
+
+// The cell lines for Channels after: "Every channel" when the list is empty,
+// except on a Skipped row, where nothing was looked up.
+export function channelsAfterLines(row) {
+    if (row.channelsAfter.length === 0) return row.action === 'SKIP' ? [] : [EVERY_CHANNEL];
+    return row.channelsAfter.map(channelAfterLabel);
+}
+
+// The cell lines for Permissions after: the permissions, then each one in the
+// file that this engine doesn't offer.
+export function permissionsAfterLines(row) {
+    return [...row.permissionsAfter, ...row.droppedPermissions.map((p) => p + ' (not on this engine, left out)')];
+}
+
+// The export table's Permissions cell: sorted, one per line.
+export function exportPermissionsLines(role) {
+    return [...role.permissions].sort();
+}
+
+// The export table's Channels cell. channelMap is a Map of channel id to name, or
+// null when the channel list isn't loaded. Known names first, sorted by name in
+// code-unit order (the same order as the Swing Administrator's), then the ids
+// the map doesn't have.
+export function exportChannelsLines(role, channelMap) {
+    const ids = [...role.channelIds];
+    if (ids.length === 0) return [EVERY_CHANNEL];
+    if (!channelMap) return ids.sort().map((id) => id + ' (channel list not loaded)');
+    const known = ids.filter((id) => channelMap.has(id)).map((id) => channelMap.get(id));
+    const unknown = ids.filter((id) => !channelMap.has(id)).sort();
+    return [...known.sort(), ...unknown.map((id) => id + ' (deleted channel)')];
 }

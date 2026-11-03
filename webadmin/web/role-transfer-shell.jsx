@@ -21,8 +21,7 @@ const TRANSFER_CSS = `
     z-index: 95;
 }
 .rbac-xfer {
-    width: 720px;
-    max-width: 92vw;
+    width: min(1280px, 95vw);
     max-height: 88vh;
     display: flex;
     flex-direction: column;
@@ -40,9 +39,8 @@ const TRANSFER_CSS = `
 .rbac-xfer .rbac-check input { margin: 0; flex: none; }
 .rbac-xfer .rbac-check:has(input:disabled) { opacity: 0.55; cursor: default; }
 .rbac-xfer-indent { margin-left: 22px; }
-.rbac-xfer-list { margin: 4px 0 8px 22px; font-size: 12px; }
 .rbac-xfer-table { width: 100%; margin-top: 10px; }
-.rbac-xfer-table td { vertical-align: top; }
+.rbac-xfer-table td { white-space: normal; vertical-align: top; }
 `;
 
 export function makeTransferShell(React) {

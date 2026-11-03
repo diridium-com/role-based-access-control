@@ -5,7 +5,9 @@ package com.diridium.rbac;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.TreeSet;
 
 import com.mirth.connect.client.core.EntityException;
 import com.mirth.connect.client.core.ForbiddenException;
@@ -16,8 +18,7 @@ import com.mirth.connect.client.core.ForbiddenException;
  */
 final class RoleImportText {
 
-    static final String CHANNEL_NAME_HEADING = "Channels in the file that match a channel here only by name:";
-    static final String CHANNEL_NAME_HINT = "Tick \"Also match channels by name\" to use them.";
+    static final String EVERY_CHANNEL = "Every channel";
 
     private RoleImportText() {
     }
@@ -82,26 +83,18 @@ final class RoleImportText {
     }
 
     /**
-     * The Details cell: each part only when it applies, in a fixed order, joined with "; ".
-     * "Same as the role here" appears for an Unchanged row that has no other part.
+     * The Notes cell: the row's reason if any, then "Keeps its channels here" when the
+     * channel restrictions were not applied to an existing role, then "Same as the role
+     * here" for an Unchanged row with nothing else. Joined with "; ".
      */
-    static String details(RoleImportRow row) {
+    static String notes(RoleImportRow row) {
         List<String> parts = new ArrayList<>();
         if (row.getReason() != null && !row.getReason().trim().isEmpty()) {
             parts.add(row.getReason());
         }
-        addList(parts, "Adds permissions: ", row.getAddedPermissions());
-        addList(parts, "Removes permissions: ", row.getRemovedPermissions());
-        addList(parts, "Adds channels: ", row.getAddedChannels());
-        addList(parts, "Removes channels: ", row.getRemovedChannels());
-        if (row.isDescriptionChanged()) {
-            parts.add("Changes the description");
-        }
         if (row.getChannels() == RoleImportRow.Channels.KEPT) {
             parts.add("Keeps its channels here");
         }
-        addList(parts, "Left out, not on this engine: ", row.getDroppedPermissions());
-        addList(parts, "Channels not found: ", row.getUnmatchedChannels());
         if (parts.isEmpty() && row.getAction() == RoleImportRow.Action.UNCHANGED) {
             parts.add("Same as the role here");
         }
@@ -109,21 +102,113 @@ final class RoleImportText {
     }
 
     /**
-     * The note under the tick boxes listing channels that match only by name, or null when
-     * there is nothing to show (channel restrictions not applied, or no such channels).
+     * The line under the tick boxes saying how many channels in the file match a channel
+     * here only by name, or null when there is nothing to say (channel restrictions not
+     * applied, no such channels, or the match-by-name box already ticked).
      */
-    static String nameMatchNote(List<ChannelNameMatch> matches, boolean applyChannels, boolean matchByName) {
-        if (!applyChannels || matches == null || matches.isEmpty()) {
+    static String nameMatchHint(int count, boolean applyChannels, boolean matchByName) {
+        if (!applyChannels || matchByName || count <= 0) {
             return null;
         }
-        StringBuilder note = new StringBuilder(CHANNEL_NAME_HEADING);
-        for (ChannelNameMatch match : matches) {
-            note.append('\n').append(match.getName());
+        return count + " channel(s) in the file match a channel here only by name. Tick the box above to use them.";
+    }
+
+    /** One entry of a Channels now cell: the channel's name, or its id and "(deleted channel)". */
+    static String channelNowLabel(RoleImportChannel channel) {
+        return channel.getName() != null ? channel.getName() : channel.getId() + " (deleted channel)";
+    }
+
+    /** One entry of a Channels after cell: the channel and how it was found. */
+    static String channelAfterLabel(RoleImportChannel channel) {
+        if (channel.getFileName() == null) {
+            return channelNowLabel(channel);
         }
-        if (!matchByName) {
-            note.append('\n').append(CHANNEL_NAME_HINT);
+        RoleImportChannel.Match match = channel.getMatch();
+        if (match == RoleImportChannel.Match.BY_ID) {
+            if (Objects.equals(channel.getName(), channel.getFileName())) {
+                return channel.getName() + " (found by id)";
+            }
+            return channel.getName() + " (found by id, named \"" + channel.getFileName() + "\" in the file)";
         }
-        return note.toString();
+        if (match == RoleImportChannel.Match.BY_NAME) {
+            return channel.getName() + (channel.isUsed() ? " (found by name)" : " (found by name, not used)");
+        }
+        return (channel.getName() != null ? channel.getName() : channel.getId()) + " (not found here)";
+    }
+
+    /** The Channels now cell: empty with no role here, "Every channel" with no list, else a line each. */
+    static String channelsNowCell(RoleImportRow row) {
+        if (!row.isExistsHere()) {
+            return "";
+        }
+        List<RoleImportChannel> list = row.getChannelsNow();
+        if (list == null || list.isEmpty()) {
+            return EVERY_CHANNEL;
+        }
+        List<String> lines = new ArrayList<>();
+        for (RoleImportChannel channel : list) {
+            lines.add(channelNowLabel(channel));
+        }
+        return String.join("\n", lines);
+    }
+
+    /** The Channels after cell; empty on a Skipped row with no list, since nothing was looked up. */
+    static String channelsAfterCell(RoleImportRow row) {
+        List<RoleImportChannel> list = row.getChannelsAfter();
+        if (list == null || list.isEmpty()) {
+            return row.getAction() == RoleImportRow.Action.SKIP ? "" : EVERY_CHANNEL;
+        }
+        List<String> lines = new ArrayList<>();
+        for (RoleImportChannel channel : list) {
+            lines.add(channelAfterLabel(channel));
+        }
+        return String.join("\n", lines);
+    }
+
+    /** The Permissions now cell, one permission per line. */
+    static String permissionsNowCell(RoleImportRow row) {
+        return row.getPermissionsNow() == null ? "" : String.join("\n", row.getPermissionsNow());
+    }
+
+    /** The Permissions after cell: one per line, then each permission left out because this engine lacks it. */
+    static String permissionsAfterCell(RoleImportRow row) {
+        List<String> lines = new ArrayList<>();
+        if (row.getPermissionsAfter() != null) {
+            lines.addAll(row.getPermissionsAfter());
+        }
+        if (row.getDroppedPermissions() != null) {
+            for (String dropped : row.getDroppedPermissions()) {
+                lines.add(dropped + " (not on this engine, left out)");
+            }
+        }
+        return String.join("\n", lines);
+    }
+
+    /**
+     * The Channels cell of the export table: "Every channel" for a role with no channel
+     * ids, else one line per id, named channels first by name, then the unknown ids. A null
+     * map means the channel list was not loaded.
+     */
+    static String exportChannelsCell(Role role, Map<String, String> channelMap) {
+        if (role.getChannelIds() == null || role.getChannelIds().isEmpty()) {
+            return EVERY_CHANNEL;
+        }
+        TreeSet<String> named = new TreeSet<>();
+        TreeSet<String> unknown = new TreeSet<>();
+        for (String id : role.getChannelIds()) {
+            String name = channelMap == null ? null : channelMap.get(id);
+            if (name != null) {
+                named.add(name + "\0" + id);
+            } else {
+                unknown.add(id + (channelMap == null ? " (channel list not loaded)" : " (deleted channel)"));
+            }
+        }
+        List<String> lines = new ArrayList<>();
+        for (String entry : named) {
+            lines.add(entry.substring(0, entry.indexOf('\0')));
+        }
+        lines.addAll(unknown);
+        return String.join("\n", lines);
     }
 
     /**
@@ -146,12 +231,6 @@ final class RoleImportText {
             }
         }
         return null;
-    }
-
-    private static void addList(List<String> parts, String label, List<String> values) {
-        if (values != null && !values.isEmpty()) {
-            parts.add(label + String.join(", ", values));
-        }
     }
 
     private static String orUnknown(String value) {

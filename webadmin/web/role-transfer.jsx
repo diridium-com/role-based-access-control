@@ -4,7 +4,7 @@
 /*
  * Export Roles and Import Roles on the Roles settings panel: the two task
  * handlers and the dialogs they open. The panel keeps one `transfer` value
- * ({ kind: 'export', roles } or { kind: 'import', fileText, initial }) and
+ * ({ kind: 'export', roles, channelMap } or { kind: 'import', fileText, initial }) and
  * renders <TransferDialogs> for it.
  */
 
@@ -20,13 +20,13 @@ export function makeRoleTransfer(platform, api) {
 
     /* The value to open the export dialog with, or null (with a message) when
        no role but the admin role exists. */
-    function startExport(roles) {
+    function startExport(roles, channelMap) {
         const exportable = roles.filter((r) => !r.isAdmin);
         if (exportable.length === 0) {
             ui.toast(MSG_NO_ROLES_TO_EXPORT, 'info');
             return null;
         }
-        return { kind: 'export', roles: exportable };
+        return { kind: 'export', roles: exportable, channelMap };
     }
 
     /* Pick a file and preview it. Resolves the value to open the import dialog
@@ -59,7 +59,7 @@ export function makeRoleTransfer(platform, api) {
     function TransferDialogs({ transfer, onClose, onImported }) {
         if (!transfer) return null;
         if (transfer.kind === 'export') {
-            return <ExportDialog roles={transfer.roles} onClose={onClose} />;
+            return <ExportDialog roles={transfer.roles} channelMap={transfer.channelMap} onClose={onClose} />;
         }
         return <ImportDialog fileText={transfer.fileText} initial={transfer.initial}
             onClose={onClose} onImported={onImported} />;

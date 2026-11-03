@@ -2,20 +2,26 @@
 // SPDX-License-Identifier: MPL-2.0
 
 /*
- * Export Roles: a tick box per role (never the admin role), all ticked, and an
- * Export button that asks where to save and writes the server's text as is.
+ * Export Roles: a table with a tick box per role (never the admin role), all
+ * ticked, and an Export button that asks where to save and writes the server's text as is.
  */
 
-import { TITLE_EXPORT_ROLES, EXPORT_PROMPT, EXPORT_FILE_NAME, exportedText } from './rbac-core.js';
+import {
+    TITLE_EXPORT_ROLES, EXPORT_PROMPT, EXPORT_CHANNELS_LINE, EXPORT_COLUMNS, EXPORT_FILE_NAME, exportedText,
+    exportPermissionsLines, exportChannelsLines
+} from './rbac-core.js';
 import { makeTransferShell } from './role-transfer-shell.jsx';
+import { makeListCell } from './role-table-cells.jsx';
 
 export function makeRoleExportDialog(platform, api) {
     const React = platform.React;
     const ui = platform.ui;
     const Shell = makeTransferShell(React);
+    const ListCell = makeListCell(React);
 
-    /* props: roles (normalized, admin role already left out), onClose() */
-    return function RoleExportDialog({ roles, onClose }) {
+    /* props: roles (normalized, admin role already left out), channelMap (a Map of
+       channel id to name, or null when the channel list isn't loaded), onClose() */
+    return function RoleExportDialog({ roles, channelMap, onClose }) {
         const [ticked, setTicked] = React.useState(() => new Set(roles.map((r) => r.id)));
         const [busy, setBusy] = React.useState(false);
 
@@ -57,12 +63,26 @@ export function makeRoleExportDialog(platform, api) {
                 </>
             )}>
                 <div style={{ marginBottom: 8 }}>{EXPORT_PROMPT}</div>
-                {roles.map((role) => (
-                    <label key={role.id} className="rbac-check">
-                        <input type="checkbox" checked={ticked.has(role.id)} onChange={() => toggle(role.id)} />
-                        {role.name}
-                    </label>
-                ))}
+                <div>{EXPORT_CHANNELS_LINE}</div>
+                <table className="dt rbac-xfer-table">
+                    <thead>
+                        <tr>{EXPORT_COLUMNS.map((c, i) => <th key={i}>{c}</th>)}</tr>
+                    </thead>
+                    <tbody>
+                        {roles.map((role) => (
+                            <tr key={role.id}>
+                                <td>
+                                    <input type="checkbox" aria-label={role.name}
+                                        checked={ticked.has(role.id)} onChange={() => toggle(role.id)} />
+                                </td>
+                                <td>{role.name}</td>
+                                <td>{role.description}</td>
+                                <ListCell lines={exportPermissionsLines(role)} />
+                                <ListCell lines={exportChannelsLines(role, channelMap)} />
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
             </Shell>
         );
     };

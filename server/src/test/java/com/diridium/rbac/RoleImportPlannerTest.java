@@ -20,6 +20,7 @@ import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import com.diridium.rbac.RoleImportChannel.Match;
 import com.diridium.rbac.RoleImportPlanner.Plan;
 import com.diridium.rbac.RoleImportPlanner.PlannedRole;
 import com.diridium.rbac.RoleImportRow.Action;
@@ -69,8 +70,13 @@ class RoleImportPlannerTest {
         assertEquals(Set.of("viewChannels"), write.role().getPermissions());
         assertEquals(Set.of("id-lab"), write.role().getChannelIds());
         assertTrue(write.writeChannels());
-        assertTrue(row.getAddedPermissions().isEmpty() && row.getAddedChannels().isEmpty(),
-                "only an overwrite lists changes");
+        assertFalse(row.isExistsHere(), "no role here: the now fields are empty");
+        assertNull(row.getDescriptionNow());
+        assertTrue(row.getPermissionsNow().isEmpty() && row.getChannelsNow().isEmpty());
+        assertEquals("d", row.getDescriptionAfter());
+        assertEquals(List.of("viewChannels"), row.getPermissionsAfter());
+        assertEquals(1, row.getChannelsAfter().size());
+        assertChannel(row.getChannelsAfter().get(0), "id-lab", "Lab In", "Lab In", Match.BY_ID, true);
     }
 
     @Test
@@ -108,6 +114,9 @@ class RoleImportPlannerTest {
         assertEquals(Action.SKIP, row.getAction());
         assertEquals("This is the name of this engine's admin role, which an import never changes.", row.getReason());
         assertTrue(plan.writes().isEmpty());
+        assertTrue(row.isExistsHere(), "the file's content and the admin role are still described");
+        assertEquals(List.of("viewChannels"), row.getPermissionsNow());
+        assertEquals(List.of("viewChannels"), row.getPermissionsAfter());
     }
 
     @Test
@@ -135,30 +144,42 @@ class RoleImportPlannerTest {
                 plan.rows().stream().map(RoleImportRow::getAction).toList());
     }
 
-    // ========== What an overwrite changes ==========
+    // ========== The role now and after ==========
 
     @Test
-    void anOverwrite_listsThePermissionsItAddsAndRemoves_andADescriptionChange() throws Exception {
+    void anOverwrite_showsTheDescriptionAndPermissions_nowAndAfter() throws Exception {
         roles.put(5, role(5, "Lab", "old", Set.of("viewMessages", "View Roles"), Set.of()));
         RoleImportRow row = plan(true, fileRole("Lab", List.of("viewMessages", "viewChannels"), false)).rows().get(0);
         assertEquals(Action.OVERWRITE, row.getAction());
-        assertEquals(List.of("viewChannels"), row.getAddedPermissions());
-        assertEquals(List.of("View Roles"), row.getRemovedPermissions());
-        assertTrue(row.isDescriptionChanged());
-        assertTrue(row.getAddedChannels().isEmpty() && row.getRemovedChannels().isEmpty());
+        assertTrue(row.isExistsHere());
+        assertEquals("old", row.getDescriptionNow());
+        assertEquals("d", row.getDescriptionAfter());
+        assertEquals(List.of("View Roles", "viewMessages"), row.getPermissionsNow(), "sorted");
+        assertEquals(List.of("viewChannels", "viewMessages"), row.getPermissionsAfter(), "sorted");
+        assertTrue(row.getChannelsNow().isEmpty() && row.getChannelsAfter().isEmpty(), "every channel, both");
         assertNull(row.getReason());
     }
 
     @Test
-    void anOverwrite_listsTheChannelsItAddsAndRemoves_byName() throws Exception {
-        roles.put(5, role(5, "Lab", "d", Set.of(), Set.of("id-adt", "id-deleted-here")));
+    void anOverwrite_showsTheChannels_nowByNameWithDeletedOnesLast_andAfterInFileOrder() throws Exception {
+        roles.put(5, role(5, "Lab", "d", Set.of(), Set.of("id-adt", "id-deleted-here", "id-lab")));
         RoleImportRow row = plan(true, fileRole("Lab", List.of(), true,
                 new Channel("id-lab", "Lab In"), new Channel("id-adt", "ADT Out"))).rows().get(0);
         assertEquals(Action.OVERWRITE, row.getAction());
-        assertEquals(List.of("Lab In"), row.getAddedChannels());
-        assertEquals(List.of("id-deleted-here"), row.getRemovedChannels(), "a channel deleted here has only its id");
-        assertFalse(row.isDescriptionChanged());
-        assertTrue(row.getAddedPermissions().isEmpty() && row.getRemovedPermissions().isEmpty());
+        assertEquals(3, row.getChannelsNow().size());
+        assertChannel(row.getChannelsNow().get(0), "id-adt", "ADT Out", null, Match.BY_ID, true);
+        assertChannel(row.getChannelsNow().get(1), "id-lab", "Lab In", null, Match.BY_ID, true);
+        assertChannel(row.getChannelsNow().get(2), "id-deleted-here", null, null, Match.NOT_FOUND, true);
+        assertEquals(2, row.getChannelsAfter().size());
+        assertChannel(row.getChannelsAfter().get(0), "id-lab", "Lab In", "Lab In", Match.BY_ID, true);
+        assertChannel(row.getChannelsAfter().get(1), "id-adt", "ADT Out", "ADT Out", Match.BY_ID, true);
+    }
+
+    @Test
+    void aNullDescriptionHere_isShownEmpty() throws Exception {
+        roles.put(5, role(5, "Lab", null, Set.of(), Set.of()));
+        RoleImportRow row = plan(true, fileRole("Lab", List.of("viewChannels"), false)).rows().get(0);
+        assertEquals("", row.getDescriptionNow());
     }
 
     @Test
@@ -167,7 +188,8 @@ class RoleImportPlannerTest {
         RoleImportRow row = plan(true, fileRole("Lab", List.of(), false)).rows().get(0);
         assertEquals(Action.OVERWRITE, row.getAction());
         assertEquals("Sees every channel after the import; here it is restricted to 2 channel(s).", row.getReason());
-        assertTrue(row.getRemovedChannels().isEmpty(), "every channel has no list to compare");
+        assertEquals(2, row.getChannelsNow().size());
+        assertTrue(row.getChannelsAfter().isEmpty(), "every channel has no list");
     }
 
     @Test
@@ -176,7 +198,8 @@ class RoleImportPlannerTest {
         RoleImportRow row = plan(true, fileRole("Lab", List.of(), true, new Channel("id-lab", "Lab In"))).rows().get(0);
         assertEquals(Action.OVERWRITE, row.getAction());
         assertEquals("Restricted to 1 channel(s) after the import; here it sees every channel.", row.getReason());
-        assertTrue(row.getAddedChannels().isEmpty(), "every channel has no list to compare");
+        assertTrue(row.getChannelsNow().isEmpty(), "every channel has no list");
+        assertEquals(1, row.getChannelsAfter().size());
     }
 
     // ========== Permissions ==========
@@ -185,6 +208,7 @@ class RoleImportPlannerTest {
     void permissionsThisEngineDoesNotOffer_areLeftOutAndListed() throws Exception {
         Plan plan = plan(true, fileRole("Lab", List.of("viewChannels", "Run Lab Reports", "viewMessages"), false));
         assertEquals(List.of("Run Lab Reports"), plan.rows().get(0).getDroppedPermissions());
+        assertEquals(List.of("viewChannels", "viewMessages"), plan.rows().get(0).getPermissionsAfter());
         assertEquals(Set.of("viewChannels", "viewMessages"), plan.writes().get(0).role().getPermissions());
     }
 
@@ -202,8 +226,13 @@ class RoleImportPlannerTest {
         RoleImportRow row = plan.rows().get(0);
         assertEquals(Set.of("id-lab"), plan.writes().get(0).role().getChannelIds(), "by id, whatever its name now");
         assertEquals(1, row.getMatchedChannelCount());
-        assertEquals(List.of("ADT Out (id-elsewhere)", "Twin (id-gone)", "Nowhere (id-gone2)", "id-gone3"),
-                row.getUnmatchedChannels(), "a name two channels share is no match");
+        List<RoleImportChannel> after = row.getChannelsAfter();
+        assertEquals(5, after.size(), "every file channel, in file order");
+        assertChannel(after.get(0), "id-lab", "Lab In", "Renamed since", Match.BY_ID, true);
+        assertChannel(after.get(1), "id-adt", "ADT Out", "ADT Out", Match.BY_NAME, false);
+        assertChannel(after.get(2), "id-gone", "Twin", "Twin", Match.NOT_FOUND, false);
+        assertChannel(after.get(3), "id-gone2", "Nowhere", "Nowhere", Match.NOT_FOUND, false);
+        assertChannel(after.get(4), "id-gone3", null, "", Match.NOT_FOUND, false);
         assertEquals(1, plan.channelNameMatches().size());
         ChannelNameMatch match = plan.channelNameMatches().get(0);
         assertEquals("ADT Out", match.getName());
@@ -213,8 +242,7 @@ class RoleImportPlannerTest {
         Plan byName = planMatchingByName(lab);
         assertEquals(Set.of("id-lab", "id-adt"), byName.writes().get(0).role().getChannelIds());
         assertEquals(2, byName.rows().get(0).getMatchedChannelCount());
-        assertEquals(List.of("Twin (id-gone)", "Nowhere (id-gone2)", "id-gone3"),
-                byName.rows().get(0).getUnmatchedChannels());
+        assertChannel(byName.rows().get(0).getChannelsAfter().get(1), "id-adt", "ADT Out", "ADT Out", Match.BY_NAME, true);
         assertEquals(1, byName.channelNameMatches().size(), "listed whether or not it is used");
     }
 
@@ -251,7 +279,9 @@ class RoleImportPlannerTest {
         assertEquals(Action.SKIP, row.getAction());
         assertEquals("None of its 2 channels exist on this engine, and a role with no channels sees every channel.",
                 row.getReason());
-        assertEquals(List.of("Gone (id-gone)", "Also gone (id-gone2)"), row.getUnmatchedChannels());
+        assertChannel(row.getChannelsAfter().get(0), "id-gone", "Gone", "Gone", Match.NOT_FOUND, false);
+        assertChannel(row.getChannelsAfter().get(1), "id-gone2", "Also gone", "Also gone", Match.NOT_FOUND, false);
+        assertEquals(List.of("viewChannels"), row.getPermissionsAfter(), "a skipped row still shows the file's content");
         assertTrue(plan.writes().isEmpty());
     }
 
@@ -274,8 +304,12 @@ class RoleImportPlannerTest {
         assertEquals(Action.OVERWRITE, row.getAction());
         assertEquals(Channels.KEPT, row.getChannels());
         assertNull(row.getReason());
-        assertTrue(row.getAddedChannels().isEmpty() && row.getRemovedChannels().isEmpty(), "its channels don't change");
-        assertEquals(List.of("viewChannels"), row.getAddedPermissions());
+        assertEquals(1, row.getChannelsNow().size());
+        assertChannel(row.getChannelsNow().get(0), "id-adt", "ADT Out", null, Match.BY_ID, true);
+        assertEquals(1, row.getChannelsAfter().size(), "its channels don't change");
+        assertChannel(row.getChannelsAfter().get(0), "id-adt", "ADT Out", null, Match.BY_ID, true);
+        assertTrue(row.getPermissionsNow().isEmpty());
+        assertEquals(List.of("viewChannels"), row.getPermissionsAfter());
         PlannedRole write = plan.writes().get(0);
         assertFalse(write.writeChannels());
         assertEquals(Set.of("id-adt"), write.role().getChannelIds());
@@ -290,6 +324,7 @@ class RoleImportPlannerTest {
         assertEquals("Sees every channel here; where it was exported it was restricted to 1 channel(s)."
                 + " Set its channels before assigning users.", row.getReason());
         assertEquals(Set.of(), plan.writes().get(0).role().getChannelIds());
+        assertTrue(row.getChannelsAfter().isEmpty(), "every channel: the file's channels aren't looked up");
     }
 
     @Test
@@ -383,6 +418,15 @@ class RoleImportPlannerTest {
     private static ExportedRole fileRole(String name, List<String> permissions, boolean restricted,
             Channel... channels) {
         return new ExportedRole(name, "d", permissions, restricted, List.of(channels));
+    }
+
+    private static void assertChannel(RoleImportChannel channel, String id, String name, String fileName, Match match,
+            boolean used) {
+        assertEquals(id, channel.getId());
+        assertEquals(name, channel.getName());
+        assertEquals(fileName, channel.getFileName());
+        assertEquals(match, channel.getMatch());
+        assertEquals(used, channel.isUsed());
     }
 
     private static Role role(int id, String name, String description, Set<String> permissions, Set<String> channelIds) {

@@ -12,9 +12,11 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 import javax.swing.SwingWorker;
 
@@ -35,14 +37,17 @@ class RoleTransferActions {
 
     private final Frame parent;
     private final Runnable refreshPanel;
+    private final Supplier<Map<String, String>> channelMap;
 
     /**
      * @param parent       the administrator's main frame
      * @param refreshPanel reloads the panel's roles after an import
+     * @param channelMap   the panel's channel id to name map, or null when the channel list was not loaded
      */
-    RoleTransferActions(Frame parent, Runnable refreshPanel) {
+    RoleTransferActions(Frame parent, Runnable refreshPanel, Supplier<Map<String, String>> channelMap) {
         this.parent = parent;
         this.refreshPanel = refreshPanel;
+        this.channelMap = channelMap;
     }
 
     private RbacServletInterface rbac() {
@@ -63,7 +68,7 @@ class RoleTransferActions {
                 parent.alertInformation(parent, "There are no roles to export. The admin role is never exported.");
                 return;
             }
-            RoleExportDialog dialog = new RoleExportDialog(parent, exportable);
+            RoleExportDialog dialog = new RoleExportDialog(parent, exportable, channelMap.get());
             dialog.setVisible(true);
             List<Integer> ids = dialog.getResult();
             if (ids != null) {

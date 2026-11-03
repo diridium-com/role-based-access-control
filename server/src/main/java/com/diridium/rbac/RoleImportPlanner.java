@@ -9,7 +9,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
@@ -46,9 +46,10 @@ import com.diridium.rbac.RoleTransferFormat.Refusal;
  *   <li>Without them, an existing role keeps its own channel restrictions and a new role
  *       sees every channel. A new role has no users yet, so that grants nothing until
  *       someone assigns one.</li>
- *   <li>An overwrite says what it changes: the permissions and channels it adds and
- *       removes, and whether the description changes. A change between every channel
- *       and some channels is a note instead, since every channel has no list.</li>
+ *   <li>Every row describes the role here with the file role's name, if there is one
+ *       (description, permissions, channels), and the role as the import would leave it,
+ *       with what was found here for each of the file's channels. A change between every
+ *       channel and some channels is a note as well, since every channel has no list.</li>
  * </ul>
  *
  * <p>Names are matched with the repository's own lookup, so a database that compares
@@ -148,11 +149,8 @@ final class RoleImportPlanner {
      */
     private PlannedRole planRole(RoleImportRow row, ExportedRole fileRole, Role existing, ChannelMatcher channels) {
         Integer existingId = existing != null ? existing.getId() : null;
-        if (existingId != null && existingId.equals(adminRoleId)) {
-            row.setAction(Action.SKIP);
-            row.setReason("This is the name of this engine's admin role, which an import never changes.");
-            return null;
-        }
+        describeNow(row, existing);
+        row.setDescriptionAfter(nullToEmpty(fileRole.description()));
 
         Set<String> permissions = new LinkedHashSet<>();
         for (String permission : fileRole.permissions()) {
@@ -161,6 +159,16 @@ final class RoleImportPlanner {
             } else {
                 row.getDroppedPermissions().add(permission);
             }
+        }
+        row.setPermissionsAfter(sorted(permissions));
+
+        if (existingId != null && existingId.equals(adminRoleId)) {
+            row.setAction(Action.SKIP);
+            row.setReason("This is the name of this engine's admin role, which an import never changes.");
+            if (channels != null) {
+                matchChannels(row, fileRole, channels);
+            }
+            return null;
         }
 
         Set<String> channelIds;
@@ -179,6 +187,7 @@ final class RoleImportPlanner {
         } else if (existing != null) {
             row.setChannels(Channels.KEPT);
             channelIds = new LinkedHashSet<>(existing.getChannelIds());
+            row.setChannelsAfter(new ArrayList<>(row.getChannelsNow()));
             writeChannels = false;
         } else {
             channelIds = new LinkedHashSet<>();
@@ -201,21 +210,47 @@ final class RoleImportPlanner {
             row.setAction(Action.UNCHANGED);
         } else {
             row.setAction(Action.OVERWRITE);
-            describeOverwrite(row, existing, planned, writeChannels);
+            if (writeChannels) {
+                noteChannelScopeChange(row, existing.getChannelIds(), planned.getChannelIds());
+            }
         }
         return new PlannedRole(existingId, planned, writeChannels);
     }
 
-    /** The ids here of the file role's channels. The ones not used are listed on the row. */
+    /** Puts on the row the role here with the file role's name: its description, permissions and channels. */
+    private void describeNow(RoleImportRow row, Role existing) {
+        if (existing == null) {
+            return;
+        }
+        row.setExistsHere(true);
+        row.setDescriptionNow(nullToEmpty(existing.getDescription()));
+        row.setPermissionsNow(sorted(existing.getPermissions()));
+        List<RoleImportChannel> now = new ArrayList<>();
+        for (String id : existing.getChannelIds()) {
+            RoleImportChannel channel = new RoleImportChannel();
+            channel.setId(id);
+            channel.setName(channelNamesById.get(id));
+            channel.setMatch(channel.getName() != null ? RoleImportChannel.Match.BY_ID : RoleImportChannel.Match.NOT_FOUND);
+            channel.setUsed(true);
+            now.add(channel);
+        }
+        // By name; the channels deleted here (no name) last, by id.
+        now.sort(Comparator.comparing((RoleImportChannel c) -> c.getName() == null)
+                .thenComparing(c -> nullToEmpty(c.getName())).thenComparing(RoleImportChannel::getId));
+        row.setChannelsNow(now);
+    }
+
+    /**
+     * Describes each of the file role's channels on the row and returns the ids here of
+     * the ones the role is restricted to after the import.
+     */
     private Set<String> matchChannels(RoleImportRow row, ExportedRole fileRole, ChannelMatcher channels) {
         Set<String> channelIds = new LinkedHashSet<>();
         for (RoleTransferFormat.Channel channel : fileRole.channels()) {
-            String id = channels.match(channel);
-            if (id != null) {
-                channelIds.add(id);
-            } else {
-                row.getUnmatchedChannels().add(channel.name().isEmpty()
-                        ? channel.id() : channel.name() + " (" + channel.id() + ")");
+            RoleImportChannel found = channels.describe(channel);
+            row.getChannelsAfter().add(found);
+            if (found.isUsed()) {
+                channelIds.add(found.getId());
             }
         }
         row.setMatchedChannelCount(channelIds.size());
@@ -232,16 +267,27 @@ final class RoleImportPlanner {
         }
 
         /**
-         * The id of the channel here that a file channel names: its own id, or for a channel
-         * matched by a name only one channel here has, that channel's id when matching by name.
+         * What this engine has for a file channel: the channel with its id; the channel
+         * with its name, when only one has it, used only when matching by name; or
+         * nothing, in which case the entry keeps the file's id and name.
          */
-        String match(RoleTransferFormat.Channel channel) {
+        RoleImportChannel describe(RoleTransferFormat.Channel channel) {
+            RoleImportChannel found = new RoleImportChannel();
+            found.setFileName(channel.name());
             if (channelNamesById.containsKey(channel.id())) {
-                return channel.id();
+                found.setId(channel.id());
+                found.setName(channelNamesById.get(channel.id()));
+                found.setMatch(RoleImportChannel.Match.BY_ID);
+                found.setUsed(true);
+                return found;
             }
             List<String> named = channelIdsByName.get(channel.name());
             if (named == null || named.size() != 1 || channel.name().isEmpty()) {
-                return null;
+                found.setId(channel.id());
+                found.setName(channel.name().isEmpty() ? null : channel.name());
+                found.setMatch(RoleImportChannel.Match.NOT_FOUND);
+                found.setUsed(false);
+                return found;
             }
             ChannelNameMatch match = nameMatchesByFileId.computeIfAbsent(channel.id(), id -> {
                 ChannelNameMatch m = new ChannelNameMatch();
@@ -250,7 +296,11 @@ final class RoleImportPlanner {
                 m.setChannelId(named.get(0));
                 return m;
             });
-            return byName ? match.getChannelId() : null;
+            found.setId(match.getChannelId());
+            found.setName(channel.name());
+            found.setMatch(RoleImportChannel.Match.BY_NAME);
+            found.setUsed(byName);
+            return found;
         }
 
         boolean matchesByName(RoleTransferFormat.Channel channel) {
@@ -262,49 +312,19 @@ final class RoleImportPlanner {
         }
     }
 
-    /** Puts on an OVERWRITE row what it changes in the existing role. */
-    private void describeOverwrite(RoleImportRow row, Role existing, Role planned, boolean writeChannels) {
-        row.setDescriptionChanged(
-                !nullToEmpty(existing.getDescription()).equals(nullToEmpty(planned.getDescription())));
-        row.setAddedPermissions(missingFrom(planned.getPermissions(), existing.getPermissions()));
-        row.setRemovedPermissions(missingFrom(existing.getPermissions(), planned.getPermissions()));
-        if (!writeChannels) {
-            return;
-        }
-        Set<String> before = existing.getChannelIds();
-        Set<String> after = planned.getChannelIds();
+    /** Notes on an OVERWRITE row a change between every channel and some channels, which the lists can't show. */
+    private static void noteChannelScopeChange(RoleImportRow row, Set<String> before, Set<String> after) {
         if (!before.isEmpty() && after.isEmpty()) {
             row.setReason("Sees every channel after the import; here it is restricted to " + before.size()
                     + " channel(s).");
         } else if (before.isEmpty() && !after.isEmpty()) {
             row.setReason("Restricted to " + after.size() + " channel(s) after the import; here it sees every"
                     + " channel.");
-        } else {
-            row.setAddedChannels(channelNames(missingFrom(after, before)));
-            row.setRemovedChannels(channelNames(missingFrom(before, after)));
         }
     }
 
-    /** The values in {@code values} that {@code other} lacks, sorted. */
-    private static List<String> missingFrom(Set<String> values, Set<String> other) {
-        List<String> missing = new ArrayList<>();
-        for (String value : values) {
-            if (!other.contains(value)) {
-                missing.add(value);
-            }
-        }
-        Collections.sort(missing);
-        return missing;
-    }
-
-    /** The channels' names here, or the id of one that has none (deleted since it was restricted to), sorted. */
-    private List<String> channelNames(List<String> channelIds) {
-        List<String> names = new ArrayList<>();
-        for (String id : channelIds) {
-            names.add(channelNamesById.getOrDefault(id, id));
-        }
-        Collections.sort(names);
-        return names;
+    private static List<String> sorted(Set<String> values) {
+        return new ArrayList<>(new TreeSet<>(values));
     }
 
     private static boolean sameContent(Role existing, Role planned) {
@@ -356,10 +376,18 @@ final class RoleImportPlanner {
         void addRow(RoleImportRow row, Role planned) {
             add(row.getIndex()).add(row.getName()).add(row.getAction()).add(row.getReason()).add(row.getChannels())
                     .add(row.getMatchedChannelCount()).addAll(row.getDroppedPermissions())
-                    .addAll(row.getUnmatchedChannels()).add(row.isDescriptionChanged())
-                    .addAll(row.getAddedPermissions()).addAll(row.getRemovedPermissions())
-                    .addAll(row.getAddedChannels()).addAll(row.getRemovedChannels());
+                    .add(row.isExistsHere()).add(row.getDescriptionNow()).add(row.getDescriptionAfter())
+                    .addAll(row.getPermissionsNow()).addAll(row.getPermissionsAfter());
+            addChannels(row.getChannelsNow());
+            addChannels(row.getChannelsAfter());
             addRole(planned);
+        }
+
+        void addChannels(List<RoleImportChannel> channels) {
+            add(channels.size());
+            for (RoleImportChannel c : channels) {
+                add(c.getId()).add(c.getName()).add(c.getFileName()).add(c.getMatch()).add(c.isUsed());
+            }
         }
 
         String hex() {

@@ -213,7 +213,12 @@ def parse_export(text):
 
 def parse_import(text):
     """An import result: importable, refusal, applied, token, rows by name (action, reason, channels, dropped
-    permissions, unmatched channels, and what an overwrite changes), and the channels matched by name."""
+    permissions, the role here now and the role after the import), and the channels matched by name. A channel in a
+    now or after list is (id, name, file_name, match, used); a missing name or file name is None."""
+    def channel(el):
+        return (el.findtext("id"), el.findtext("name"), el.findtext("fileName"), el.findtext("match"),
+                el.findtext("used") == "true")
+
     root = ET.fromstring(text)
     holder = root.find("rows")
     rows = {}
@@ -224,12 +229,13 @@ def parse_import(text):
             "reason": el.findtext("reason"),
             "channels": el.findtext("channels"),
             "dropped": [s.text for s in el.findall("droppedPermissions/string")],
-            "unmatched": [s.text for s in el.findall("unmatchedChannels/string")],
-            "description_changed": el.findtext("descriptionChanged") == "true",
-            "added_permissions": [s.text for s in el.findall("addedPermissions/string")],
-            "removed_permissions": [s.text for s in el.findall("removedPermissions/string")],
-            "added_channels": [s.text for s in el.findall("addedChannels/string")],
-            "removed_channels": [s.text for s in el.findall("removedChannels/string")],
+            "exists_here": el.findtext("existsHere") == "true",
+            "description_now": el.findtext("descriptionNow"),
+            "description_after": el.findtext("descriptionAfter"),
+            "permissions_now": [s.text for s in el.findall("permissionsNow/string")],
+            "permissions_after": [s.text for s in el.findall("permissionsAfter/string")],
+            "channels_now": [channel(c) for c in el.findall("channelsNow/com.diridium.rbac.RoleImportChannel")],
+            "channels_after": [channel(c) for c in el.findall("channelsAfter/com.diridium.rbac.RoleImportChannel")],
         }
     holder = root.find("channelNameMatches")
     matches = [{"name": el.findtext("name"), "file_id": el.findtext("fileChannelId"),
@@ -279,6 +285,13 @@ def channel_xml(cid, name):
 def create_channel(api, cid, name):
     # The answer is a bare boolean, which the engine renders as JSON but not as XML (HTTP 406).
     status, text = api.request("POST", "/channels", channel_xml(cid, name), accept="application/json")
+    return status in (200, 201) and "true" in text, f"HTTP {status} {api.reason}: {text[:200]}"
+
+
+def rename_channel(api, cid, name):
+    """Saves the e2e channel again under a new name, keeping its id."""
+    status, text = api.request("PUT", f"/channels/{cid}", channel_xml(cid, name), accept="application/json",
+                               query={"override": "true"})
     return status in (200, 201) and "true" in text, f"HTTP {status} {api.reason}: {text[:200]}"
 
 

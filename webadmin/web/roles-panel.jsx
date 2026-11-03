@@ -101,6 +101,7 @@ export function registerRolesPanel(platform, api) {
 
         const rolesRef = React.useRef(roles); // the export task reads the latest list
         rolesRef.current = roles;
+        const channelMapRef = React.useRef(null); // and the channel names, null when not loaded
         const loadingRef = React.useRef(false);
         const pendingRef = React.useRef(false);
 
@@ -174,7 +175,7 @@ export function registerRolesPanel(platform, api) {
             // for the admin role only; the controller hides them from anyone else.
             setTasks('Role-Based Access Control Tasks', [
                 ui.taskButton('Refresh', 'refresh', () => load(), { task: 'doRefresh', group: RBAC_GROUP }),
-                ui.taskButton(TASK_EXPORT_ROLES, 'export', () => setTransfer(startExport(rolesRef.current)),
+                ui.taskButton(TASK_EXPORT_ROLES, 'export', () => setTransfer(startExport(rolesRef.current, channelMapRef.current)),
                     { task: 'doExportRoles', group: RBAC_GROUP, title: TASK_EXPORT_ROLES_TOOLTIP }),
                 ui.taskButton(TASK_IMPORT_ROLES, 'import', async () => setTransfer(await startImport()),
                     { task: 'doImportRoles', group: RBAC_GROUP, title: TASK_IMPORT_ROLES_TOOLTIP })
@@ -184,6 +185,7 @@ export function registerRolesPanel(platform, api) {
         const canManage = platform.checkTask(RBAC_GROUP, 'doSave');
         const channelMap = React.useMemo(
             () => new Map(channels.map((c) => [c.id, c.name])), [channels]);
+        channelMapRef.current = channelsLoaded ? channelMap : null;
         const selectedRole = roles.find((r) => String(r.id) === String(selectedRoleId)) || null;
         const selectedUser = users.find((u) => String(u.id) === String(selectedUserId)) || null;
 

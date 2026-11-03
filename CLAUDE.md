@@ -70,7 +70,7 @@ Output: `package/target/rbac-1.2.0.zip`
 - A file channel whose id isn't here but whose name exactly one channel here has is a match by name: always listed in `RoleImportResult.channelNameMatches`, and used only with `matchChannelsByName=true` (one setting, default off). The plan token covers the setting and the matches
 - rbac's roles and assignments are not in the engine's backup (measured), by decision: the move steps are documented in `docs/role-export-format.md` instead
 - The apply re-plans and answers 409 if the token from the preview no longer matches. The admin role is never exported or changed; a restricted role with no channel found here is skipped, never written with an empty (= every channel) list
-- An OVERWRITE row lists the permissions and channels added and removed and whether the description changes; a change between every channel and some channels is a note in its reason
+- Every row carries the role here now (`existsHere`, `descriptionNow`, `permissionsNow`, `channelsNow`) and after the import (`descriptionAfter`, `permissionsAfter`, `channelsAfter`); each `RoleImportChannel` says how the file's channel was found (`BY_ID`, `BY_NAME`, `NOT_FOUND`), under which name here and in the file, and whether it is used. Both Administrators show these as Now and After columns, nothing marked as added or removed (owner's decision, 2026-11-03); a change between every channel and some channels is a note in the reason
 - The file reader compares role names exactly (Postgres, Derby and Oracle hold "Lab" and "LAB" as two roles). Names the database holds as one are caught by the planner (existing roles) and by `RoleImportWriter`'s in-transaction lookup (new roles)
 
 ### XStream Serialization (CRITICAL)

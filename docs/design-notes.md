@@ -103,6 +103,24 @@ The steps for a move are in [role-export-format.md](role-export-format.md#moving
 - After each upgrade, the old release's restricted role is exported, deleted and imported back with its channel.
 - The plugin-settings calls as a read-only user: rbac's own settings, and Data Pruner's and rbac's under other cases and with a trailing space.
 
+## 2026-11-03: the export and import tables show every role's details
+
+The first import preview (2026-11-02) was one table with a Details cell that joined everything with semicolons, and a New row showed nothing about the role. The owner's review on a demo instance found it poor: the channels per role could not be seen, the by-name matches were listed file-wide in a block that read as tick boxes, "removed" confused, and nothing showed the role as the import would leave it. Both dialogs are now one flat table with a column per fact, and the dialogs grow to fit; a wide table is not a cost when each column holds one kind of fact.
+
+**Now and After, side by side, nothing marked.** The import table has Description, Permissions and Channels twice: as the role is on this engine now (empty for a role that isn't here) and as the import would leave it. The server sends both (`existsHere`, the now and after fields of `RoleImportRow`) and no longer sends the added and removed lists, which said the same thing in a form that confused. Each list cell has one entry per line. A role with no channel in its list sees every channel, which the cell says in words.
+
+**Every channel says how it was found.** A channel in the file is matched by id first; a channel renamed on this engine since the export keeps its id, so it is found by id and the cell shows the name here with the file's name beside it, which is how an administrator can tell a rename from a different channel. A match by name only is marked, and marked "not used" until the match-by-name box is ticked, which replaces the file-wide list; one line under the tick boxes says how many such channels there are. A channel found neither way is marked as not found, under the file's name.
+
+**The export table.** Picking whole roles with their description, permissions and channels in view, so the exporter sees what the file will hold. The channel names come from the client's channel list; an id the list doesn't have is a deleted channel, and when the list didn't load the cell says so instead of guessing.
+
+### Tests
+
+- Server: the planner's tests cover each way a channel is found, the rename, a deleted channel in a now list, the empty now fields of a new role, and that a skipped row still describes the file's content. Client and web: a test per cell helper with the agreed strings. Playwright: the headers and cells of both tables, the rename, a by-name channel before and after ticking the box, the hint line. e2e on the six databases: the now and after fields of an overwrite, a new role, channels not applied, a not-found channel, the admin row, a renamed channel, and a file from another engine with and without matching by name.
+
+### Not covered
+
+- The Swing table's wrapping and row heights are checked by eye on the VM (screenshots in the plans folder), not by a unit test.
+
 ## 2026-11-02: Export Roles and Import Roles in both Administrators
 
 Users holding the admin role get Export Roles and Import Roles on the Role-Based Access Control settings tab, in the desktop and the web Administrator, with the same dialogs and wording. Export picks the roles and saves the server's file as is. Import previews the file, lets the user pick roles, and has two tick boxes: "Apply channel restrictions from the file" and, under it, "Also match channels by name when the id isn't found". Changing either previews again, and a row keeps the user's tick when it is still the same role with the same action. A failed import shows the server's message and previews again.
