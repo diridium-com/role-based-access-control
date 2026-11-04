@@ -3,11 +3,9 @@
 
 package com.diridium.rbac;
 
-import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
-import java.util.TreeSet;
 
 import com.mirth.connect.client.core.EntityException;
 import com.mirth.connect.client.core.ForbiddenException;
@@ -18,7 +16,10 @@ import com.mirth.connect.client.core.ForbiddenException;
  */
 final class RoleImportText {
 
-    static final String EVERY_CHANNEL = "Every channel";
+    static final String YES = "yes";
+    static final String EVERY = "every";
+    static final String NO_LONGER_EXISTS = "(no longer exists)";
+    static final String CHANNEL_LIST_NOT_LOADED = "(channel list not loaded)";
 
     private RoleImportText() {
     }
@@ -46,15 +47,20 @@ final class RoleImportText {
         return action == RoleImportRow.Action.CREATE || action == RoleImportRow.Action.OVERWRITE;
     }
 
-    /** New starts ticked; Overwrite starts unticked; the rest can't be ticked. */
-    static boolean defaultTicked(RoleImportRow.Action action) {
-        return action == RoleImportRow.Action.CREATE;
+    /**
+     * New starts ticked unless none of the import's channels was used (the role would see
+     * every channel); Overwrite starts unticked; the rest can't be ticked.
+     */
+    static boolean defaultTicked(RoleImportRow row) {
+        return row.getAction() == RoleImportRow.Action.CREATE && !row.isNoChannelFound();
     }
 
     /**
      * The ticks for a fresh preview of the same file: a row keeps the user's tick when the
-     * row at the same position had the same name and action before; any other row starts
-     * at its default. The web administrator's mergeTicks follows the same rule.
+     * row at the same position had the same name, action and no-channel-found state before;
+     * any other row starts at its default, so a role whose channels are found once matching
+     * by name is ticked again as a new role would be. The web administrator's mergeTicks
+     * follows the same rule.
      */
     static boolean[] keepTicks(List<RoleImportRow> before, boolean[] tickedBefore, List<RoleImportRow> rows) {
         boolean[] ticked = new boolean[rows.size()];
@@ -63,11 +69,12 @@ final class RoleImportText {
             if (!tickable(row.getAction())) {
                 continue;
             }
-            ticked[i] = defaultTicked(row.getAction());
+            ticked[i] = defaultTicked(row);
             for (int j = 0; j < before.size(); j++) {
                 RoleImportRow old = before.get(j);
                 if (old.getIndex() == row.getIndex()) {
-                    if (Objects.equals(old.getName(), row.getName()) && old.getAction() == row.getAction()) {
+                    if (Objects.equals(old.getName(), row.getName()) && old.getAction() == row.getAction()
+                            && old.isNoChannelFound() == row.isNoChannelFound()) {
                         ticked[i] = tickedBefore[j];
                     }
                     break;
@@ -82,133 +89,94 @@ final class RoleImportText {
                 + " on OIE " + orUnknown(result.getSourceEngineVersion()) + ".";
     }
 
-    /**
-     * The Notes cell: the row's reason if any, then "Keeps its channels here" when the
-     * channel restrictions were not applied to an existing role, then "Same as the role
-     * here" for an Unchanged row with nothing else. Joined with "; ".
-     */
+    /** The Notes cell: the server's text for the row, or empty when it has none. */
     static String notes(RoleImportRow row) {
-        List<String> parts = new ArrayList<>();
-        if (row.getReason() != null && !row.getReason().trim().isEmpty()) {
-            parts.add(row.getReason());
-        }
-        if (row.getChannels() == RoleImportRow.Channels.KEPT) {
-            parts.add("Keeps its channels here");
-        }
-        if (parts.isEmpty() && row.getAction() == RoleImportRow.Action.UNCHANGED) {
-            parts.add("Same as the role here");
-        }
-        return String.join("; ", parts);
+        return row.getReason() == null ? "" : row.getReason();
     }
 
     /**
-     * The line under the tick boxes saying how many channels in the file match a channel
-     * here only by name, or null when there is nothing to say (channel restrictions not
+     * The line under the tick boxes saying how many channels in the import match a channel
+     * on this engine only by name, or null when there is nothing to say (channel restrictions not
      * applied, no such channels, or the match-by-name box already ticked).
      */
     static String nameMatchHint(int count, boolean applyChannels, boolean matchByName) {
         if (!applyChannels || matchByName || count <= 0) {
             return null;
         }
-        return count + " channel(s) in the file match a channel here only by name. Tick the box above to use them.";
+        return (count == 1 ? "1 channel in the import matches a channel on this engine by name only."
+                : count + " channels in the import match a channel on this engine by name only.")
+                + " Tick the box above to use them.";
     }
 
-    /** One entry of a Channels now cell: the channel's name, or its id and "(deleted channel)". */
-    static String channelNowLabel(RoleImportChannel channel) {
-        return channel.getName() != null ? channel.getName() : channel.getId() + " (deleted channel)";
+    /** The row's permissions count: the file's count for a new role, else now, or "now -> after" when it changes. */
+    static String permissionsCountText(RoleImportRow row) {
+        return countText(row, String.valueOf(list(row.getPermissionsNow()).size()),
+                String.valueOf(list(row.getPermissionsAfter()).size()));
     }
 
-    /** One entry of a Channels after cell: the channel and how it was found. */
-    static String channelAfterLabel(RoleImportChannel channel) {
-        if (channel.getFileName() == null) {
-            return channelNowLabel(channel);
-        }
-        RoleImportChannel.Match match = channel.getMatch();
-        if (match == RoleImportChannel.Match.BY_ID) {
-            if (Objects.equals(channel.getName(), channel.getFileName())) {
-                return channel.getName() + " (found by id)";
-            }
-            return channel.getName() + " (found by id, named \"" + channel.getFileName() + "\" in the file)";
-        }
-        if (match == RoleImportChannel.Match.BY_NAME) {
-            return channel.getName() + (channel.isUsed() ? " (found by name)" : " (found by name, not used)");
-        }
-        return (channel.getName() != null ? channel.getName() : channel.getId()) + " (not found here)";
-    }
-
-    /** The Channels now cell: empty with no role here, "Every channel" with no list, else a line each. */
-    static String channelsNowCell(RoleImportRow row) {
-        if (!row.isExistsHere()) {
-            return "";
-        }
-        List<RoleImportChannel> list = row.getChannelsNow();
-        if (list == null || list.isEmpty()) {
-            return EVERY_CHANNEL;
-        }
-        List<String> lines = new ArrayList<>();
-        for (RoleImportChannel channel : list) {
-            lines.add(channelNowLabel(channel));
-        }
-        return String.join("\n", lines);
-    }
-
-    /** The Channels after cell; empty on a Skipped row with no list, since nothing was looked up. */
-    static String channelsAfterCell(RoleImportRow row) {
-        List<RoleImportChannel> list = row.getChannelsAfter();
-        if (list == null || list.isEmpty()) {
-            return row.getAction() == RoleImportRow.Action.SKIP ? "" : EVERY_CHANNEL;
-        }
-        List<String> lines = new ArrayList<>();
-        for (RoleImportChannel channel : list) {
-            lines.add(channelAfterLabel(channel));
-        }
-        return String.join("\n", lines);
-    }
-
-    /** The Permissions now cell, one permission per line. */
-    static String permissionsNowCell(RoleImportRow row) {
-        return row.getPermissionsNow() == null ? "" : String.join("\n", row.getPermissionsNow());
-    }
-
-    /** The Permissions after cell: one per line, then each permission left out because this engine lacks it. */
-    static String permissionsAfterCell(RoleImportRow row) {
-        List<String> lines = new ArrayList<>();
-        if (row.getPermissionsAfter() != null) {
-            lines.addAll(row.getPermissionsAfter());
-        }
-        if (row.getDroppedPermissions() != null) {
-            for (String dropped : row.getDroppedPermissions()) {
-                lines.add(dropped + " (not on this engine, left out)");
-            }
-        }
-        return String.join("\n", lines);
+    /** The row's channels count, with "every" for a role that sees every channel. */
+    static String channelsCountText(RoleImportRow row) {
+        return countText(row, everyNow(row) ? EVERY : String.valueOf(list(row.getChannelsNow()).size()),
+                everyAfter(row) ? EVERY : String.valueOf(usedCount(row)));
     }
 
     /**
-     * The Channels cell of the export table: "Every channel" for a role with no channel
-     * ids, else one line per id, named channels first by name, then the unknown ids. A null
-     * map means the channel list was not loaded.
+     * Joins a role's "now" and "after" counts: only the "after" for a role not here, only the
+     * "now" for an Unchanged or Skipped row or when they are equal, else "now → after".
      */
-    static String exportChannelsCell(Role role, Map<String, String> channelMap) {
-        if (role.getChannelIds() == null || role.getChannelIds().isEmpty()) {
-            return EVERY_CHANNEL;
+    static String countText(RoleImportRow row, String now, String after) {
+        if (!row.isExistsHere()) {
+            return after;
         }
-        TreeSet<String> named = new TreeSet<>();
-        TreeSet<String> unknown = new TreeSet<>();
-        for (String id : role.getChannelIds()) {
-            String name = channelMap == null ? null : channelMap.get(id);
-            if (name != null) {
-                named.add(name + "\0" + id);
-            } else {
-                unknown.add(id + (channelMap == null ? " (channel list not loaded)" : " (deleted channel)"));
+        RoleImportRow.Action action = row.getAction();
+        if (action == RoleImportRow.Action.UNCHANGED || action == RoleImportRow.Action.SKIP || now.equals(after)) {
+            return now;
+        }
+        return now + " → " + after;
+    }
+
+    /** Orders count texts by their first number, with "every" after any number, so "9" sorts before "10". */
+    static int compareCounts(String a, String b) {
+        int byFirst = Integer.compare(firstNumber(a), firstNumber(b));
+        return byFirst != 0 ? byFirst : a.compareTo(b);
+    }
+
+    private static int firstNumber(String text) {
+        String first = text.split(" ")[0];
+        return first.matches("\\d+") ? Integer.parseInt(first) : Integer.MAX_VALUE;
+    }
+
+    private static boolean everyNow(RoleImportRow row) {
+        return row.isExistsHere() && list(row.getChannelsNow()).isEmpty();
+    }
+
+    private static boolean everyAfter(RoleImportRow row) {
+        return row.getAction() != RoleImportRow.Action.SKIP && usedCount(row) == 0;
+    }
+
+    private static int usedCount(RoleImportRow row) {
+        int used = 0;
+        for (RoleImportChannel channel : list(row.getChannelsAfter())) {
+            if (channel.isUsed()) {
+                used++;
             }
         }
-        List<String> lines = new ArrayList<>();
-        for (String entry : named) {
-            lines.add(entry.substring(0, entry.indexOf('\0')));
-        }
-        lines.addAll(unknown);
-        return String.join("\n", lines);
+        return used;
+    }
+
+    /** The line above the channels table for a role that sees every channel now, after, or both; "" otherwise. */
+    static String everyChannelText(RoleImportRow row) {
+        String now = everyNow(row) ? "This role sees every channel currently." : "";
+        String after = everyAfter(row) ? "This role sees every channel after the import." : "";
+        return (now + " " + after).trim();
+    }
+
+    static <T> List<T> list(List<T> value) {
+        return value == null ? Collections.<T>emptyList() : value;
+    }
+
+    static String text(String value) {
+        return value == null ? "" : value;
     }
 
     /**

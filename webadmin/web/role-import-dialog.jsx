@@ -4,19 +4,22 @@
 /*
  * Import Roles: the preview of a picked file. Two tick boxes (channel
  * restrictions, then matching channels by name) that preview the file again
- * whenever they change, a table with a tick box per New or Overwrite row, and
- * an Import button that applies the ticked rows with the preview's plan token.
- * Any failed apply shows the server's message and previews again, so the table
- * shows what the roles are now.
+ * whenever they change, a roles table with a tick box per New or Overwrite row
+ * (a click on a row selects it), the selected role's permissions and channels
+ * in two tables below it, and an Import button that applies the ticked rows
+ * with the preview's plan token. Any failed apply shows the server's message
+ * and previews again, so the tables show what the roles are now.
  */
 
 import {
     TITLE_IMPORT_ROLES, IMPORT_APPLY_CHANNELS, IMPORT_MATCH_BY_NAME, IMPORT_COLUMNS,
+    PERMISSION_COLUMNS, CHANNEL_COLUMNS, CHANNEL_ID_COLUMNS, PERMISSIONS_LEGEND, CHANNELS_LEGEND, CHANNELS_NOT_APPLIED,
     importRefusedText, importSourceText, importedText, actionLabel, canTick, notesText,
-    mergeTicks, pickedIndexes, nameMatchHint, channelsNowLines, channelsAfterLines, permissionsAfterLines
+    mergeTicks, pickedIndexes, nameMatchHint, sortRows, permissionsCountText, channelsCountText,
+    permissionsHeading, channelsHeading, permissionRows, channelRows, everyChannelText
 } from './rbac-core.js';
 import { makeTransferShell } from './role-transfer-shell.jsx';
-import { makeListCell } from './role-table-cells.jsx';
+import { makeDetailTables } from './role-detail-tables.jsx';
 
 const errorText = (e) => String(e && e.message || e);
 
@@ -24,7 +27,7 @@ export function makeRoleImportDialog(platform, api) {
     const React = platform.React;
     const ui = platform.ui;
     const Shell = makeTransferShell(React);
-    const ListCell = makeListCell(React);
+    const { useSort, SortHeader, DetailTables } = makeDetailTables(React);
 
     /* props: fileText (the picked file), initial (the first preview, importable),
        onClose(), onImported() (after a successful apply) */
@@ -34,6 +37,8 @@ export function makeRoleImportDialog(platform, api) {
         const [matchByName, setMatchByName] = React.useState(false);
         const [ticks, setTicks] = React.useState(() => mergeTicks([], new Set(), initial.rows));
         const [busy, setBusy] = React.useState(false);
+        const [selectedIndex, setSelectedIndex] = React.useState(initial.rows.length ? initial.rows[0].index : -1);
+        const [sort, toggleSort] = useSort();
         const latest = React.useRef(0);
 
         // Preview the file again with these settings. A refused file closes the
@@ -95,6 +100,14 @@ export function makeRoleImportDialog(platform, api) {
             return next;
         });
 
+        // The selected role: kept across a preview while a row with its index exists.
+        const selected = result.rows.find((r) => r.index === selectedIndex) || result.rows[0];
+        const sortKeys = [
+            (r) => (ticks.has(r.index) ? 1 : 0), (r) => r.name, (r) => actionLabel(r.action),
+            (r) => r.descriptionNow, (r) => r.descriptionAfter, permissionsCountText, channelsCountText, notesText
+        ];
+        const shownRows = sort ? sortRows(result.rows, sortKeys[sort.col], sort.dir) : result.rows;
+
         const hint = nameMatchHint(result.channelNameMatches.length, applyChannels, matchByName);
         const nothingPicked = pickedIndexes(result.rows, ticks).length === 0;
 
@@ -120,32 +133,41 @@ export function makeRoleImportDialog(platform, api) {
                     {IMPORT_MATCH_BY_NAME}
                 </label>
                 {hint ? <div style={{ marginTop: 8 }}>{hint}</div> : null}
-                <table className="dt rbac-xfer-table">
-                    <thead>
-                        <tr>{IMPORT_COLUMNS.map((c, i) => <th key={i}>{c}</th>)}</tr>
-                    </thead>
-                    <tbody>
-                        {result.rows.map((row) => (
-                            <tr key={row.index}>
-                                <td>
-                                    <input type="checkbox" aria-label={'Import ' + row.name}
-                                        checked={canTick(row) && ticks.has(row.index)}
-                                        disabled={busy || !canTick(row)}
-                                        onChange={() => toggleTick(row.index)} />
-                                </td>
-                                <td>{row.name}</td>
-                                <td>{actionLabel(row.action)}</td>
-                                <td>{row.descriptionNow}</td>
-                                <td>{row.descriptionAfter}</td>
-                                <ListCell lines={row.permissionsNow} />
-                                <ListCell lines={permissionsAfterLines(row)} />
-                                <ListCell lines={channelsNowLines(row)} />
-                                <ListCell lines={channelsAfterLines(row)} />
-                                <td>{notesText(row)}</td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
+                <div className="rbac-xfer-roles">
+                    <table className="dt rbac-xfer-table">
+                        <SortHeader columns={IMPORT_COLUMNS} sort={sort} onSort={toggleSort} />
+                        <tbody>
+                            {shownRows.map((row) => (
+                                <tr key={row.index} onClick={() => setSelectedIndex(row.index)}
+                                    className={'rbac-xfer-pick' + (row === selected ? ' rbac-xfer-selected' : '')}>
+                                    <td>
+                                        <input type="checkbox" aria-label={'Import ' + row.name}
+                                            checked={canTick(row) && ticks.has(row.index)}
+                                            disabled={busy || !canTick(row)}
+                                            onClick={(e) => e.stopPropagation()}
+                                            onChange={() => toggleTick(row.index)} />
+                                    </td>
+                                    <td>{row.name}</td>
+                                    <td>{actionLabel(row.action)}</td>
+                                    <td>{row.descriptionNow}</td>
+                                    <td>{row.descriptionAfter}</td>
+                                    <td>{permissionsCountText(row)}</td>
+                                    <td>{channelsCountText(row)}</td>
+                                    <td className="rbac-xfer-notes">{notesText(row)}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+                {selected ? (
+                    <DetailTables
+                        permissions={{ heading: permissionsHeading(selected.name),
+                            columns: PERMISSION_COLUMNS, rows: permissionRows(selected), legend: PERMISSIONS_LEGEND }}
+                        channels={{ heading: channelsHeading(selected.name), columns: CHANNEL_COLUMNS,
+                            rows: channelRows(selected), idColumns: CHANNEL_ID_COLUMNS,
+                            legend: CHANNELS_LEGEND, notice: everyChannelText(selected),
+                            notApplied: applyChannels ? null : CHANNELS_NOT_APPLIED }} />
+                ) : null}
             </Shell>
         );
     };

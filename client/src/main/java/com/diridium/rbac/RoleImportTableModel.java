@@ -11,13 +11,13 @@ import javax.swing.table.AbstractTableModel;
 
 /**
  * The rows of the Import Roles table: a tick box, then one column per fact about the role
- * (the role, the action, and the role now and after the import). The ticks survive a
- * fresh preview through {@link RoleImportText#keepTicks}.
+ * (the role, the action, the descriptions and the permission and channel counts). The
+ * ticks survive a fresh preview through {@link RoleImportText#keepTicks}.
  */
 class RoleImportTableModel extends AbstractTableModel {
 
-    static final String[] COLUMNS = {"Import", "Role", "Action", "Description now", "Description after",
-            "Permissions now", "Permissions after", "Channels now", "Channels after", "Notes"};
+    static final String[] COLUMNS = {"Import", "Role", "Action", "Description currently",
+            "Description after import", "Permissions", "Channels", "Notes"};
 
     private final BooleanSupplier busy;
     private final Runnable onTickChanged;
@@ -38,6 +38,11 @@ class RoleImportTableModel extends AbstractTableModel {
         ticked = RoleImportText.keepTicks(rows, ticked, next);
         rows = next;
         fireTableDataChanged();
+    }
+
+    /** @return the preview row at a model row index */
+    RoleImportRow rowAt(int row) {
+        return rows.get(row);
     }
 
     boolean tickable(int row) {
@@ -103,13 +108,9 @@ class RoleImportTableModel extends AbstractTableModel {
             case 4:
                 return r.getDescriptionAfter() == null ? "" : r.getDescriptionAfter();
             case 5:
-                return RoleImportText.permissionsNowCell(r);
+                return RoleImportText.permissionsCountText(r);
             case 6:
-                return RoleImportText.permissionsAfterCell(r);
-            case 7:
-                return RoleImportText.channelsNowCell(r);
-            case 8:
-                return RoleImportText.channelsAfterCell(r);
+                return RoleImportText.channelsCountText(r);
             default:
                 return RoleImportText.notes(r);
         }

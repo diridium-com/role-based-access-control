@@ -4,8 +4,9 @@
 /*
  * Export Roles and Import Roles on the Roles settings panel, against the real
  * built bundle and the host with the engine mocked: who sees the two tasks
- * (the admin role only), the export download, and the import preview, tick
- * boxes, apply and failed apply.
+ * (the admin role only), the export download and its tables, and the import
+ * preview (the roles table and the selected role's permission and channel
+ * tables), tick boxes, sorting, apply and failed apply.
  */
 
 import fs from 'node:fs';
@@ -14,7 +15,7 @@ import { mockEngineWithRbac } from './mock.js';
 import {
     rbacFixtures, rolesList, ADMIN_ROLE, READ_ONLY_ROLE, EXPORT_FILE,
     IMPORT_PREVIEW_TWO_ROWS, IMPORT_NAME_MATCH_OFF, IMPORT_NAME_MATCH_ON, IMPORT_OVERWRITE_DETAILS,
-    IMPORT_APPLIED, IMPORT_REFUSED
+    IMPORT_SEVERAL_ROWS, IMPORT_MATCH_VALUES, IMPORT_NO_CHANNEL_FOUND, IMPORT_APPLIED, IMPORT_REFUSED
 } from './fixtures.js';
 
 const LAB_ROLE = {
@@ -77,13 +78,32 @@ function importFixtures(preview, extra = {}) {
     };
 }
 
-const IMPORT_HEADERS = ['Import', 'Role', 'Action', 'Description now', 'Description after',
-    'Permissions now', 'Permissions after', 'Channels now', 'Channels after', 'Notes'];
-// The lines of a list cell, one div per line.
-const lines = (cell) => cell.locator('div');
-const COL = { name: 1, action: 2, descNow: 3, descAfter: 4, permsNow: 5, permsAfter: 6, chanNow: 7, chanAfter: 8, notes: 9 };
+const IMPORT_HEADERS = ['Import', 'Role', 'Action', 'Description currently', 'Description after import',
+    'Permissions', 'Channels', 'Notes'];
+const PERMISSION_HEADERS = ['Permission', 'Currently', 'After import', 'Note'];
+const CHANNEL_HEADERS = ['Channel', 'Id on this engine', 'Currently', 'After import', 'Match', 'Name in import',
+    'Id in import'];
+const PERMISSIONS_LEGEND = 'Currently: this role has the permission on this engine.'
+    + ' After import: this role will have the permission if imported.';
+const CHANNELS_LEGEND = 'Currently: this role is restricted to the channel on this engine. After import: this role will'
+    + " be restricted to the channel if imported. Match: how the import's channel was found on this engine.";
+const NOT_APPLIED = 'Channel restrictions from the import are not applied. Roles that already exist on this engine'
+    + ' keep their current channels. New roles see every channel.';
+const APPLY_LABEL = 'Apply channel restrictions from the import';
+const COL = { name: 1, action: 2, descNow: 3, descAfter: 4, perms: 5, chans: 6, notes: 7 };
 const cell = (row, name) => row.locator('td').nth(COL[name]);
-const NAME_MATCH_HINT = '1 channel(s) in the file match a channel here only by name. Tick the box above to use them.';
+// The text of every cell of a table's body rows, one array per row.
+const cellsOf = (table) => table.locator('tbody tr').evaluateAll(
+    (trs) => trs.map((tr) => [...tr.querySelectorAll('td')].map((td) => td.textContent)));
+// The detail table under a heading such as "Channels of Lab".
+const detail = (box, heading) => box.locator('div').filter({ has: box.page().locator('h4', { hasText: heading }) })
+    .last().locator('.rbac-xfer-scroll');
+const ARROW = String.fromCharCode(0x2192);
+const ONE = '4c468ff3-0cf7-4e8b-88e7-a7d8a3b538bf';
+const TWO = 'ee366a8b-755b-4f73-9f1b-abe1801cc121';
+const MOVED = '8163af3f-7ed2-4a0c-b326-34830263c504';
+const NOWHERE = 'bbb4ce36-25d9-4830-9644-7fcd5682f5fd';
+const NAME_MATCH_HINT = '1 channel in the import matches a channel on this engine by name only. Tick the box above to use them.';
 
 const dialog = (page, name) => page.getByRole('dialog', { name, exact: true });
 // The message toast (the page also has a screen reader copy of it).
@@ -141,24 +161,87 @@ test.describe('Export Roles', () => {
         await expect(dialog(page, 'Export Roles')).toHaveCount(0);
     });
 
-    test('the table shows each role with its description, permissions and channels', async ({ page }) => {
+    test('the roles table shows each role with its description and the counts; the first row is selected', async ({ page }) => {
         await openPanel(page);
         await task(page, 'Export Roles').click();
         const box = dialog(page, 'Export Roles');
-        await expect(box.getByRole('columnheader')).toHaveText(['Export', 'Role', 'Description', 'Permissions', 'Channels']);
-        const rows = box.locator('tbody tr');
+        await expect(box.locator('.rbac-xfer-roles').getByRole('columnheader')).toHaveText(
+            ['Export', 'Role', 'Description', 'Permissions', 'Channels']);
+        const rows = box.locator('.rbac-xfer-roles tbody tr');
         await expect(rows).toHaveCount(2);
         const readOnly = rows.nth(0).locator('td');
         await expect(readOnly.nth(1)).toHaveText('Read Only');
         await expect(readOnly.nth(2)).toHaveText('View-only access');
-        await expect(lines(readOnly.nth(3)).first()).toHaveText('viewAlerts');
-        await expect(lines(readOnly.nth(3))).toHaveCount(13);
-        await expect(lines(readOnly.nth(4))).toHaveText(['Every channel']);
+        await expect(readOnly.nth(3)).toHaveText('13');
+        await expect(readOnly.nth(4)).toHaveText('every');
         const lab = rows.nth(1).locator('td');
         await expect(lab.nth(1)).toHaveText('Lab');
         await expect(lab.nth(2)).toHaveText('Lab staff');
-        await expect(lines(lab.nth(3))).toHaveText(['viewAlerts', 'viewDashboard']);
-        await expect(lines(lab.nth(4))).toHaveText(['Demo Started', 'Demo Stopped', 'c-deleted (deleted channel)']);
+        await expect(lab.nth(3)).toHaveText('2');
+        await expect(lab.nth(4)).toHaveText('3');
+        await expect(rows.nth(0)).toHaveClass(/rbac-xfer-selected/);
+        await expect(rows.nth(1)).not.toHaveClass(/rbac-xfer-selected/);
+    });
+
+    test('the callout under the prompt is highlighted, with the second sentence in bold', async ({ page }) => {
+        await openPanel(page);
+        await task(page, 'Export Roles').click();
+        const callout = dialog(page, 'Export Roles').locator('.rbac-xfer-callout');
+        await expect(callout).toHaveText('Channel restrictions are included. When importing, you can choose not to apply them.');
+        await expect(callout.locator('strong')).toHaveText('When importing, you can choose not to apply them.');
+        await expect(callout).toHaveCSS('background-color', 'rgb(255, 247, 223)');
+        await expect(callout).toHaveCSS('border-top-color', 'rgb(232, 207, 122)');
+    });
+
+    test('selecting a role fills the permission and channel tables; a role with no channels says so', async ({ page }) => {
+        await openPanel(page);
+        await task(page, 'Export Roles').click();
+        const box = dialog(page, 'Export Roles');
+        // Read Only is selected first: every channel, so no channel rows.
+        await expect(box.getByRole('heading', { name: 'Permissions of Read Only' })).toBeVisible();
+        await expect(box.getByRole('heading', { name: 'Channels of Read Only' })).toBeVisible();
+        await expect(detail(box, 'Channels of Read Only')).toHaveText('This role sees every channel.');
+        await expect(detail(box, 'Channels of Read Only').locator('tbody tr')).toHaveCount(0);
+        await expect(detail(box, 'Permissions of Read Only').locator('tbody tr')).toHaveCount(13);
+
+        await box.locator('.rbac-xfer-roles tbody tr').nth(1).locator('td').nth(2).click();
+        await expect(box.locator('.rbac-xfer-roles tbody tr').nth(1)).toHaveClass(/rbac-xfer-selected/);
+        await expect(box.getByRole('heading', { name: 'Permissions of Lab' })).toBeVisible();
+        expect(await cellsOf(detail(box, 'Permissions of Lab'))).toEqual([['viewAlerts'], ['viewDashboard']]);
+        await expect(detail(box, 'Channels of Lab').getByRole('columnheader')).toHaveText(['Channel', 'Id on this engine']);
+        expect(await cellsOf(detail(box, 'Channels of Lab'))).toEqual([
+            ['Demo Started', 'c-started'], ['Demo Stopped', 'c-stopped'], ['(no longer exists)', 'c-deleted']]);
+        // Ids are in a monospace font; names are not.
+        const channelCells = detail(box, 'Channels of Lab').locator('tbody tr').first().locator('td');
+        await expect(channelCells.nth(1)).toHaveClass(/rbac-xfer-id/);
+        await expect(channelCells.nth(0)).not.toHaveClass(/rbac-xfer-id/);
+    });
+
+    test('a tick box does not select its row; sorting a header keeps the selection and the ticks', async ({ page }) => {
+        await openPanel(page);
+        await task(page, 'Export Roles').click();
+        const box = dialog(page, 'Export Roles');
+        const rows = box.locator('.rbac-xfer-roles tbody tr');
+        await box.getByLabel('Lab').uncheck();
+        await expect(rows.nth(0)).toHaveClass(/rbac-xfer-selected/);
+        await rows.nth(1).locator('td').nth(1).click();
+        await expect(box.getByRole('heading', { name: 'Channels of Lab' })).toBeVisible();
+
+        await box.locator('.rbac-xfer-roles').getByRole('columnheader', { name: 'Role' }).click();
+        await expect(rows.locator('td:nth-child(2)')).toHaveText(['Lab', 'Read Only']);
+        await box.locator('.rbac-xfer-roles').getByRole('columnheader', { name: 'Role' }).click();
+        await expect(rows.locator('td:nth-child(2)')).toHaveText(['Read Only', 'Lab']);
+        await expect(rows.nth(1)).toHaveClass(/rbac-xfer-selected/);
+        await expect(box.getByLabel('Lab')).not.toBeChecked();
+        await expect(box.getByLabel('Read Only')).toBeChecked();
+
+        const channelTable = detail(box, 'Channels of Lab');
+        await channelTable.getByRole('columnheader', { name: 'Channel' }).click();
+        expect((await cellsOf(channelTable)).map((r) => r[0])).toEqual(['(no longer exists)', 'Demo Started', 'Demo Stopped']);
+        await channelTable.getByRole('columnheader', { name: 'Channel' }).click();
+        expect((await cellsOf(channelTable)).map((r) => r[0])).toEqual(['Demo Stopped', 'Demo Started', '(no longer exists)']);
+        await channelTable.getByRole('columnheader', { name: 'Id on this engine' }).click();
+        expect((await cellsOf(channelTable)).map((r) => r[1])).toEqual(['c-deleted', 'c-started', 'c-stopped']);
     });
 
     test('Export is disabled while nothing is ticked; Cancel closes without a request', async ({ page }) => {
@@ -196,15 +279,15 @@ test.describe('Import Roles', () => {
         await chooseFile(page);
         const box = dialog(page, 'Import Roles');
         await expect(box.getByText('From rbac 1.2.0 on OIE 4.7.0.')).toBeVisible();
-        await expect(box.getByRole('columnheader')).toHaveText(IMPORT_HEADERS);
-        const rows = box.locator('tbody tr');
+        await expect(box.locator('.rbac-xfer-roles').getByRole('columnheader')).toHaveText(IMPORT_HEADERS);
+        const rows = box.locator('.rbac-xfer-roles tbody tr');
         await expect(rows).toHaveCount(2);
         await expect(cell(rows.nth(0), 'name')).toHaveText('probe lab');
         await expect(cell(rows.nth(0), 'action')).toHaveText('New');
         await expect(rows.nth(0).getByRole('checkbox')).toBeChecked();
         await expect(cell(rows.nth(1), 'name')).toHaveText('probe everyone');
         await expect(cell(rows.nth(1), 'action')).toHaveText('Unchanged');
-        await expect(cell(rows.nth(1), 'notes')).toHaveText('Same as the role here');
+        await expect(cell(rows.nth(1), 'notes')).toHaveText('Identical to the role on this engine.');
         await expect(rows.nth(1).getByRole('checkbox')).toBeDisabled();
         await expect(rows.nth(1).getByRole('checkbox')).not.toBeChecked();
 
@@ -224,46 +307,220 @@ test.describe('Import Roles', () => {
         await expect.poll(() => seen.roleListLoads).toBeGreaterThan(loadsBefore);
     });
 
-    test('a New row fills Description after, Permissions after and Channels after, and nothing "now"', async ({ page }) => {
+    test('a New row: Description after and the counts, nothing "now", and its permission and channel tables', async ({ page }) => {
         await openPanel(page, importFixtures(IMPORT_PREVIEW_TWO_ROWS));
         await chooseFile(page);
-        const row = dialog(page, 'Import Roles').locator('tbody tr').nth(0);
+        const box = dialog(page, 'Import Roles');
+        const rows = box.locator('.rbac-xfer-roles tbody tr');
+        const row = rows.nth(0);
+        await expect(row).toHaveClass(/rbac-xfer-selected/);
         await expect(cell(row, 'descNow')).toHaveText('');
         await expect(cell(row, 'descAfter')).toHaveText('rbac e2e');
-        await expect(lines(cell(row, 'permsNow'))).toHaveCount(0);
-        await expect(lines(cell(row, 'permsAfter'))).toHaveText(['viewChannels', 'viewDashboard']);
-        await expect(lines(cell(row, 'chanNow'))).toHaveCount(0);
-        await expect(lines(cell(row, 'chanAfter'))).toHaveText(['probe one (found by id)', 'probe two (found by id)']);
+        await expect(cell(row, 'perms')).toHaveText('2');
+        await expect(cell(row, 'chans')).toHaveText('2');
         await expect(cell(row, 'notes')).toHaveText('');
+        await expect(box.getByRole('heading', { name: 'Permissions of probe lab' })).toBeVisible();
+        await expect(detail(box, 'Permissions of probe lab').getByRole('columnheader')).toHaveText(PERMISSION_HEADERS);
+        expect(await cellsOf(detail(box, 'Permissions of probe lab'))).toEqual([
+            ['viewChannels', '', 'yes', ''], ['viewDashboard', '', 'yes', '']]);
+        await expect(detail(box, 'Channels of probe lab').getByRole('columnheader')).toHaveText(CHANNEL_HEADERS);
+        expect(await cellsOf(detail(box, 'Channels of probe lab'))).toEqual([
+            ['probe one', ONE, '', 'yes', 'by id', 'probe one', ONE],
+            ['probe two', TWO, '', 'yes', 'by id', 'probe two', TWO]]);
+
         // The Unchanged row: the role here sees every channel, and so does the file's.
-        const same = dialog(page, 'Import Roles').locator('tbody tr').nth(1);
-        await expect(lines(cell(same, 'chanNow'))).toHaveText(['Every channel']);
-        await expect(lines(cell(same, 'chanAfter'))).toHaveText(['Every channel']);
-        await expect(lines(cell(same, 'permsNow'))).toHaveText(['viewChannels']);
+        const same = rows.nth(1);
+        await expect(cell(same, 'perms')).toHaveText('1');
+        await expect(cell(same, 'chans')).toHaveText('every');
+        await same.locator('td').nth(1).click();
+        await expect(same).toHaveClass(/rbac-xfer-selected/);
+        await expect(row).not.toHaveClass(/rbac-xfer-selected/);
+        await expect(detail(box, 'Channels of probe everyone')).toHaveText(
+            'This role sees every channel currently. This role sees every channel after the import.');
+        expect(await cellsOf(detail(box, 'Permissions of probe everyone'))).toEqual([['viewChannels', 'yes', 'yes', '']]);
     });
 
-    test('an Overwrite row shows the role now and after side by side, a renamed channel and a dropped permission', async ({ page }) => {
+    test('an Overwrite row: the channel table has a renamed channel, a channel not found, a deleted one, ids and a dropped permission', async ({ page }) => {
         await openPanel(page, importFixtures(IMPORT_OVERWRITE_DETAILS));
         await chooseFile(page);
-        const row = dialog(page, 'Import Roles').locator('tbody tr').nth(0);
+        const box = dialog(page, 'Import Roles');
+        const row = box.locator('.rbac-xfer-roles tbody tr').nth(0);
         await expect(cell(row, 'action')).toHaveText('Overwrite');
         await expect(row.getByRole('checkbox')).not.toBeChecked();
         await expect(cell(row, 'descNow')).toHaveText('Lab staff');
         await expect(cell(row, 'descAfter')).toHaveText('Lab team');
-        await expect(lines(cell(row, 'permsNow'))).toHaveText(['viewAlerts', 'viewChannels']);
-        await expect(lines(cell(row, 'permsAfter'))).toHaveText([
-            'viewChannels', 'viewDashboard', 'oldPermission (not on this engine, left out)']);
-        await expect(lines(cell(row, 'chanNow'))).toHaveText(['probe one', 'gone-id (deleted channel)']);
-        await expect(lines(cell(row, 'chanAfter'))).toHaveText([
-            'probe one renamed (found by id, named "probe one" in the file)', 'probe two (found by id)']);
-        await expect(cell(row, 'notes')).toHaveText('');
+        await expect(cell(row, 'perms')).toHaveText('2');
+        await expect(cell(row, 'chans')).toHaveText('2');
+        await expect(cell(row, 'notes')).toHaveText('Of the 3 channels in the import, 1 is not on this engine.'
+            + ' 1 permission in the import is not offered by this engine and is left out.');
+        expect(await cellsOf(detail(box, 'Permissions of Lab'))).toEqual([
+            ['oldPermission', '', '', 'not offered by this engine, left out'],
+            ['viewAlerts', 'yes', '', ''],
+            ['viewChannels', 'yes', 'yes', ''],
+            ['viewDashboard', '', 'yes', '']]);
+        expect(await cellsOf(detail(box, 'Channels of Lab'))).toEqual([
+            ['probe one renamed', ONE, 'yes', 'yes', 'by id, renamed on this engine', 'probe one', ONE],
+            ['probe two', TWO, '', 'yes', 'by id', 'probe two', TWO],
+            ['probe nowhere', '', '', '', 'not on this engine', 'probe nowhere', NOWHERE],
+            ['(no longer exists)', 'gone-id', 'yes', '', 'deleted on this engine', '', '']]);
+        // Ids are in a monospace font, the other cells are not.
+        const first = detail(box, 'Channels of Lab').locator('tbody tr').first().locator('td');
+        const family = (td) => td.evaluate((el) => getComputedStyle(el).fontFamily);
+        expect(await family(first.nth(1))).toMatch(/mono|Menlo|Consolas/i);
+        expect(await family(first.nth(6))).toMatch(/mono|Menlo|Consolas/i);
+        expect(await family(first.nth(0))).not.toMatch(/mono/i);
+    });
+
+    test('several roles: counts with the arrow and "every", the long Notes cell wraps, and a click on a row selects it', async ({ page }) => {
+        await openPanel(page, importFixtures(IMPORT_SEVERAL_ROWS));
+        await chooseFile(page);
+        const box = dialog(page, 'Import Roles');
+        const rows = box.locator('.rbac-xfer-roles tbody tr');
+        await expect(rows).toHaveCount(4);
+        const counts = async () => rows.evaluateAll((trs) => trs.map((tr) => [...tr.querySelectorAll('td')].slice(5, 7).map((td) => td.textContent)));
+        expect(await counts()).toEqual([['2', '2'], ['1 ' + ARROW + ' 3', '1 ' + ARROW + ' every'], ['1', 'every ' + ARROW + ' 2'], ['2', '2']]);
+
+        const day = rows.filter({ hasText: 'Day' });
+        await day.locator('td').nth(1).click();
+        await expect(day).toHaveClass(/rbac-xfer-selected/);
+        expect(await cellsOf(detail(box, 'Channels of Day'))).toEqual([['probe one', ONE, 'yes', '', 'not in the import', '', '']]);
+        await expect(detail(box, 'Channels of Day').locator('.rbac-xfer-notice')).toHaveText('This role sees every channel after the import.');
+        await rows.filter({ hasText: 'Night' }).locator('td').nth(1).click();
+        expect(await cellsOf(detail(box, 'Channels of Night'))).toEqual([
+            ['probe one', ONE, '', 'yes', 'by id', 'probe one', ONE], ['probe two', TWO, '', 'yes', 'by id', 'probe two', TWO]]);
+        await expect(detail(box, 'Channels of Night').locator('.rbac-xfer-notice')).toHaveText('This role sees every channel currently.');
+
+        // The Notes cell wraps; the other cells do not.
+        const white = (td) => td.evaluate((el) => getComputedStyle(el).whiteSpace);
+        expect(await white(cell(rows.nth(0), 'notes'))).toBe('normal');
+        expect(await white(cell(rows.nth(0), 'name'))).toBe('nowrap');
+    });
+
+    test('sorting the roles table and the detail tables keeps the selection and the ticks', async ({ page }) => {
+        await openPanel(page, importFixtures(IMPORT_SEVERAL_ROWS));
+        await chooseFile(page);
+        const box = dialog(page, 'Import Roles');
+        const roles = box.locator('.rbac-xfer-roles');
+        const rows = roles.locator('tbody tr');
+        const names = () => rows.locator('td:nth-child(2)').allTextContents();
+        await rows.filter({ hasText: 'Night' }).locator('td').nth(1).click();
+        await box.getByLabel('Import Day').check();
+        expect(await names()).toEqual(['Lab', 'Day', 'Night', 'Fresh']);
+
+        await roles.getByRole('columnheader', { name: 'Role' }).click();
+        expect(await names()).toEqual(['Day', 'Fresh', 'Lab', 'Night']);
+        await roles.getByRole('columnheader', { name: 'Role' }).click();
+        expect(await names()).toEqual(['Night', 'Lab', 'Fresh', 'Day']);
+        await roles.getByRole('columnheader', { name: 'Channels' }).click();
+        expect(await names()).toEqual(['Day', 'Lab', 'Fresh', 'Night']);
+        await roles.getByRole('columnheader', { name: 'Import', exact: true }).click();
+        expect(await names()).toEqual(['Lab', 'Night', 'Day', 'Fresh']);
+        await expect(rows.filter({ hasText: 'Night' })).toHaveClass(/rbac-xfer-selected/);
+        await expect(box.getByLabel('Import Day')).toBeChecked();
+        await expect(box.getByLabel('Import Fresh')).toBeChecked();
+        await expect(box.getByLabel('Import Lab')).not.toBeChecked();
+        await expect(box.getByRole('heading', { name: 'Channels of Night' })).toBeVisible();
+
+        // Pick Lab and sort its channels by Match, then by Name in import, descending.
+        await rows.filter({ hasText: 'Lab' }).locator('td').nth(1).click();
+        const channels = detail(box, 'Channels of Lab');
+        const column = async (n) => (await cellsOf(channels)).map((r) => r[n]);
+        await channels.getByRole('columnheader', { name: 'Match' }).click();
+        expect(await column(4)).toEqual(['by id', 'by id, renamed on this engine', 'deleted on this engine', 'not on this engine']);
+        await channels.getByRole('columnheader', { name: 'Name in import' }).click();
+        await channels.getByRole('columnheader', { name: 'Name in import' }).click();
+        expect(await column(5)).toEqual(['probe two', 'probe one', 'probe nowhere', '']);
+        await channels.getByRole('columnheader', { name: 'Id on this engine' }).click();
+        expect(await column(1)).toEqual(['', ONE, TWO, 'gone-id'].sort());
+        const perms = detail(box, 'Permissions of Lab');
+        await perms.getByRole('columnheader', { name: 'After import' }).click();
+        await perms.getByRole('columnheader', { name: 'After import' }).click();
+        expect((await cellsOf(perms)).map((r) => r[0])).toEqual(['viewChannels', 'viewDashboard', 'oldPermission', 'viewAlerts']);
+        await expect(rows.filter({ hasText: 'Lab' })).toHaveClass(/rbac-xfer-selected/);
+    });
+
+    test('a new preview keeps the selected role and the ticks', async ({ page }) => {
+        await openPanel(page, importFixtures(IMPORT_SEVERAL_ROWS));
+        await chooseFile(page);
+        const box = dialog(page, 'Import Roles');
+        const rows = box.locator('.rbac-xfer-roles tbody tr');
+        await rows.filter({ hasText: 'Night' }).locator('td').nth(1).click();
+        await box.getByLabel('Import Day').check();
+        await box.getByLabel('Import Fresh').uncheck();
+        await box.getByLabel(APPLY_LABEL).uncheck();
+        await expect(box.getByLabel('Import Day')).toBeEnabled(); // the new preview has arrived
+        await expect(rows.filter({ hasText: 'Night' })).toHaveClass(/rbac-xfer-selected/);
+        await expect(box.getByLabel('Import Day')).toBeChecked();
+        await expect(box.getByLabel('Import Fresh')).not.toBeChecked();
+    });
+
+    test('a role with no channel found starts unticked and says it would see every channel', async ({ page }) => {
+        const seen = watch(page);
+        await openPanel(page, importFixtures(IMPORT_NO_CHANNEL_FOUND));
+        await chooseFile(page);
+        const box = dialog(page, 'Import Roles');
+        const lost = box.getByLabel('Import probe lost');
+        await expect(lost).toBeEnabled();
+        await expect(lost).not.toBeChecked();
+        await expect(box.getByLabel('Import probe lab')).toBeChecked();
+        const row = box.locator('.rbac-xfer-roles tbody tr').nth(0);
+        await expect(cell(row, 'action')).toHaveText('New');
+        await expect(cell(row, 'chans')).toHaveText('every');
+        await expect(cell(row, 'notes')).toContainText('None of those channels exist on this engine.');
+        expect(await cellsOf(detail(box, 'Channels of probe lost'))).toEqual([
+            ['probe nowhere', '', '', '', 'not on this engine', 'probe nowhere', NOWHERE]]);
+        await expect(detail(box, 'Channels of probe lost').locator('.rbac-xfer-notice')).toHaveText(
+            'This role sees every channel after the import.');
+        // Only the ticked row is picked; the user can tick the other one.
+        await lost.check();
+        await box.getByRole('button', { name: 'Import', exact: true }).click();
+        await expect(toast(page, 'Imported 2 role(s).')).toBeVisible();
+        expect(seen.applies[0].pick).toEqual(['0', '1']);
+    });
+
+    test('the Match column: deleted on this engine (named or not in the import) and not in the import', async ({ page }) => {
+        await openPanel(page, importFixtures(IMPORT_MATCH_VALUES));
+        await chooseFile(page);
+        const box = dialog(page, 'Import Roles');
+        await expect(cell(box.locator('.rbac-xfer-roles tbody tr').nth(0), 'chans')).toHaveText('4 ' + ARROW + ' 1');
+        expect(await cellsOf(detail(box, 'Channels of Ward'))).toEqual([
+            ['probe one', ONE, 'yes', 'yes', 'by id', 'probe one', ONE],
+            ['probe gone', '0a1b2c3d-1111-4222-8333-444455556666', 'yes', '', 'deleted on this engine', 'probe gone',
+                '0a1b2c3d-1111-4222-8333-444455556666'],
+            ['probe nowhere', '', '', '', 'not on this engine', 'probe nowhere', NOWHERE],
+            ['probe three', 'now-only-id', 'yes', '', 'not in the import', '', ''],
+            ['(no longer exists)', 'gone-id', 'yes', '', 'deleted on this engine', '', '']]);
+    });
+
+    test('the legends sit under the headings; unticking the apply box replaces the channels table and its legend', async ({ page }) => {
+        await openPanel(page, importFixtures(IMPORT_OVERWRITE_DETAILS));
+        await chooseFile(page);
+        const box = dialog(page, 'Import Roles');
+        await expect(box.getByText(PERMISSIONS_LEGEND, { exact: true })).toBeVisible();
+        await expect(box.getByText(CHANNELS_LEGEND, { exact: true })).toBeVisible();
+        await expect(box.locator('.rbac-xfer-legend')).toHaveCount(2);
+        await expect(detail(box, 'Channels of Lab').getByRole('columnheader')).toHaveText(CHANNEL_HEADERS);
+
+        await box.getByLabel(APPLY_LABEL).uncheck();
+        await expect(box.getByText(NOT_APPLIED, { exact: true })).toBeVisible();
+        await expect(box.getByRole('heading', { name: 'Channels of Lab' })).toBeVisible();
+        await expect(box.getByText(CHANNELS_LEGEND, { exact: true })).toHaveCount(0);
+        await expect(box.locator('.rbac-xfer-legend')).toHaveCount(1);
+        await expect(box.getByRole('columnheader', { name: 'Match' })).toHaveCount(0);
+        // The permissions table stays, legend included.
+        await expect(box.getByText(PERMISSIONS_LEGEND, { exact: true })).toBeVisible();
+        expect(await cellsOf(detail(box, 'Permissions of Lab'))).toHaveLength(4);
+
+        await box.getByLabel(APPLY_LABEL).check();
+        await expect(box.getByText(NOT_APPLIED, { exact: true })).toHaveCount(0);
+        await expect(box.getByText(CHANNELS_LEGEND, { exact: true })).toBeVisible();
     });
 
     test('Import is disabled when nothing is ticked', async ({ page }) => {
         await openPanel(page, importFixtures(IMPORT_PREVIEW_TWO_ROWS));
         await chooseFile(page);
         const box = dialog(page, 'Import Roles');
-        await box.locator('tbody tr').nth(0).getByRole('checkbox').uncheck();
+        await box.locator('.rbac-xfer-roles tbody tr').nth(0).getByRole('checkbox').uncheck();
         await expect(box.getByRole('button', { name: 'Import', exact: true })).toBeDisabled();
     });
 
@@ -273,26 +530,34 @@ test.describe('Import Roles', () => {
             q.get('matchChannelsByName') === 'true' ? IMPORT_NAME_MATCH_ON : IMPORT_NAME_MATCH_OFF));
         await chooseFile(page);
         const box = dialog(page, 'Import Roles');
-        const apply = box.getByLabel('Apply channel restrictions from the file');
+        const apply = box.getByLabel(APPLY_LABEL);
         const byName = box.getByLabel("Also match channels by name when the id isn't found");
         await expect(apply).toBeChecked();
         await expect(byName).not.toBeChecked();
         await expect(byName).toBeEnabled();
 
-        // Matching is off: the skipped row (an empty Channels after would be nothing looked up; here the
-        // channel is listed as not found) and the hint.
-        const row = box.locator('tbody tr').nth(0);
-        await expect(cell(row, 'action')).toHaveText('Skipped');
-        await expect(lines(cell(row, 'chanAfter'))).toHaveText(['probe one (not found here)']);
-        await expect(row.getByRole('checkbox')).toBeDisabled();
+        // Matching is off: a New role with no channel found (every channel if imported), so it starts unticked;
+        // the channel listed as found by name but not used, and the hint.
+        const row = box.locator('.rbac-xfer-roles tbody tr').nth(0);
+        await expect(cell(row, 'action')).toHaveText('New');
+        await expect(cell(row, 'chans')).toHaveText('every');
+        await expect(cell(row, 'notes')).toHaveText('The import restricts this role to 1 channel. None of those channels'
+            + ' exist on this engine. If imported, this role will see every channel until an administrator sets channels'
+            + ' for this role. 1 of those channels matches a channel on this engine by name.');
+        expect(await cellsOf(detail(box, 'Channels of probe moved one'))).toEqual([
+            ['probe one', ONE, '', '', 'by name, not used', 'probe one', MOVED]]);
+        await expect(row.getByRole('checkbox')).toBeEnabled();
+        await expect(row.getByRole('checkbox')).not.toBeChecked();
         await expect(box.getByRole('button', { name: 'Import', exact: true })).toBeDisabled();
         await expect(box.getByText(NAME_MATCH_HINT)).toBeVisible();
 
-        // Ticking the second previews again: now a New role, ticked, the channel found by name, and no hint.
+        // Ticking the second previews again: the channel is found by name and there is no hint. The row is no
+        // longer a no-channel-found row, so the default for a new role applies and it is ticked, enabling Import.
         await byName.check();
-        await expect(cell(row, 'action')).toHaveText('New');
+        await expect(cell(row, 'chans')).toHaveText('1');
         await expect(row.getByRole('checkbox')).toBeChecked();
-        await expect(lines(cell(row, 'chanAfter'))).toHaveText(['probe one (found by name)']);
+        expect(await cellsOf(detail(box, 'Channels of probe moved one'))).toEqual([
+            ['probe one', ONE, '', 'yes', 'by name', 'probe one', MOVED]]);
         await expect(box.getByText(NAME_MATCH_HINT)).toHaveCount(0);
         await expect(box.getByRole('button', { name: 'Import', exact: true })).toBeEnabled();
         expect(seen.previews.map((p) => [p.applyChannels, p.matchChannelsByName]))
@@ -302,6 +567,7 @@ test.describe('Import Roles', () => {
         await apply.uncheck();
         await expect(byName).not.toBeChecked();
         await expect(byName).toBeDisabled();
+        await expect(box.getByText(NOT_APPLIED, { exact: true })).toBeVisible();
         await expect(box.getByText(NAME_MATCH_HINT)).toHaveCount(0);
         expect(seen.previews.map((p) => [p.applyChannels, p.matchChannelsByName]))
             .toEqual([['true', 'false'], ['true', 'true'], ['false', 'false']]);
@@ -322,8 +588,8 @@ test.describe('Import Roles', () => {
         }));
         await chooseFile(page);
         const box = dialog(page, 'Import Roles');
-        await box.getByLabel('Apply channel restrictions from the file').uncheck();
-        await expect(box.locator('tbody tr')).toHaveCount(2);
+        await box.getByLabel(APPLY_LABEL).uncheck();
+        await expect(box.locator('.rbac-xfer-roles tbody tr')).toHaveCount(2);
         await box.getByRole('button', { name: 'Import', exact: true }).click();
         const error = dialog(page, 'Error');
         await expect(error.getByText(STALE)).toBeVisible();

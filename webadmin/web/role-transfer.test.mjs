@@ -12,23 +12,28 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     TASK_EXPORT_ROLES, TASK_EXPORT_ROLES_TOOLTIP, TASK_IMPORT_ROLES, TASK_IMPORT_ROLES_TOOLTIP,
-    TITLE_EXPORT_ROLES, EXPORT_PROMPT, EXPORT_CHANNELS_LINE, EXPORT_COLUMNS, MSG_NO_ROLES_TO_EXPORT, EXPORT_FILE_NAME, exportedText,
+    TITLE_EXPORT_ROLES, EXPORT_PROMPT, EXPORT_CHANNELS_LINE, EXPORT_CHANNELS_NOTE, EXPORT_CHANNELS_BOLD, EXPORT_COLUMNS, MSG_NO_ROLES_TO_EXPORT, EXPORT_FILE_NAME, exportedText,
     TITLE_IMPORT_ROLES, IMPORT_APPLY_CHANNELS, IMPORT_MATCH_BY_NAME, IMPORT_COLUMNS,
     importRefusedText, importSourceText, importedText,
     actionLabel, canTick, defaultTick, mergeTicks, pickedIndexes, notesText, nameMatchHint,
-    channelNowLabel, channelAfterLabel, channelsNowLines, channelsAfterLines, permissionsAfterLines,
-    exportPermissionsLines, exportChannelsLines
+    PERMISSION_COLUMNS, CHANNEL_COLUMNS, CHANNEL_ID_COLUMNS, PERMISSIONS_LEGEND, CHANNELS_LEGEND, CHANNELS_NOT_APPLIED,
+    EXPORT_PERMISSION_COLUMNS, EXPORT_CHANNEL_COLUMNS,
+    EXPORT_EVERY_CHANNEL, countText, permissionsCountText, channelsCountText, everyChannelText, foundText,
+    permissionRows, channelRows, permissionsHeading, channelsHeading, sortRows,
+    exportPermissionRows, exportChannelRows, exportPermissionsCount, exportChannelsCount
 } from './rbac-core.js';
 
 const row = (over = {}) => ({
     index: 0, name: 'R', action: 'CREATE', reason: '',
     droppedPermissions: [], matchedChannelCount: 0, channels: 'FROM_FILE',
-    existsHere: false, descriptionNow: '', descriptionAfter: '',
+    noChannelFound: false, existsHere: false, descriptionNow: '', descriptionAfter: '',
     permissionsNow: [], permissionsAfter: [], channelsNow: [], channelsAfter: [],
     ...over
 });
 
-const chan = (over = {}) => ({ id: 'id-1', name: 'One', fileName: 'One', match: 'BY_ID', used: true, ...over });
+// A channel from the file, found by id; a channel in a "now" list overrides fileId and fileName with null.
+const chan = (over = {}) => ({ id: 'id-1', name: 'One', fileId: 'id-1', fileName: 'One', match: 'BY_ID', used: true, ...over });
+const nowChan = (over = {}) => chan({ fileId: null, fileName: null, ...over });
 
 test('the strings are the agreed wording', () => {
     assert.deepEqual([TASK_EXPORT_ROLES, TASK_EXPORT_ROLES_TOOLTIP, TASK_IMPORT_ROLES, TASK_IMPORT_ROLES_TOOLTIP], [
@@ -37,15 +42,33 @@ test('the strings are the agreed wording', () => {
     assert.equal(EXPORT_PROMPT, 'Pick the roles to export. The admin role is never exported.');
     assert.equal(EXPORT_CHANNELS_LINE,
         'Channel restrictions are included. When importing, you can choose not to apply them.');
+    assert.equal(EXPORT_CHANNELS_NOTE + EXPORT_CHANNELS_BOLD, EXPORT_CHANNELS_LINE);
+    assert.equal(EXPORT_CHANNELS_NOTE, 'Channel restrictions are included. ');
+    assert.equal(EXPORT_CHANNELS_BOLD, 'When importing, you can choose not to apply them.');
     assert.deepEqual(EXPORT_COLUMNS, ['Export', 'Role', 'Description', 'Permissions', 'Channels']);
+    assert.deepEqual(EXPORT_PERMISSION_COLUMNS, ['Permission']);
+    assert.deepEqual(EXPORT_CHANNEL_COLUMNS, ['Channel', 'Id on this engine']);
+    assert.equal(EXPORT_EVERY_CHANNEL, 'This role sees every channel.');
+    assert.deepEqual(PERMISSION_COLUMNS, ['Permission', 'Currently', 'After import', 'Note']);
+    assert.equal(PERMISSIONS_LEGEND, 'Currently: this role has the permission on this engine.'
+        + ' After import: this role will have the permission if imported.');
+    assert.deepEqual(CHANNEL_COLUMNS, ['Channel', 'Id on this engine', 'Currently', 'After import', 'Match',
+        'Name in import', 'Id in import']);
+    assert.equal(CHANNELS_LEGEND, 'Currently: this role is restricted to the channel on this engine. After import:'
+        + " this role will be restricted to the channel if imported. Match: how the import's channel was found on this engine.");
+    assert.equal(CHANNELS_NOT_APPLIED, 'Channel restrictions from the import are not applied. Roles that already exist'
+        + ' on this engine keep their current channels. New roles see every channel.');
+    assert.deepEqual(CHANNEL_ID_COLUMNS, [1, 6]);
+    assert.equal(permissionsHeading('Lab'), 'Permissions of Lab');
+    assert.equal(channelsHeading('Lab'), 'Channels of Lab');
     assert.equal(MSG_NO_ROLES_TO_EXPORT, 'There are no roles to export. The admin role is never exported.');
     assert.equal(EXPORT_FILE_NAME, 'rbac-roles.xml');
     assert.equal(exportedText(3), 'Exported 3 role(s).');
     assert.equal(TITLE_IMPORT_ROLES, 'Import Roles');
-    assert.equal(IMPORT_APPLY_CHANNELS, 'Apply channel restrictions from the file');
+    assert.equal(IMPORT_APPLY_CHANNELS, 'Apply channel restrictions from the import');
     assert.equal(IMPORT_MATCH_BY_NAME, "Also match channels by name when the id isn't found");
-    assert.deepEqual(IMPORT_COLUMNS, ['Import', 'Role', 'Action', 'Description now', 'Description after',
-        'Permissions now', 'Permissions after', 'Channels now', 'Channels after', 'Notes']);
+    assert.deepEqual(IMPORT_COLUMNS, ['Import', 'Role', 'Action', 'Description currently', 'Description after import',
+        'Permissions', 'Channels', 'Notes']);
     assert.equal(importRefusedText('bad'), "This file can't be imported: bad");
     assert.equal(importSourceText('1.2.0', '4.7.0'), 'From rbac 1.2.0 on OIE 4.7.0.');
     assert.equal(importedText(2), 'Imported 2 role(s).');
@@ -56,9 +79,11 @@ test('no string has an em dash', () => {
     const all = [TASK_EXPORT_ROLES_TOOLTIP, TASK_IMPORT_ROLES_TOOLTIP, EXPORT_PROMPT, EXPORT_CHANNELS_LINE,
         MSG_NO_ROLES_TO_EXPORT, IMPORT_APPLY_CHANNELS, IMPORT_MATCH_BY_NAME,
         nameMatchHint(2, true, false), notesText(row({ action: 'UNCHANGED' })),
-        channelNowLabel(chan({ name: null })), channelAfterLabel(chan({ match: 'NOT_FOUND' })),
-        ...exportChannelsLines(role, null), ...exportChannelsLines(role, new Map()),
-        ...permissionsAfterLines(row({ droppedPermissions: ['x'] }))];
+        everyChannelText(row({ existsHere: true })), EXPORT_EVERY_CHANNEL,
+        ...exportChannelRows(role, null).flat(), ...exportChannelRows(role, new Map()).flat(),
+        ...permissionRows(row({ droppedPermissions: ['x'] })).flat(),
+        ...channelRows(row({ channelsNow: [nowChan({ name: null })], channelsAfter: [chan({ match: 'NOT_FOUND' })] })).flat(),
+        countText(row({ existsHere: true }), 1, 2)];
     for (const s of all) assert.ok(!s.includes(String.fromCharCode(0x2014)), s);
 });
 
@@ -68,12 +93,14 @@ test('action labels', () => {
     assert.equal(actionLabel('SOMETHING_NEW'), 'SOMETHING_NEW');
 });
 
-test('New starts ticked, Overwrite starts unticked, Unchanged and Skipped cannot be ticked', () => {
+test('New starts ticked unless no channel was found, Overwrite starts unticked, Unchanged and Skipped cannot be ticked', () => {
     assert.deepEqual(['CREATE', 'OVERWRITE', 'UNCHANGED', 'SKIP'].map((a) => canTick(row({ action: a }))),
         [true, true, false, false]);
     assert.deepEqual(['CREATE', 'OVERWRITE'].map((a) => defaultTick(row({ action: a }))), [true, false]);
+    assert.deepEqual(['CREATE', 'OVERWRITE'].map((a) => defaultTick(row({ action: a, noChannelFound: true }))), [false, false]);
     const rows = [row({ index: 0, action: 'CREATE' }), row({ index: 1, action: 'OVERWRITE' }),
-        row({ index: 2, action: 'UNCHANGED' }), row({ index: 3, action: 'SKIP' })];
+        row({ index: 2, action: 'UNCHANGED' }), row({ index: 3, action: 'SKIP' }),
+        row({ index: 4, action: 'CREATE', noChannelFound: true })];
     assert.deepEqual([...mergeTicks([], new Set(), rows)], [0]);
 });
 
@@ -85,6 +112,11 @@ test('a new preview keeps the choice for a row shown before with the same action
         row({ index: 2, action: 'CREATE' }), // was Skipped, now New: default
         row({ index: 3, name: 'Other', action: 'CREATE' })]; // a different role at that position: default
     assert.deepEqual([...mergeTicks(before, ticks, after)].sort(), [1, 2, 3]);
+    const unfound = [row({ index: 0, action: 'CREATE', noChannelFound: true })];
+    assert.deepEqual([...mergeTicks(unfound, new Set([0]), unfound)], [0], 'the user ticked it: kept');
+    const found = [row({ index: 0, action: 'CREATE' })];
+    assert.deepEqual([...mergeTicks(unfound, new Set(), found)], [0],
+        'its channels found after matching by name: the default for a new role applies again');
 });
 
 test('pick is the ticked rows that can be ticked, ascending', () => {
@@ -94,78 +126,159 @@ test('pick is the ticked rows that can be ticked, ascending', () => {
     assert.deepEqual(pickedIndexes(rows, new Set()), []);
 });
 
-test('Notes: the reason, then "Keeps its channels here", joined with "; "', () => {
+test('Notes: the row\'s reason, empty when there is none', () => {
     assert.equal(notesText(row()), '');
-    assert.equal(notesText(row({ reason: 'Why.', channels: 'KEPT' })), 'Why.; Keeps its channels here');
-    assert.equal(notesText(row({ channels: 'KEPT' })), 'Keeps its channels here');
-    assert.equal(notesText(row({ channels: 'EVERY_CHANNEL' })), '', 'only KEPT is a part');
-});
-
-test('Notes: "Same as the role here" only for an Unchanged row with nothing else to say', () => {
-    assert.equal(notesText(row({ action: 'UNCHANGED' })), 'Same as the role here');
-    assert.equal(notesText(row({ action: 'UNCHANGED', reason: 'Why.' })), 'Why.');
-    assert.equal(notesText(row({ action: 'UNCHANGED', channels: 'KEPT' })), 'Keeps its channels here');
-    assert.equal(notesText(row({ action: 'OVERWRITE' })), '');
+    assert.equal(notesText(row({ reason: 'Why.' })), 'Why.');
+    assert.equal(notesText(row({ channels: 'KEPT' })), '', 'nothing is composed on the client');
+    assert.equal(notesText(row({ action: 'UNCHANGED' })), '');
+    assert.equal(notesText(row({ action: 'UNCHANGED', reason: 'Identical to the role on this engine.' })),
+        'Identical to the role on this engine.');
 });
 
 test('the name-match hint shows while channel restrictions apply, there are matches and matching by name is off', () => {
     assert.equal(nameMatchHint(2, true, false),
-        '2 channel(s) in the file match a channel here only by name. Tick the box above to use them.');
+        '2 channels in the import match a channel on this engine by name only. Tick the box above to use them.');
     assert.equal(nameMatchHint(1, true, false),
-        '1 channel(s) in the file match a channel here only by name. Tick the box above to use them.');
+        '1 channel in the import matches a channel on this engine by name only. Tick the box above to use them.');
     assert.equal(nameMatchHint(2, false, false), null, 'restrictions not applied');
     assert.equal(nameMatchHint(0, true, false), null, 'no matches');
     assert.equal(nameMatchHint(2, true, true), null, 'matching by name is on');
 });
 
-test('Channels now: empty with no role here, "Every channel" with an empty list, the name or the deleted channel', () => {
-    assert.deepEqual(channelsNowLines(row({ existsHere: false })), []);
-    assert.deepEqual(channelsNowLines(row({ existsHere: true })), ['Every channel']);
-    assert.deepEqual(channelsNowLines(row({
+test('counts: the arrow, "every", and the Skipped, Unchanged and new-role cases', () => {
+    const ARROW = String.fromCharCode(0x2192);
+    const here = (over) => row({ existsHere: true, action: 'OVERWRITE', ...over });
+    assert.equal(countText(here(), 6, 7), '6 ' + ARROW + ' 7');
+    assert.equal(countText(here(), 6, 6), '6');
+    assert.equal(countText(here(), 'every', 2), 'every ' + ARROW + ' 2');
+    assert.equal(countText(here(), 12, 'every'), '12 ' + ARROW + ' every');
+    assert.equal(countText(here({ action: 'UNCHANGED' }), 3, 5), '3');
+    assert.equal(countText(here({ action: 'SKIP' }), 3, 5), '3', 'a Skipped row for a role here: the now count');
+    assert.equal(countText(row(), 0, 4), '4', 'a role not here: the after count');
+    assert.equal(permissionsCountText(here({ permissionsNow: ['a', 'b'], permissionsAfter: ['a', 'b', 'c'] })), '2 ' + ARROW + ' 3');
+    assert.equal(permissionsCountText(row({ permissionsAfter: ['a', 'b'] })), '2');
+    const used = (n) => Array.from({ length: n }, (_, i) => chan({ id: 'c' + i }));
+    const gone = (n) => Array.from({ length: n }, (_, i) => nowChan({ id: 'n' + i }));
+    assert.equal(channelsCountText(here({ channelsNow: gone(40), channelsAfter: used(30) })), '40 ' + ARROW + ' 30');
+    assert.equal(channelsCountText(here()), 'every', 'every now and every after');
+    assert.equal(channelsCountText(here({ channelsNow: gone(12) })), '12 ' + ARROW + ' every');
+    assert.equal(channelsCountText(here({ channelsAfter: used(2) })), 'every ' + ARROW + ' 2');
+    assert.equal(channelsCountText(row({ channelsAfter: used(3) })), '3');
+    assert.equal(channelsCountText(row()), 'every', 'a new role with no used channel sees every channel');
+    assert.equal(channelsCountText(row({ action: 'SKIP', channelsAfter: [chan({ match: 'NOT_FOUND', used: false })] })), '0',
+        'a Skipped row for a role not here, nothing used');
+    assert.equal(channelsCountText(here({ action: 'SKIP', channelsNow: gone(2) })), '2');
+    assert.equal(channelsCountText(here({ action: 'SKIP' })), 'every');
+    assert.equal(channelsCountText(here({ action: 'OVERWRITE', channels: 'KEPT', channelsNow: gone(2), channelsAfter: gone(2) })), '2');
+});
+
+test('the every-channel line: now, after, both, neither', () => {
+    const NOW = 'This role sees every channel currently.';
+    const AFTER = 'This role sees every channel after the import.';
+    assert.equal(everyChannelText(row({ existsHere: true })), NOW + ' ' + AFTER);
+    assert.equal(everyChannelText(row({ existsHere: true, channelsAfter: [chan()] })), NOW);
+    assert.equal(everyChannelText(row({ existsHere: true, channelsNow: [nowChan()] })), AFTER);
+    assert.equal(everyChannelText(row()), AFTER, 'a new role: only after');
+    assert.equal(everyChannelText(row({ existsHere: true, channelsNow: [nowChan()], channelsAfter: [chan()] })), '');
+    assert.equal(everyChannelText(row({ action: 'SKIP', channelsAfter: [chan({ match: 'NOT_FOUND', used: false })] })), '',
+        'a Skipped row looked nothing up');
+});
+
+test('Match: by id, renamed on this engine, by name used and not used, not on this engine, nothing for a kept copy', () => {
+    assert.equal(foundText(chan()), 'by id');
+    assert.equal(foundText(chan({ name: 'New name', fileName: 'Old name' })), 'by id, renamed on this engine');
+    assert.equal(foundText(chan({ match: 'BY_NAME', used: true })), 'by name');
+    assert.equal(foundText(chan({ match: 'BY_NAME', used: false })), 'by name, not used');
+    assert.equal(foundText(chan({ match: 'NOT_FOUND', used: false })), 'not on this engine');
+    assert.equal(foundText(chan({ match: 'NOT_FOUND', used: false, name: null, fileName: null })), 'not on this engine',
+        'a nameless channel in the import is still not on this engine');
+    assert.equal(foundText(nowChan()), '', 'a now entry or a kept copy has no id in the import');
+});
+
+test('permission rows: the union by name, the left-out ones noted', () => {
+    assert.deepEqual(permissionRows(row({
+        existsHere: true, permissionsNow: ['viewAlerts', 'viewChannels'],
+        permissionsAfter: ['viewChannels', 'viewDashboard'], droppedPermissions: ['oldPermission']
+    })), [
+        ['oldPermission', '', '', 'not offered by this engine, left out'],
+        ['viewAlerts', 'yes', '', ''],
+        ['viewChannels', 'yes', 'yes', ''],
+        ['viewDashboard', '', 'yes', '']
+    ]);
+    assert.deepEqual(permissionRows(row()), []);
+});
+
+test('channel rows: the import in its order, the joined channel once, a renamed one, by name, not on this engine, then the rest', () => {
+    const rows = channelRows(row({
         existsHere: true,
-        channelsNow: [chan({ name: 'Alpha', fileName: null }), chan({ id: 'gone-id', name: null, fileName: null, match: 'NOT_FOUND' })]
-    })), ['Alpha', 'gone-id (deleted channel)']);
-    assert.equal(channelNowLabel(chan({ id: 'x', name: null })), 'x (deleted channel)');
+        channelsNow: [nowChan({ id: 'id-1', name: 'One renamed' }), nowChan({ id: 'id-9', name: 'Nine' }),
+            nowChan({ id: 'gone', name: null, match: 'NOT_FOUND' }),
+            nowChan({ id: 'id-5', name: null, match: 'NOT_FOUND' })],
+        channelsAfter: [
+            chan({ id: 'id-1', name: 'One renamed', fileName: 'One' }),
+            chan({ id: 'id-2', name: 'Two', fileId: 'file-2', fileName: 'Two', match: 'BY_NAME', used: false }),
+            chan({ id: 'id-3', name: 'Three', fileId: 'id-3', fileName: 'Three', match: 'NOT_FOUND', used: false }),
+            chan({ id: 'id-4', name: null, fileId: 'id-4', fileName: null, match: 'NOT_FOUND', used: false }),
+            chan({ id: 'id-5', name: null, fileId: 'id-5', fileName: 'Five', match: 'NOT_FOUND', used: false })
+        ]
+    }));
+    assert.deepEqual(rows, [
+        ['One renamed', 'id-1', 'yes', 'yes', 'by id, renamed on this engine', 'One', 'id-1'],
+        ['Two', 'id-2', '', '', 'by name, not used', 'Two', 'file-2'],
+        ['Three', '', '', '', 'not on this engine', 'Three', 'id-3'],
+        ['(no longer exists)', '', '', '', 'not on this engine', '', 'id-4'],
+        ['Five', 'id-5', 'yes', '', 'deleted on this engine', 'Five', 'id-5'],
+        ['Nine', 'id-9', 'yes', '', 'not in the import', '', ''],
+        ['(no longer exists)', 'gone', 'yes', '', 'deleted on this engine', '', '']
+    ]);
+    const byName = channelRows(row({ channelsAfter: [chan({ id: 'id-2', name: 'Two', fileId: 'file-2', fileName: 'Two', match: 'BY_NAME', used: true })] }));
+    assert.deepEqual(byName, [['Two', 'id-2', '', 'yes', 'by name', 'Two', 'file-2']], 'by name, used');
 });
 
-test('Channels after: how each channel was found', () => {
-    assert.equal(channelAfterLabel(chan()), 'One (found by id)');
-    assert.equal(channelAfterLabel(chan({ name: 'New name', fileName: 'Old name' })),
-        'New name (found by id, named "Old name" in the file)', 'a rename');
-    assert.equal(channelAfterLabel(chan({ match: 'BY_NAME', used: true })), 'One (found by name)', 'by name, used');
-    assert.equal(channelAfterLabel(chan({ match: 'BY_NAME', used: false })),
-        'One (found by name, not used)', 'by name, box unticked');
-    assert.equal(channelAfterLabel(chan({ match: 'NOT_FOUND', used: false })), 'One (not found here)');
-    assert.equal(channelAfterLabel(chan({ id: 'abc', name: null, fileName: null, match: 'NOT_FOUND', used: false })),
-        'abc (deleted channel)', 'no file name: the Now wording');
-    assert.equal(channelAfterLabel(chan({ id: 'abc', name: null, fileName: '', match: 'NOT_FOUND', used: false })),
-        'abc (not found here)', 'not found with a null name shows the id');
-    assert.equal(channelAfterLabel(chan({ name: 'Kept', fileName: null })), 'Kept', 'a kept copy of the Now list');
+test('channel rows: the Channel column is the name here, else the name in the import, else "(no longer exists)"', () => {
+    const name = (over) => channelRows(row({ channelsAfter: [chan(over)] }))[0][0];
+    assert.equal(name({ name: 'Here', fileName: 'There' }), 'Here');
+    assert.equal(name({ name: null, fileName: 'There', match: 'NOT_FOUND', used: false }), 'There');
+    assert.equal(name({ name: null, fileName: null, match: 'NOT_FOUND', used: false }), '(no longer exists)');
 });
 
-test('Channels after: empty means every channel, except on a Skipped row', () => {
-    assert.deepEqual(channelsAfterLines(row({ action: 'CREATE' })), ['Every channel']);
-    assert.deepEqual(channelsAfterLines(row({ action: 'OVERWRITE' })), ['Every channel']);
-    assert.deepEqual(channelsAfterLines(row({ action: 'SKIP' })), []);
-    assert.deepEqual(channelsAfterLines(row({
-        action: 'CREATE', channelsAfter: [chan(), chan({ id: 'b', name: 'Two', fileName: 'Two', match: 'BY_NAME', used: false })]
-    })), ['One (found by id)', 'Two (found by name, not used)']);
+test('channel rows: a role with no channel found lists the import channels, none used', () => {
+    const r = row({ action: 'CREATE', noChannelFound: true, channelsAfter: [
+        chan({ id: 'x1', name: 'X', fileId: 'x1', fileName: 'X', match: 'NOT_FOUND', used: false })] });
+    assert.deepEqual(channelRows(r), [['X', '', '', '', 'not on this engine', 'X', 'x1']]);
+    assert.equal(everyChannelText(r), 'This role sees every channel after the import.');
 });
 
-test('Permissions after: the permissions, then each dropped one', () => {
-    assert.deepEqual(permissionsAfterLines(row({ permissionsAfter: ['a', 'b'], droppedPermissions: ['gone'] })),
-        ['a', 'b', 'gone (not on this engine, left out)']);
-    assert.deepEqual(permissionsAfterLines(row()), []);
+test('channel rows: a kept channel list is one row each, now and after, with nothing from a file', () => {
+    const kept = [nowChan({ id: 'id-1', name: 'One' }), nowChan({ id: 'gone', name: null, match: 'NOT_FOUND' })];
+    assert.deepEqual(channelRows(row({ existsHere: true, channels: 'KEPT', channelsNow: kept, channelsAfter: kept })), [
+        ['One', 'id-1', 'yes', 'yes', '', '', ''],
+        ['(no longer exists)', 'gone', 'yes', 'yes', '', '', '']
+    ]);
+    assert.deepEqual(channelRows(row({ action: 'SKIP' })), [], 'nothing looked up: no rows');
 });
 
-test('Export cells: permissions sorted; channels by name with unknown ids last; every channel; list not loaded', () => {
-    assert.deepEqual(exportPermissionsLines({ permissions: new Set(['viewDashboard', 'viewAlerts']) }),
-        ['viewAlerts', 'viewDashboard']);
+test('sortRows: ascending, descending, by index, name or function; stable; a copy', () => {
+    const rows = [['b', '2'], ['a', '2'], ['c', '1']];
+    assert.deepEqual(sortRows(rows, 0, 'asc').map((r) => r[0]), ['a', 'b', 'c']);
+    assert.deepEqual(sortRows(rows, 0, 'desc').map((r) => r[0]), ['c', 'b', 'a']);
+    assert.deepEqual(sortRows(rows, 1, 'asc').map((r) => r[0]), ['c', 'b', 'a'], 'equal keys keep their order');
+    assert.deepEqual(sortRows(rows, 1, 'desc').map((r) => r[0]), ['b', 'a', 'c']);
+    assert.deepEqual(sortRows([{ n: 2 }, { n: 1 }], 'n', 'asc'), [{ n: 1 }, { n: 2 }]);
+    assert.deepEqual(sortRows([{ n: 2 }, { n: 1 }], (r) => -r.n, 'asc'), [{ n: 2 }, { n: 1 }]);
+    assert.deepEqual(rows.map((r) => r[0]), ['b', 'a', 'c'], 'the input is untouched');
+});
+
+test('Export rows: permissions sorted; channels by name with unknown ids last; list not loaded; counts', () => {
+    assert.deepEqual(exportPermissionRows({ permissions: new Set(['viewDashboard', 'viewAlerts']) }),
+        [['viewAlerts'], ['viewDashboard']]);
     const map = new Map([['id-b', 'Beta'], ['id-a', 'Alpha']]);
-    assert.deepEqual(exportChannelsLines({ channelIds: new Set() }, map), ['Every channel']);
-    assert.deepEqual(exportChannelsLines({ channelIds: new Set() }, null), ['Every channel']);
-    assert.deepEqual(exportChannelsLines({ channelIds: new Set(['id-b', 'zzz', 'id-a']) }, map),
-        ['Alpha', 'Beta', 'zzz (deleted channel)'], 'a map with a missing id');
-    assert.deepEqual(exportChannelsLines({ channelIds: new Set(['id-b', 'id-a']) }, null),
-        ['id-a (channel list not loaded)', 'id-b (channel list not loaded)'], 'a null map');
+    assert.deepEqual(exportChannelRows({ channelIds: new Set() }, map), []);
+    assert.deepEqual(exportChannelRows({ channelIds: new Set(['id-b', 'zzz', 'id-a']) }, map),
+        [['Alpha', 'id-a'], ['Beta', 'id-b'], ['(no longer exists)', 'zzz']], 'a map with a missing id');
+    assert.deepEqual(exportChannelRows({ channelIds: new Set(['id-b', 'id-a']) }, null),
+        [['(channel list not loaded)', 'id-a'], ['(channel list not loaded)', 'id-b']], 'a null map');
+    assert.equal(exportPermissionsCount({ permissions: new Set(['a', 'b']) }), 2);
+    assert.equal(exportChannelsCount({ channelIds: new Set() }), 'every');
+    assert.equal(exportChannelsCount({ channelIds: new Set(['a']) }), 1);
 });

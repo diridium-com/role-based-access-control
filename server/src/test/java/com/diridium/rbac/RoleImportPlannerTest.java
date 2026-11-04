@@ -97,6 +97,7 @@ class RoleImportPlannerTest {
         roles.put(5, role(5, "Lab", "d", Set.of("viewChannels"), Set.of("id-lab")));
         Plan plan = plan(true, fileRole("Lab", List.of("viewChannels"), true, new Channel("id-lab", "Lab In")));
         assertEquals(Action.UNCHANGED, plan.rows().get(0).getAction());
+        assertEquals("Identical to the role on this engine.", plan.rows().get(0).getReason());
         assertFalse(plan.writes().containsKey(0));
     }
 
@@ -112,7 +113,7 @@ class RoleImportPlannerTest {
         Plan plan = plan(true, fileRole("Administrator", List.of("viewChannels"), false));
         RoleImportRow row = plan.rows().get(0);
         assertEquals(Action.SKIP, row.getAction());
-        assertEquals("This is the name of this engine's admin role, which an import never changes.", row.getReason());
+        assertEquals("The admin role on this engine has this name. An import never changes the admin role.", row.getReason());
         assertTrue(plan.writes().isEmpty());
         assertTrue(row.isExistsHere(), "the file's content and the admin role are still described");
         assertEquals(List.of("viewChannels"), row.getPermissionsNow());
@@ -157,7 +158,7 @@ class RoleImportPlannerTest {
         assertEquals(List.of("View Roles", "viewMessages"), row.getPermissionsNow(), "sorted");
         assertEquals(List.of("viewChannels", "viewMessages"), row.getPermissionsAfter(), "sorted");
         assertTrue(row.getChannelsNow().isEmpty() && row.getChannelsAfter().isEmpty(), "every channel, both");
-        assertNull(row.getReason());
+        assertNull(row.getReason(), "nothing to say: both see every channel, every permission exists");
     }
 
     @Test
@@ -187,7 +188,8 @@ class RoleImportPlannerTest {
         roles.put(5, role(5, "Lab", "d", Set.of(), Set.of("id-lab", "id-adt")));
         RoleImportRow row = plan(true, fileRole("Lab", List.of(), false)).rows().get(0);
         assertEquals(Action.OVERWRITE, row.getAction());
-        assertEquals("Sees every channel after the import; here it is restricted to 2 channel(s).", row.getReason());
+        assertEquals("On this engine this role is restricted to 2 channels. The import removes the restriction, so after"
+                + " the import this role will see every channel.", row.getReason());
         assertEquals(2, row.getChannelsNow().size());
         assertTrue(row.getChannelsAfter().isEmpty(), "every channel has no list");
     }
@@ -197,7 +199,8 @@ class RoleImportPlannerTest {
         roles.put(5, role(5, "Lab", "d", Set.of(), Set.of()));
         RoleImportRow row = plan(true, fileRole("Lab", List.of(), true, new Channel("id-lab", "Lab In"))).rows().get(0);
         assertEquals(Action.OVERWRITE, row.getAction());
-        assertEquals("Restricted to 1 channel(s) after the import; here it sees every channel.", row.getReason());
+        assertEquals("On this engine this role sees every channel. The import restricts this role to 1 channel.",
+                row.getReason());
         assertTrue(row.getChannelsNow().isEmpty(), "every channel has no list");
         assertEquals(1, row.getChannelsAfter().size());
     }
@@ -230,6 +233,7 @@ class RoleImportPlannerTest {
         assertEquals(5, after.size(), "every file channel, in file order");
         assertChannel(after.get(0), "id-lab", "Lab In", "Renamed since", Match.BY_ID, true);
         assertChannel(after.get(1), "id-adt", "ADT Out", "ADT Out", Match.BY_NAME, false);
+        assertEquals("id-elsewhere", after.get(1).getFileId());
         assertChannel(after.get(2), "id-gone", "Twin", "Twin", Match.NOT_FOUND, false);
         assertChannel(after.get(3), "id-gone2", "Nowhere", "Nowhere", Match.NOT_FOUND, false);
         assertChannel(after.get(4), "id-gone3", null, "", Match.NOT_FOUND, false);
@@ -258,31 +262,59 @@ class RoleImportPlannerTest {
     }
 
     @Test
-    void aRestrictedRoleWhoseChannelsMatchOnlyByName_isSkipped_andSaysHowManyCould() throws Exception {
+    void aRestrictedRoleWhoseChannelsMatchOnlyByName_isOfferedWithNoChannelFound_andSaysHowManyCould()
+            throws Exception {
         ExportedRole lab = fileRole("Lab", List.of(), true,
                 new Channel("id-elsewhere", "Lab In"), new Channel("id-gone", "Gone"));
         RoleImportRow row = plan(true, lab).rows().get(0);
-        assertEquals(Action.SKIP, row.getAction());
-        assertEquals("None of its 2 channels exist on this engine, and a role with no channels sees every channel."
-                + " Matching channels by name finds 1 of them.", row.getReason());
+        assertEquals(Action.CREATE, row.getAction());
+        assertTrue(row.isNoChannelFound());
+        assertEquals("The import restricts this role to 2 channels. None of those channels exist on this engine. If"
+                + " imported, this role will see every channel until an administrator sets channels for this role."
+                + " 1 of those channels matches a channel on this engine by name.", row.getReason());
 
         Plan byName = planMatchingByName(lab);
         assertEquals(Action.CREATE, byName.rows().get(0).getAction());
+        assertFalse(byName.rows().get(0).isNoChannelFound());
+        assertEquals("Of the 2 channels in the import, 1 is not on this engine.", byName.rows().get(0).getReason());
         assertEquals(Set.of("id-lab"), byName.writes().get(0).role().getChannelIds());
     }
 
     @Test
-    void aRestrictedRoleWithNoChannelFound_isSkipped_notLetIntoEveryChannel() throws Exception {
+    void aRestrictedRoleWithNoChannelFound_isOffered_seeingEveryChannel() throws Exception {
         Plan plan = plan(true, fileRole("Lab", List.of("viewChannels"), true,
                 new Channel("id-gone", "Gone"), new Channel("id-gone2", "Also gone")));
         RoleImportRow row = plan.rows().get(0);
-        assertEquals(Action.SKIP, row.getAction());
-        assertEquals("None of its 2 channels exist on this engine, and a role with no channels sees every channel.",
+        assertEquals(Action.CREATE, row.getAction());
+        assertTrue(row.isNoChannelFound());
+        assertEquals("The import restricts this role to 2 channels. None of those channels exist on this engine. If"
+                + " imported, this role will see every channel until an administrator sets channels for this role.",
                 row.getReason());
         assertChannel(row.getChannelsAfter().get(0), "id-gone", "Gone", "Gone", Match.NOT_FOUND, false);
         assertChannel(row.getChannelsAfter().get(1), "id-gone2", "Also gone", "Also gone", Match.NOT_FOUND, false);
-        assertEquals(List.of("viewChannels"), row.getPermissionsAfter(), "a skipped row still shows the file's content");
-        assertTrue(plan.writes().isEmpty());
+        assertEquals(List.of("viewChannels"), row.getPermissionsAfter());
+        assertEquals(Set.of(), plan.writes().get(0).role().getChannelIds(), "written as every channel if picked");
+    }
+
+    @Test
+    void anOverwriteWithNoChannelFound_saysWhatTheRoleLoses() throws Exception {
+        roles.put(5, role(5, "Lab", "d", Set.of(), Set.of("id-lab", "id-adt")));
+        RoleImportRow row = plan(true, fileRole("Lab", List.of(), true, new Channel("id-gone", "Gone"))).rows().get(0);
+        assertEquals(Action.OVERWRITE, row.getAction());
+        assertTrue(row.isNoChannelFound());
+        assertEquals("The import restricts this role to 1 channel. None of those channels exist on this engine. If"
+                + " imported, this role will see every channel instead of the 2 channels currently set on this engine,"
+                + " until an administrator sets channels for this role.", row.getReason());
+    }
+
+    @Test
+    void permissionsLeftOut_areCounted_inTheNotes() throws Exception {
+        RoleImportRow one = plan(true, fileRole("Lab", List.of("viewChannels", "Run Lab Reports"), false)).rows().get(0);
+        assertEquals("1 permission in the import is not offered by this engine and is left out.", one.getReason());
+        RoleImportRow two = plan(true, fileRole("Lab", List.of("Run Lab Reports", "Sign Lab Reports"), false)).rows().get(0);
+        assertEquals("2 permissions in the import are not offered by this engine and are left out.", two.getReason());
+        assertNull(plan(true, fileRole("Lab", List.of("viewChannels"), false)).rows().get(0).getReason(),
+                "nothing to say about a new role whose channels and permissions all exist");
     }
 
     @Test
@@ -303,7 +335,7 @@ class RoleImportPlannerTest {
         RoleImportRow row = plan.rows().get(0);
         assertEquals(Action.OVERWRITE, row.getAction());
         assertEquals(Channels.KEPT, row.getChannels());
-        assertNull(row.getReason());
+        assertEquals("This role keeps the channels currently set on this engine.", row.getReason());
         assertEquals(1, row.getChannelsNow().size());
         assertChannel(row.getChannelsNow().get(0), "id-adt", "ADT Out", null, Match.BY_ID, true);
         assertEquals(1, row.getChannelsAfter().size(), "its channels don't change");
@@ -321,8 +353,9 @@ class RoleImportPlannerTest {
         RoleImportRow row = plan.rows().get(0);
         assertEquals(Action.CREATE, row.getAction(), "not skipped: the user chose not to apply channels");
         assertEquals(Channels.EVERY_CHANNEL, row.getChannels());
-        assertEquals("Sees every channel here; where it was exported it was restricted to 1 channel(s)."
-                + " Set its channels before assigning users.", row.getReason());
+        assertEquals("The import restricts this role to 1 channel. Restrictions are not applied, so this role will"
+                + " see every channel on this engine until an administrator sets channels for this role.",
+                row.getReason());
         assertEquals(Set.of(), plan.writes().get(0).role().getChannelIds());
         assertTrue(row.getChannelsAfter().isEmpty(), "every channel: the file's channels aren't looked up");
     }
@@ -425,6 +458,13 @@ class RoleImportPlannerTest {
         assertEquals(id, channel.getId());
         assertEquals(name, channel.getName());
         assertEquals(fileName, channel.getFileName());
+        if (fileName == null) {
+            assertNull(channel.getFileId(), "a now list has no file id");
+        } else if (match == Match.BY_NAME) {
+            assertNotEquals(id, channel.getFileId(), "a match by name has another id in the file");
+        } else {
+            assertEquals(id, channel.getFileId(), "found by id, or not found: the id is the file's");
+        }
         assertEquals(match, channel.getMatch());
         assertEquals(used, channel.isUsed());
     }

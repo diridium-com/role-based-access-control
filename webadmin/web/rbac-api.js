@@ -105,13 +105,14 @@ const text = (v) => (v === undefined || v === null ? '' : String(v));
 
 const CHANNEL_FQCN = 'com.diridium.rbac.RoleImportChannel';
 
-// name and fileName stay null when the wire has null: the cells word a channel
-// differently when it has no name or no name in the file.
+// name, fileName and fileId stay null when the wire has none: the tables word a
+// channel differently when it has no name, or no name or id in the file.
 function normalizeImportChannel(raw) {
     const orNull = (v) => (v === undefined || v === null ? null : String(v));
     return {
         id: text(raw.id),
         name: orNull(raw.name),
+        fileId: orNull(raw.fileId),
         fileName: orNull(raw.fileName),
         match: text(raw.match),
         used: raw.used === true || raw.used === 'true'
@@ -127,6 +128,8 @@ function normalizeImportRow(raw) {
         droppedPermissions: stringList(raw.droppedPermissions),
         matchedChannelCount: Number(raw.matchedChannelCount) || 0,
         channels: text(raw.channels),
+        // The captured wire fixtures predate this field: absent means false.
+        noChannelFound: raw.noChannelFound === true || raw.noChannelFound === 'true',
         existsHere: raw.existsHere === true || raw.existsHere === 'true',
         descriptionNow: text(raw.descriptionNow),
         descriptionAfter: text(raw.descriptionAfter),

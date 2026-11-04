@@ -43,6 +43,7 @@ public class RoleImportRow implements Serializable {
     private List<String> droppedPermissions = new ArrayList<>();
     private int matchedChannelCount;
     private Channels channels;
+    private boolean noChannelFound;
     private boolean existsHere;
     private String descriptionNow;
     private String descriptionAfter;
@@ -77,7 +78,11 @@ public class RoleImportRow implements Serializable {
         this.action = action;
     }
 
-    /** @return why the row is skipped, or a note the user should read; {@code null} when there is none */
+    /**
+     * @return the notes the Administrators show for the row: why a row is skipped, what an
+     *         import does to the role's channels, which of the import's channels and
+     *         permissions this engine lacks. {@code null} when there is nothing to say.
+     */
     public String getReason() {
         return reason;
     }
@@ -110,6 +115,19 @@ public class RoleImportRow implements Serializable {
 
     public void setChannels(Channels channels) {
         this.channels = channels;
+    }
+
+    /**
+     * @return whether the import restricts this role to channels none of which was found on this
+     *         engine, so that importing the row as it stands gives the role every channel. The
+     *         row can still be picked; the Administrators start it unticked.
+     */
+    public boolean isNoChannelFound() {
+        return noChannelFound;
+    }
+
+    public void setNoChannelFound(boolean noChannelFound) {
+        this.noChannelFound = noChannelFound;
     }
 
     /** @return whether a role with the file role's name exists here; the "now" fields are empty when not */

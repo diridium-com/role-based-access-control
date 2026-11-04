@@ -239,12 +239,14 @@ const RESULT = 'com.diridium.rbac.RoleImportResult';
 const wireList = (fqcn, items) => (items.length === 0 ? null : { [fqcn]: items.length === 1 ? items[0] : items });
 const wireStrings = (items) => (items.length === 0 ? null : { string: items.length === 1 ? items[0] : items });
 const wireChannels = (items) => wireList('com.diridium.rbac.RoleImportChannel', items);
-const channel = (id, name, over = {}) => ({ id, name, fileName: name, match: 'BY_ID', used: true, ...over });
+// A channel from the file, found by id: its id in the file is its id. A "now" entry overrides fileId and fileName with null.
+const channel = (id, name, over = {}) => ({ id, name, fileId: id, fileName: name, match: 'BY_ID', used: true, ...over });
+const nowChannel = (id, name, over = {}) => channel(id, name, { fileId: null, fileName: null, ...over });
 
 function wireRow(over) {
     const row = {
         index: 0, name: 'role', action: 'CREATE', droppedPermissions: [], matchedChannelCount: 0, channels: 'FROM_FILE',
-        existsHere: false, descriptionNow: null, descriptionAfter: '',
+        noChannelFound: false, existsHere: false, descriptionNow: null, descriptionAfter: '',
         permissionsNow: [], permissionsAfter: [], channelsNow: [], channelsAfter: [], ...over
     };
     return {
@@ -280,35 +282,91 @@ export const IMPORT_PREVIEW_TWO_ROWS = wireResult([
     wireRow({
         index: 1, name: 'probe everyone', action: 'UNCHANGED', existsHere: true,
         descriptionNow: 'rbac e2e', descriptionAfter: 'rbac e2e',
-        permissionsNow: ['viewChannels'], permissionsAfter: ['viewChannels']
+        permissionsNow: ['viewChannels'], permissionsAfter: ['viewChannels'],
+        reason: 'Identical to the role on this engine.'
     })
 ]);
 
 const MOVED = '8163af3f-7ed2-4a0c-b326-34830263c504';
 const NAME_MATCH = { name: 'probe one', fileChannelId: MOVED, channelId: ONE };
+// Notes as the server composes them (RoleImportPlanner.notes). A role whose only channel is found by name alone
+// has no channel found while matching by name is off: New, but it starts unticked.
 export const IMPORT_NAME_MATCH_OFF = wireResult([wireRow({
-    index: 0, name: 'probe moved one', action: 'SKIP',
-    reason: 'None of its 1 channels exist on this engine, and a role with no channels sees every channel.'
-        + ' Matching channels by name finds 1 of them.',
+    index: 0, name: 'probe moved one', action: 'CREATE', noChannelFound: true,
+    reason: 'The import restricts this role to 1 channel. None of those channels exist on this engine. If imported,'
+        + ' this role will see every channel until an administrator sets channels for this role.'
+        + ' 1 of those channels matches a channel on this engine by name.',
     descriptionAfter: 'moved', permissionsAfter: ['viewChannels'],
-    channelsAfter: [channel(MOVED, 'probe one', { match: 'NOT_FOUND', used: false })]
+    channelsAfter: [channel(ONE, 'probe one', { fileId: MOVED, match: 'BY_NAME', used: false })]
 })], { channelNameMatches: { 'com.diridium.rbac.ChannelNameMatch': NAME_MATCH } });
 export const IMPORT_NAME_MATCH_ON = wireResult([wireRow({
     index: 0, name: 'probe moved one', action: 'CREATE', matchedChannelCount: 1,
+    reason: '1 of those channels matches a channel on this engine by name.',
     descriptionAfter: 'moved', permissionsAfter: ['viewChannels'],
-    channelsAfter: [channel(ONE, 'probe one', { match: 'BY_NAME' })]
+    channelsAfter: [channel(ONE, 'probe one', { fileId: MOVED, match: 'BY_NAME' })]
 })], { matchChannelsByName: true, channelNameMatches: { 'com.diridium.rbac.ChannelNameMatch': NAME_MATCH } });
 
 // An Overwrite of the role "Lab": a renamed channel, a deleted one in the Now list, a dropped permission.
-export const IMPORT_OVERWRITE_DETAILS = wireResult([wireRow({
+const NOWHERE = 'bbb4ce36-25d9-4830-9644-7fcd5682f5fd';
+const LAB_OVERWRITE = wireRow({
     index: 0, name: 'Lab', action: 'OVERWRITE', existsHere: true, matchedChannelCount: 2,
     droppedPermissions: ['oldPermission'],
+    reason: 'Of the 3 channels in the import, 1 is not on this engine.'
+        + ' 1 permission in the import is not offered by this engine and is left out.',
     descriptionNow: 'Lab staff', descriptionAfter: 'Lab team',
     permissionsNow: ['viewAlerts', 'viewChannels'], permissionsAfter: ['viewChannels', 'viewDashboard'],
-    channelsNow: [channel(ONE, 'probe one', { fileName: null }),
-        channel('gone-id', null, { fileName: null, match: 'NOT_FOUND' })],
-    channelsAfter: [channel(ONE, 'probe one renamed', { fileName: 'probe one' }), channel(TWO, 'probe two')]
+    channelsNow: [nowChannel(ONE, 'probe one'), nowChannel('gone-id', null, { match: 'NOT_FOUND' })],
+    channelsAfter: [channel(ONE, 'probe one renamed', { fileName: 'probe one' }), channel(TWO, 'probe two'),
+        channel(NOWHERE, 'probe nowhere', { match: 'NOT_FOUND', used: false })]
+});
+export const IMPORT_OVERWRITE_DETAILS = wireResult([LAB_OVERWRITE]);
+
+// Four roles: Lab (as above), one that goes from one channel to every channel and gains a permission, one that
+// goes from every channel to two, and a new one.
+export const IMPORT_SEVERAL_ROWS = wireResult([
+    LAB_OVERWRITE,
+    wireRow({
+        index: 1, name: 'Day', action: 'OVERWRITE', existsHere: true, matchedChannelCount: 0,
+        reason: 'On this engine this role is restricted to 1 channel. The import removes the restriction, so after the'
+            + ' import this role will see every channel.',
+        descriptionNow: 'Day shift', descriptionAfter: 'Day team',
+        permissionsNow: ['viewChannels'], permissionsAfter: ['viewChannels', 'viewDashboard', 'viewAlerts'],
+        channelsNow: [nowChannel(ONE, 'probe one')], channelsAfter: []
+    }),
+    wireRow({
+        index: 2, name: 'Night', action: 'OVERWRITE', existsHere: true, matchedChannelCount: 2,
+        reason: 'On this engine this role sees every channel. The import restricts this role to 2 channels.',
+        descriptionNow: 'Night shift', descriptionAfter: 'Night team',
+        permissionsNow: ['viewChannels'], permissionsAfter: ['viewChannels'],
+        channelsNow: [], channelsAfter: [channel(ONE, 'probe one'), channel(TWO, 'probe two')]
+    }),
+    { ...NEW_LAB, index: 3, name: 'Fresh' }
+]);
+
+// An Overwrite of "Ward" showing every Match value: found by id, deleted on this engine but named in the import,
+// in the import but not on this engine, a channel the role has that the import does not name, and a deleted one
+// the import does not name.
+const GONE_NAMED = '0a1b2c3d-1111-4222-8333-444455556666';
+export const IMPORT_MATCH_VALUES = wireResult([wireRow({
+    index: 0, name: 'Ward', action: 'OVERWRITE', existsHere: true, matchedChannelCount: 1,
+    reason: 'Of the 3 channels in the import, 2 are not on this engine.',
+    descriptionNow: 'Ward staff', descriptionAfter: 'Ward team',
+    permissionsNow: ['viewChannels'], permissionsAfter: ['viewChannels'],
+    channelsNow: [nowChannel(ONE, 'probe one'), nowChannel('now-only-id', 'probe three'),
+        nowChannel('gone-id', null, { match: 'NOT_FOUND' }), nowChannel(GONE_NAMED, null, { match: 'NOT_FOUND' })],
+    channelsAfter: [channel(ONE, 'probe one'),
+        channel(GONE_NAMED, null, { fileName: 'probe gone', match: 'NOT_FOUND', used: false }),
+        channel(NOWHERE, 'probe nowhere', { match: 'NOT_FOUND', used: false })]
 })]);
+
+// A New role whose import channels exist nowhere on this engine, with the apply box ticked: it would see every channel.
+export const IMPORT_NO_CHANNEL_FOUND = wireResult([wireRow({
+    index: 0, name: 'probe lost', action: 'CREATE', noChannelFound: true,
+    reason: 'The import restricts this role to 1 channel. None of those channels exist on this engine. If imported,'
+        + ' this role will see every channel until an administrator sets channels for this role.',
+    descriptionAfter: 'lost', permissionsAfter: ['viewChannels'],
+    channelsAfter: [channel(NOWHERE, 'probe nowhere', { match: 'NOT_FOUND', used: false })]
+}), { ...NEW_LAB, index: 1 }]);
 
 export const IMPORT_APPLIED = wireResult([NEW_LAB], { applied: true });
 export const IMPORT_REFUSED = JSON.parse(

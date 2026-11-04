@@ -26,6 +26,7 @@ public class RoleImportChannel implements Serializable {
 
     private String id;
     private String name;
+    private String fileId;
     private String fileName;
     private Match match;
     private boolean used;
@@ -50,6 +51,15 @@ public class RoleImportChannel implements Serializable {
 
     public void setName(String name) {
         this.name = name;
+    }
+
+    /** @return the channel's id in the file; {@code null} in a "now" list */
+    public String getFileId() {
+        return fileId;
+    }
+
+    public void setFileId(String fileId) {
+        this.fileId = fileId;
     }
 
     /** @return the channel's name in the file; {@code null} in a "now" list */

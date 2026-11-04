@@ -179,7 +179,8 @@ class RoleTransferServiceTest {
         String moved = file().replace("id=\"id-lab\"", "id=\"id-elsewhere\"");
 
         RoleImportResult preview = service.importRoles(ADMIN, moved, true, true, false, null, null);
-        assertEquals(Action.SKIP, preview.getRows().get(0).getAction(), "not used until matching by name");
+        assertEquals(Action.CREATE, preview.getRows().get(0).getAction());
+        assertTrue(preview.getRows().get(0).isNoChannelFound(), "not used until matching by name");
         assertFalse(preview.isMatchChannelsByName());
         assertEquals(1, preview.getChannelNameMatches().size());
         ChannelNameMatch match = preview.getChannelNameMatches().get(0);
@@ -258,8 +259,8 @@ class RoleTransferServiceTest {
                 () -> service.importRoles(ADMIN, file(), false, true, false, List.of(), token));
         assertStatus(400, "There's no role at position 7 in the file.",
                 () -> service.importRoles(ADMIN, file(), false, true, false, List.of(0, 7), token));
-        assertStatus(400, "The role 'Administrator' can't be imported: This is the name of this engine's admin role,"
-                + " which an import never changes.",
+        assertStatus(400, "The role 'Administrator' can't be imported: The admin role on this engine has this name."
+                + " An import never changes the admin role.",
                 () -> service.importRoles(ADMIN, file(), false, true, false, List.of(1), token));
         verify(repo, never()).importRoles(any());
     }

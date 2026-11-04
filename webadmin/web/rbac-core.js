@@ -321,8 +321,9 @@ export const TASK_IMPORT_ROLES_TOOLTIP = 'Import roles from a file.';
 // Export dialog.
 export const TITLE_EXPORT_ROLES = 'Export Roles';
 export const EXPORT_PROMPT = 'Pick the roles to export. The admin role is never exported.';
-export const EXPORT_CHANNELS_LINE =
-    'Channel restrictions are included. When importing, you can choose not to apply them.';
+export const EXPORT_CHANNELS_NOTE = 'Channel restrictions are included. ';
+export const EXPORT_CHANNELS_BOLD = 'When importing, you can choose not to apply them.';
+export const EXPORT_CHANNELS_LINE = EXPORT_CHANNELS_NOTE + EXPORT_CHANNELS_BOLD;
 export const EXPORT_COLUMNS = ['Export', 'Role', 'Description', 'Permissions', 'Channels'];
 export const MSG_NO_ROLES_TO_EXPORT = 'There are no roles to export. The admin role is never exported.';
 export const EXPORT_FILE_NAME = 'rbac-roles.xml';
@@ -332,13 +333,32 @@ export function exportedText(count) {
 
 // Import dialog.
 export const TITLE_IMPORT_ROLES = 'Import Roles';
-export const IMPORT_APPLY_CHANNELS = 'Apply channel restrictions from the file';
+export const IMPORT_APPLY_CHANNELS = 'Apply channel restrictions from the import';
 export const IMPORT_MATCH_BY_NAME = "Also match channels by name when the id isn't found";
 export const IMPORT_COLUMNS = [
-    'Import', 'Role', 'Action', 'Description now', 'Description after',
-    'Permissions now', 'Permissions after', 'Channels now', 'Channels after', 'Notes'
+    'Import', 'Role', 'Action', 'Description currently', 'Description after import', 'Permissions', 'Channels', 'Notes'
 ];
-const EVERY_CHANNEL = 'Every channel';
+export const PERMISSION_COLUMNS = ['Permission', 'Currently', 'After import', 'Note'];
+export const CHANNEL_COLUMNS = [
+    'Channel', 'Id on this engine', 'Currently', 'After import', 'Match', 'Name in import', 'Id in import'
+];
+export const PERMISSIONS_LEGEND = 'Currently: this role has the permission on this engine. After import: this role will have'
+    + ' the permission if imported.';
+export const CHANNELS_LEGEND = 'Currently: this role is restricted to the channel on this engine. After import: this role will'
+    + ' be restricted to the channel if imported. Match: how the import\'s channel was found on this engine.';
+export const CHANNELS_NOT_APPLIED = 'Channel restrictions from the import are not applied. Roles that already exist on this'
+    + ' engine keep their current channels. New roles see every channel.';
+// The channel columns that hold ids (shown in a monospace font).
+export const CHANNEL_ID_COLUMNS = [1, 6];
+export const EXPORT_PERMISSION_COLUMNS = ['Permission'];
+export const EXPORT_CHANNEL_COLUMNS = ['Channel', 'Id on this engine'];
+export const EXPORT_CHANNEL_ID_COLUMNS = [1];
+const EVERY = 'every';
+const YES = 'yes';
+const NO_LONGER_EXISTS = '(no longer exists)';
+const DELETED = 'deleted on this engine';
+const NOT_IN_IMPORT = 'not in the import';
+export const EXPORT_EVERY_CHANNEL = 'This role sees every channel.';
 export function importRefusedText(refusal) {
     return "This file can't be imported: " + refusal;
 }
@@ -361,20 +381,24 @@ export function canTick(row) {
     return row.action === 'CREATE' || row.action === 'OVERWRITE';
 }
 
-// New starts ticked, Overwrite starts unticked.
+// New starts ticked unless none of its channels was found on this engine (it
+// would see every channel); Overwrite starts unticked.
 export function defaultTick(row) {
-    return row.action === 'CREATE';
+    return row.action === 'CREATE' && !row.noChannelFound;
 }
 
 // Ticks for a fresh preview of the same file. A row keeps the user's choice if
-// it was shown before with the same name and action; any other row starts at
-// its default. Returns a Set of row index values.
+// it was shown before with the same name, action and no-channel-found state;
+// any other row starts at its default, so a role whose channels are found once
+// matching by name is ticked again as a new role would be. Returns a Set of
+// row index values.
 export function mergeTicks(previousRows, previousTicks, rows) {
     const next = new Set();
     for (const row of rows) {
         if (!canTick(row)) continue;
         const before = previousRows.find((p) => p.index === row.index);
-        const same = before && before.name === row.name && before.action === row.action;
+        const same = before && before.name === row.name && before.action === row.action
+            && before.noChannelFound === row.noChannelFound;
         if (same ? previousTicks.has(row.index) : defaultTick(row)) next.add(row.index);
     }
     return next;
@@ -385,15 +409,9 @@ export function pickedIndexes(rows, ticks) {
     return rows.filter((row) => canTick(row) && ticks.has(row.index)).map((row) => row.index).sort((a, b) => a - b);
 }
 
-// The Notes column text: the row's reason, then "Keeps its channels here" when
-// the channels were not applied, then "Same as the role here" for an Unchanged
-// row with nothing else. Joined with "; ".
+// The Notes column text: the server composes it in the row's reason.
 export function notesText(row) {
-    const parts = [];
-    if (row.reason) parts.push(row.reason);
-    if (row.channels === 'KEPT') parts.push('Keeps its channels here');
-    if (row.action === 'UNCHANGED' && parts.length === 0) parts.push('Same as the role here');
-    return parts.join('; ');
+    return row.reason || '';
 }
 
 // The hint under the tick boxes: shown while channel restrictions are applied,
@@ -401,64 +419,140 @@ export function notesText(row) {
 // Returns null when nothing is shown.
 export function nameMatchHint(count, applyChannels, matchChannelsByName) {
     if (!applyChannels || matchChannelsByName || count === 0) return null;
-    return count + ' channel(s) in the file match a channel here only by name. Tick the box above to use them.';
+    const what = count === 1 ? '1 channel in the import matches' : count + ' channels in the import match';
+    return what + ' a channel on this engine by name only. Tick the box above to use them.';
 }
 
-// A channel in a Now list, or in an After list that copies it.
-export function channelNowLabel(channel) {
-    return channel.name === null ? channel.id + ' (deleted channel)' : channel.name;
+export function permissionsHeading(roleName) {
+    return 'Permissions of ' + roleName;
+}
+export function channelsHeading(roleName) {
+    return 'Channels of ' + roleName;
 }
 
-// A channel in an After list, with how it was found.
-export function channelAfterLabel(channel) {
-    if (channel.fileName === null) return channelNowLabel(channel);
-    const shown = channel.name === null ? channel.id : channel.name;
+// Sort rows by a column. key is a column index or property name, or a function
+// of the row. Ascending or descending; the sort is stable and returns a copy.
+export function sortRows(rows, key, dir) {
+    const sign = dir === 'desc' ? -1 : 1;
+    const of = typeof key === 'function' ? key : (r) => r[key];
+    return rows.map((r, i) => [r, i]).sort((a, b) => {
+        const x = of(a[0]);
+        const y = of(b[0]);
+        return (x > y ? sign : x < y ? -sign : 0) || a[1] - b[1];
+    }).map((p) => p[0]);
+}
+
+// The Permissions and Channels columns of the roles table. now and after are
+// numbers or "every". A role not here shows the after count; an Unchanged row,
+// a Skipped row for a role here, or two equal counts show one value; otherwise
+// "<now> -> <after>" with the arrow U+2192.
+export function countText(row, now, after) {
+    if (!row.existsHere) return String(after);
+    if (row.action === 'UNCHANGED' || row.action === 'SKIP' || String(now) === String(after)) return String(now);
+    return now + ' \u2192 ' + after;
+}
+
+const usedCount = (row) => row.channelsAfter.filter((c) => c.used).length;
+
+// The number of channels the role is restricted to, or "every", here now (null
+// when there is no role here) and after the import. A Skipped row never
+// becomes "every": nothing was looked up.
+export function channelsNowCount(row) {
+    if (!row.existsHere) return null;
+    return row.channelsNow.length === 0 ? EVERY : row.channelsNow.length;
+}
+export function channelsAfterCount(row) {
+    const used = usedCount(row);
+    return used === 0 && row.action !== 'SKIP' ? EVERY : used;
+}
+
+export function permissionsCountText(row) {
+    return countText(row, row.permissionsNow.length, row.permissionsAfter.length);
+}
+export function channelsCountText(row) {
+    return countText(row, channelsNowCount(row), channelsAfterCount(row));
+}
+
+// The line above the channel table when the role sees every channel now, after
+// the import, or both. Empty when it does not.
+export function everyChannelText(row) {
+    const parts = [];
+    if (channelsNowCount(row) === EVERY) parts.push('This role sees every channel currently.');
+    if (channelsAfterCount(row) === EVERY) parts.push('This role sees every channel after the import.');
+    return parts.join(' ');
+}
+
+// How a channel in the import was found on this engine. Empty for an entry that
+// is not from the import (a kept copy of the channels here has no id in it).
+export function foundText(channel) {
+    if (channel.fileId === null) return '';
     if (channel.match === 'BY_ID') {
-        return channel.name === channel.fileName
-            ? shown + ' (found by id)'
-            : shown + ' (found by id, named "' + channel.fileName + '" in the file)';
+        return channel.fileName === null || channel.name === channel.fileName ? 'by id' : 'by id, renamed on this engine';
     }
-    if (channel.match === 'BY_NAME') {
-        return shown + (channel.used ? ' (found by name)' : ' (found by name, not used)');
+    if (channel.match === 'BY_NAME') return channel.used ? 'by name' : 'by name, not used';
+    return 'not on this engine';
+}
+
+// One row per permission: the role's current, after-import and left-out permissions, by name.
+// A row is [Permission, Currently, After import, Note].
+export function permissionRows(row) {
+    const now = new Set(row.permissionsNow);
+    const after = new Set(row.permissionsAfter);
+    const dropped = new Set(row.droppedPermissions);
+    return [...new Set([...now, ...after, ...dropped])].sort().map((p) => [
+        p, now.has(p) ? YES : '', after.has(p) ? YES : '',
+        dropped.has(p) ? 'not offered by this engine, left out' : ''
+    ]);
+}
+
+// One row per channel: the import's channels in the import's order, then the
+// role's other channels on this engine. An import channel that is also one the
+// role has on this engine (same id) is one row. A channel the role has that
+// no longer exists on this engine reads "deleted on this engine", whether or not
+// the import names it; one that exists but is not in the import reads "not in
+// the import". A row is [Channel, Id on this engine, Currently, After import,
+// Match, Name in import, Id in import].
+export function channelRows(row) {
+    const nowIds = new Set(row.channelsNow.map((c) => c.id));
+    const joined = new Set();
+    const rows = row.channelsAfter.map((c) => {
+        const fromImport = c.fileId !== null;
+        const missing = fromImport && c.match === 'NOT_FOUND';
+        const isNow = nowIds.has(c.id);
+        if (isNow) joined.add(c.id);
+        const name = c.name !== null ? c.name : (c.fileName !== null ? c.fileName : NO_LONGER_EXISTS);
+        const match = missing && isNow ? DELETED : foundText(c);
+        return [name, missing && !isNow ? '' : c.id, isNow ? YES : '', c.used || !fromImport ? YES : '',
+            match, c.fileName === null ? '' : c.fileName, c.fileId === null ? '' : c.fileId];
+    });
+    for (const c of row.channelsNow) {
+        if (!joined.has(c.id)) {
+            rows.push([c.name !== null ? c.name : NO_LONGER_EXISTS, c.id, YES, '',
+                c.name !== null ? NOT_IN_IMPORT : DELETED, '', '']);
+        }
     }
-    return shown + ' (not found here)';
+    return rows;
 }
 
-// The cell lines for Channels now: empty with no role here, "Every channel" when
-// the role here has no channel in its list.
-export function channelsNowLines(row) {
-    if (!row.existsHere) return [];
-    if (row.channelsNow.length === 0) return [EVERY_CHANNEL];
-    return row.channelsNow.map(channelNowLabel);
+// The export dialog's detail rows: [Permission], sorted; [Channel, Id] by name,
+// then the ids the channel map does not have. channelMap is a Map of channel id
+// to name, or null when the channel list isn't loaded. Names sort in code-unit
+// order (the same order as the Swing Administrator's).
+export function exportPermissionRows(role) {
+    return [...role.permissions].sort().map((p) => [p]);
 }
-
-// The cell lines for Channels after: "Every channel" when the list is empty,
-// except on a Skipped row, where nothing was looked up.
-export function channelsAfterLines(row) {
-    if (row.channelsAfter.length === 0) return row.action === 'SKIP' ? [] : [EVERY_CHANNEL];
-    return row.channelsAfter.map(channelAfterLabel);
-}
-
-// The cell lines for Permissions after: the permissions, then each one in the
-// file that this engine doesn't offer.
-export function permissionsAfterLines(row) {
-    return [...row.permissionsAfter, ...row.droppedPermissions.map((p) => p + ' (not on this engine, left out)')];
-}
-
-// The export table's Permissions cell: sorted, one per line.
-export function exportPermissionsLines(role) {
-    return [...role.permissions].sort();
-}
-
-// The export table's Channels cell. channelMap is a Map of channel id to name, or
-// null when the channel list isn't loaded. Known names first, sorted by name in
-// code-unit order (the same order as the Swing Administrator's), then the ids
-// the map doesn't have.
-export function exportChannelsLines(role, channelMap) {
+export function exportChannelRows(role, channelMap) {
     const ids = [...role.channelIds];
-    if (ids.length === 0) return [EVERY_CHANNEL];
-    if (!channelMap) return ids.sort().map((id) => id + ' (channel list not loaded)');
-    const known = ids.filter((id) => channelMap.has(id)).map((id) => channelMap.get(id));
-    const unknown = ids.filter((id) => !channelMap.has(id)).sort();
-    return [...known.sort(), ...unknown.map((id) => id + ' (deleted channel)')];
+    if (!channelMap) return ids.sort().map((id) => ['(channel list not loaded)', id]);
+    const known = ids.filter((id) => channelMap.has(id)).map((id) => [channelMap.get(id), id]);
+    const unknown = ids.filter((id) => !channelMap.has(id)).sort().map((id) => [NO_LONGER_EXISTS, id]);
+    return [...known.sort((a, b) => (a[0] > b[0] ? 1 : a[0] < b[0] ? -1 : 0)), ...unknown];
+}
+
+// The export table's counts.
+export function exportPermissionsCount(role) {
+    return role.permissions.size;
+}
+export function exportChannelsCount(role) {
+    return role.channelIds.size === 0 ? EVERY : role.channelIds.size;
 }

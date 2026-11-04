@@ -214,10 +214,10 @@ def parse_export(text):
 def parse_import(text):
     """An import result: importable, refusal, applied, token, rows by name (action, reason, channels, dropped
     permissions, the role here now and the role after the import), and the channels matched by name. A channel in a
-    now or after list is (id, name, file_name, match, used); a missing name or file name is None."""
+    now or after list is (id, name, file_name, match, used, file_id); a missing name, file name or file id is None."""
     def channel(el):
         return (el.findtext("id"), el.findtext("name"), el.findtext("fileName"), el.findtext("match"),
-                el.findtext("used") == "true")
+                el.findtext("used") == "true", el.findtext("fileId"))
 
     root = ET.fromstring(text)
     holder = root.find("rows")
@@ -228,6 +228,7 @@ def parse_import(text):
             "action": el.findtext("action"),
             "reason": el.findtext("reason"),
             "channels": el.findtext("channels"),
+            "no_channel_found": el.findtext("noChannelFound") == "true",
             "dropped": [s.text for s in el.findall("droppedPermissions/string")],
             "exists_here": el.findtext("existsHere") == "true",
             "description_now": el.findtext("descriptionNow"),

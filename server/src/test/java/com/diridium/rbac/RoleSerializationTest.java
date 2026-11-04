@@ -78,6 +78,7 @@ class RoleSerializationTest {
         row.setDroppedPermissions(new ArrayList<>(Arrays.asList("Run Lab Reports")));
         row.setMatchedChannelCount(2);
         row.setChannels(RoleImportRow.Channels.KEPT);
+        row.setNoChannelFound(true);
         row.setExistsHere(true);
         row.setDescriptionNow("old");
         row.setDescriptionAfter("new");
@@ -92,6 +93,7 @@ class RoleSerializationTest {
         RoleImportChannel after = new RoleImportChannel();
         after.setId("id-lab");
         after.setName("Lab In");
+        after.setFileId("id-elsewhere");
         after.setFileName("Lab Results In");
         after.setMatch(RoleImportChannel.Match.BY_NAME);
         after.setUsed(false);
@@ -127,6 +129,7 @@ class RoleSerializationTest {
         assertEquals(row.getDroppedPermissions(), back.getDroppedPermissions());
         assertEquals(2, back.getMatchedChannelCount());
         assertEquals(RoleImportRow.Channels.KEPT, back.getChannels());
+        assertEquals(true, back.isNoChannelFound());
         assertEquals(true, back.isExistsHere());
         assertEquals("old", back.getDescriptionNow());
         assertEquals("new", back.getDescriptionAfter());
@@ -141,7 +144,9 @@ class RoleSerializationTest {
         RoleImportChannel afterBack = back.getChannelsAfter().get(0);
         assertEquals("id-lab", afterBack.getId());
         assertEquals("Lab In", afterBack.getName());
+        assertEquals("id-elsewhere", afterBack.getFileId());
         assertEquals("Lab Results In", afterBack.getFileName());
+        assertNull(nowBack.getFileId());
         assertEquals(RoleImportChannel.Match.BY_NAME, afterBack.getMatch());
         assertEquals(false, afterBack.isUsed());
         ChannelNameMatch matchBack = restored.getChannelNameMatches().get(0);
