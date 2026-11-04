@@ -17,6 +17,7 @@ final class RoleExportText {
 
     static final String[] CHANNEL_COLUMNS = {"Channel", "Id on this engine"};
     static final String EVERY_CHANNEL_LINE = "This role sees every channel.";
+    static final String NO_CHANNEL_LINE = "This role sees no channels.";
 
     private RoleExportText() {
     }
@@ -26,10 +27,21 @@ final class RoleExportText {
         return String.valueOf(role.getPermissions() == null ? 0 : role.getPermissions().size());
     }
 
-    /** The Channels count of the export table: the number of channel ids, or "every" when there are none. */
+    /** The Channels count of the export table: "every" when not restricted, "none" when restricted to no id, else the number of ids. */
     static String channelsCount(Role role) {
+        if (!role.isRestricted()) {
+            return RoleImportText.EVERY;
+        }
         int count = role.getChannelIds() == null ? 0 : role.getChannelIds().size();
-        return count == 0 ? RoleImportText.EVERY : String.valueOf(count);
+        return count == 0 ? RoleImportText.NONE : String.valueOf(count);
+    }
+
+    /** The line in place of the channels table: the every-channel or no-channel line, "" when ids are listed. */
+    static String channelsLine(Role role) {
+        if (!role.isRestricted()) {
+            return EVERY_CHANNEL_LINE;
+        }
+        return role.getChannelIds() == null || role.getChannelIds().isEmpty() ? NO_CHANNEL_LINE : "";
     }
 
     /** A role's permissions, sorted. */

@@ -270,8 +270,8 @@ class RoleImportPlannerTest {
         assertEquals(Action.CREATE, row.getAction());
         assertTrue(row.isNoChannelFound());
         assertEquals("The import restricts this role to 2 channels. None of those channels exist on this engine. If"
-                + " imported, this role will see every channel until an administrator sets channels for this role."
-                + " 1 of those channels matches a channel on this engine by name.", row.getReason());
+                + " imported, this role is restricted to no channels until an administrator sets channels for this"
+                + " role. 1 of those channels matches a channel on this engine by name.", row.getReason());
 
         Plan byName = planMatchingByName(lab);
         assertEquals(Action.CREATE, byName.rows().get(0).getAction());
@@ -281,19 +281,21 @@ class RoleImportPlannerTest {
     }
 
     @Test
-    void aRestrictedRoleWithNoChannelFound_isOffered_seeingEveryChannel() throws Exception {
+    void aRestrictedRoleWithNoChannelFound_isOffered_restrictedToNoChannel() throws Exception {
         Plan plan = plan(true, fileRole("Lab", List.of("viewChannels"), true,
                 new Channel("id-gone", "Gone"), new Channel("id-gone2", "Also gone")));
         RoleImportRow row = plan.rows().get(0);
         assertEquals(Action.CREATE, row.getAction());
         assertTrue(row.isNoChannelFound());
+        assertTrue(row.isRestrictedAfter(), "restricted to nothing, not widened");
         assertEquals("The import restricts this role to 2 channels. None of those channels exist on this engine. If"
-                + " imported, this role will see every channel until an administrator sets channels for this role.",
-                row.getReason());
+                + " imported, this role is restricted to no channels until an administrator sets channels for this"
+                + " role.", row.getReason());
         assertChannel(row.getChannelsAfter().get(0), "id-gone", "Gone", "Gone", Match.NOT_FOUND, false);
         assertChannel(row.getChannelsAfter().get(1), "id-gone2", "Also gone", "Also gone", Match.NOT_FOUND, false);
         assertEquals(List.of("viewChannels"), row.getPermissionsAfter());
-        assertEquals(Set.of(), plan.writes().get(0).role().getChannelIds(), "written as every channel if picked");
+        assertEquals(Set.of(), plan.writes().get(0).role().getChannelIds());
+        assertTrue(plan.writes().get(0).role().isRestricted(), "written restricted to no channel if picked");
     }
 
     @Test
@@ -303,8 +305,8 @@ class RoleImportPlannerTest {
         assertEquals(Action.OVERWRITE, row.getAction());
         assertTrue(row.isNoChannelFound());
         assertEquals("The import restricts this role to 1 channel. None of those channels exist on this engine. If"
-                + " imported, this role will see every channel instead of the 2 channels currently set on this engine,"
-                + " until an administrator sets channels for this role.", row.getReason());
+                + " imported, this role is restricted to no channels, instead of the 2 channels currently set on this"
+                + " engine, until an administrator sets channels for this role.", row.getReason());
     }
 
     @Test
@@ -352,10 +354,11 @@ class RoleImportPlannerTest {
         Plan plan = plan(false, fileRole("Lab", List.of(), true, new Channel("id-gone", "Gone")));
         RoleImportRow row = plan.rows().get(0);
         assertEquals(Action.CREATE, row.getAction(), "not skipped: the user chose not to apply channels");
-        assertEquals(Channels.EVERY_CHANNEL, row.getChannels());
-        assertEquals("The import restricts this role to 1 channel. Restrictions are not applied, so this role will"
-                + " see every channel on this engine until an administrator sets channels for this role.",
+        assertEquals(Channels.NO_CHANNEL, row.getChannels());
+        assertEquals("The import restricts this role to 1 channel. Restrictions are not applied, so this role is"
+                + " restricted to no channels on this engine until an administrator sets channels for this role.",
                 row.getReason());
+        assertTrue(plan.writes().get(0).role().isRestricted());
         assertEquals(Set.of(), plan.writes().get(0).role().getChannelIds());
         assertTrue(row.getChannelsAfter().isEmpty(), "every channel: the file's channels aren't looked up");
     }
@@ -367,10 +370,14 @@ class RoleImportPlannerTest {
     }
 
     @Test
-    void channelsNotApplied_aNewUnrestrictedRoleNeedsNoNote() throws Exception {
-        RoleImportRow row = plan(false, fileRole("Lab", List.of(), false)).rows().get(0);
-        assertEquals(Channels.EVERY_CHANNEL, row.getChannels());
-        assertNull(row.getReason());
+    void channelsNotApplied_aNewUnrestrictedRole_isRestrictedToNoChannel_andSaysSo() throws Exception {
+        Plan plan = plan(false, fileRole("Lab", List.of(), false));
+        RoleImportRow row = plan.rows().get(0);
+        assertEquals(Channels.NO_CHANNEL, row.getChannels());
+        assertEquals("Restrictions are not applied, so this role is restricted to no channels on this engine until"
+                + " an administrator sets channels for this role.", row.getReason());
+        assertTrue(plan.writes().get(0).role().isRestricted());
+        assertTrue(row.isRestrictedAfter());
     }
 
     // ========== Plan token ==========
@@ -476,6 +483,7 @@ class RoleImportPlannerTest {
         role.setDescription(description);
         role.setPermissions(new java.util.HashSet<>(permissions));
         role.setChannelIds(new java.util.HashSet<>(channelIds));
+        role.setRestricted(!channelIds.isEmpty());
         role.setAdmin(id == ADMIN_ID);
         return role;
     }

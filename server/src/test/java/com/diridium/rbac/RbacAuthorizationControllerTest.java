@@ -650,6 +650,17 @@ class RbacAuthorizationControllerTest {
         assertFalse(controller.doesUserHaveChannelRestrictions(2, null));
     }
 
+    @Test
+    void restrictedRoleWithNoChannels_isRestricted_andSeesNone() throws Exception {
+        givenUserHasRole(2, 5, Set.of(), Set.of());
+        Role none = repo.getRoleById(5);
+        none.setRestricted(true);
+        assertTrue(controller.doesUserHaveChannelRestrictions(2, null), "restricted to no channel");
+        ChannelAuthorizer authz = controller.getChannelAuthorizer(2, null);
+        assertNotNull(authz);
+        assertFalse(authz.isChannelAuthorized("ch1"));
+    }
+
     // ========== getChannelAuthorizer ==========
 
     @Test
@@ -767,6 +778,7 @@ class RbacAuthorizationControllerTest {
         role.setPermissions(new HashSet<>(perms));
         if (channelIds != null) {
             role.setChannelIds(new HashSet<>(channelIds));
+            role.setRestricted(!channelIds.isEmpty());
         }
         role.setAdmin(isAdmin);
         when(repo.getRoleById(roleId)).thenReturn(role);

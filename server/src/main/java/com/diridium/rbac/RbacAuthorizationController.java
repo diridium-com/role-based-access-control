@@ -558,14 +558,11 @@ public class RbacAuthorizationController extends AuthorizationController {
                     ? Set.copyOf(role.getPermissions())
                     : Set.of();
 
+            // A restricted role with no channels sees none: the authorizer then matches nothing.
             Set<String> channelIds = role.getChannelIds();
-            if (channelIds != null && !channelIds.isEmpty()) {
-                authCache.hasChannelRestrictions = true;
-                authCache.allowedChannelIds = Set.copyOf(channelIds);
-            } else {
-                authCache.hasChannelRestrictions = false;
-                authCache.allowedChannelIds = Set.of();
-            }
+            authCache.hasChannelRestrictions = role.isRestricted();
+            authCache.allowedChannelIds = role.isRestricted() && channelIds != null
+                    ? Set.copyOf(channelIds) : Set.of();
 
             return authCache;
         } catch (Exception e) {

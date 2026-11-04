@@ -18,6 +18,7 @@ final class RoleImportText {
 
     static final String YES = "yes";
     static final String EVERY = "every";
+    static final String NONE = "none";
     static final String NO_LONGER_EXISTS = "(no longer exists)";
     static final String CHANNEL_LIST_NOT_LOADED = "(channel list not loaded)";
 
@@ -48,11 +49,10 @@ final class RoleImportText {
     }
 
     /**
-     * New starts ticked unless none of the import's channels was used (the role would see
-     * every channel); Overwrite starts unticked; the rest can't be ticked.
+     * New starts ticked, Overwrite starts unticked; the rest can't be ticked.
      */
     static boolean defaultTicked(RoleImportRow row) {
-        return row.getAction() == RoleImportRow.Action.CREATE && !row.isNoChannelFound();
+        return row.getAction() == RoleImportRow.Action.CREATE;
     }
 
     /**
@@ -114,10 +114,12 @@ final class RoleImportText {
                 String.valueOf(list(row.getPermissionsAfter()).size()));
     }
 
-    /** The row's channels count, with "every" for a role that sees every channel. */
+    /** The row's channels count, with "every" for a role that sees every channel and "none" for one that sees none. */
     static String channelsCountText(RoleImportRow row) {
-        return countText(row, everyNow(row) ? EVERY : String.valueOf(list(row.getChannelsNow()).size()),
-                everyAfter(row) ? EVERY : String.valueOf(usedCount(row)));
+        String now = !row.isRestrictedNow() ? EVERY
+                : list(row.getChannelsNow()).isEmpty() ? NONE : String.valueOf(list(row.getChannelsNow()).size());
+        String after = !row.isRestrictedAfter() ? EVERY : usedCount(row) == 0 ? NONE : String.valueOf(usedCount(row));
+        return countText(row, now, after);
     }
 
     /**
@@ -135,7 +137,7 @@ final class RoleImportText {
         return now + " → " + after;
     }
 
-    /** Orders count texts by their first number, with "every" after any number, so "9" sorts before "10". */
+    /** Orders count texts by their first number, with "every" and "none" after any number, so "9" sorts before "10". */
     static int compareCounts(String a, String b) {
         int byFirst = Integer.compare(firstNumber(a), firstNumber(b));
         return byFirst != 0 ? byFirst : a.compareTo(b);
@@ -147,11 +149,19 @@ final class RoleImportText {
     }
 
     private static boolean everyNow(RoleImportRow row) {
-        return row.isExistsHere() && list(row.getChannelsNow()).isEmpty();
+        return row.isExistsHere() && !row.isRestrictedNow();
+    }
+
+    private static boolean noneNow(RoleImportRow row) {
+        return row.isExistsHere() && row.isRestrictedNow() && list(row.getChannelsNow()).isEmpty();
     }
 
     private static boolean everyAfter(RoleImportRow row) {
-        return row.getAction() != RoleImportRow.Action.SKIP && usedCount(row) == 0;
+        return row.getAction() != RoleImportRow.Action.SKIP && !row.isRestrictedAfter();
+    }
+
+    private static boolean noneAfter(RoleImportRow row) {
+        return row.getAction() != RoleImportRow.Action.SKIP && row.isRestrictedAfter() && usedCount(row) == 0;
     }
 
     private static int usedCount(RoleImportRow row) {
@@ -164,10 +174,15 @@ final class RoleImportText {
         return used;
     }
 
-    /** The line above the channels table for a role that sees every channel now, after, or both; "" otherwise. */
+    /**
+     * The line above the channels table for a role that sees every channel or no channel
+     * currently, after the import, or both; "" otherwise.
+     */
     static String everyChannelText(RoleImportRow row) {
-        String now = everyNow(row) ? "This role sees every channel currently." : "";
-        String after = everyAfter(row) ? "This role sees every channel after the import." : "";
+        String now = everyNow(row) ? "This role sees every channel currently."
+                : noneNow(row) ? "This role sees no channels currently." : "";
+        String after = everyAfter(row) ? "This role sees every channel after the import."
+                : noneAfter(row) ? "This role sees no channels after the import." : "";
         return (now + " " + after).trim();
     }
 

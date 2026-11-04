@@ -27,7 +27,8 @@ final class RoleDetailRows {
             + "After import: this role will be restricted to the channel if imported. "
             + "Match: how the import's channel was found on this engine.";
     static final String CHANNELS_NOT_APPLIED = "Channel restrictions from the import are not applied. "
-            + "Roles that already exist on this engine keep their current channels. New roles see every channel.";
+            + "Roles that already exist on this engine keep their current channels. "
+            + "New roles are restricted to no channels until an administrator sets channels for them.";
     static final String NOT_ON_ENGINE = "not on this engine, left out";
     static final String DELETED = "deleted on this engine";
     static final String NOT_IN_IMPORT = "not in the import";

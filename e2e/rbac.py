@@ -73,7 +73,10 @@ def visible_users(api):
 
 # ---------- rbac roles and assignments
 
-def role_xml(name, permissions=(), channel_ids=(), is_admin=False, description="rbac e2e"):
+def role_xml(name, permissions=(), channel_ids=(), is_admin=False, description="rbac e2e", restricted=None):
+    """restricted: None sends no flag, which a release before schema v4 requires (it refuses the element) and which
+    the current release reads as the channel list implies (restricted when there are channels); True with no channels
+    is a role that sees no channel; False with none sees every channel."""
     role = ET.Element("com.diridium.rbac.Role")
     ET.SubElement(role, "name").text = name
     ET.SubElement(role, "description").text = description
@@ -81,17 +84,23 @@ def role_xml(name, permissions=(), channel_ids=(), is_admin=False, description="
         holder = ET.SubElement(role, tag)
         for value in values:
             ET.SubElement(holder, "string").text = value
+    if restricted is not None:
+        ET.SubElement(role, "restricted").text = "true" if restricted else "false"
     ET.SubElement(role, "isAdmin").text = "true" if is_admin else "false"
     return ET.tostring(role, encoding="unicode")
 
 
 def parse_role(el):
+    channel_ids = {s.text for s in el.findall("channelIds/string")}
+    restricted = el.findtext("restricted")
     return {
         "id": el.findtext("id"),
         "name": el.findtext("name"),
         "description": el.findtext("description"),
         "permissions": {s.text for s in el.findall("permissions/string")},
-        "channelIds": {s.text for s in el.findall("channelIds/string")},
+        "channelIds": channel_ids,
+        # A release before schema v4 sends no flag; there, channels meant restricted.
+        "restricted": restricted == "true" if restricted is not None else bool(channel_ids),
         "isAdmin": el.findtext("isAdmin") == "true",
     }
 
@@ -107,9 +116,10 @@ def admin_role(api):
     return flagged[0] if len(flagged) == 1 else None
 
 
-def create_role(api, name, permissions=(), channel_ids=(), is_admin=False):
+def create_role(api, name, permissions=(), channel_ids=(), is_admin=False, restricted=None):
     """Creates a role and returns its id. Raises unless the call succeeds."""
-    return api.xml("POST", RBAC + "/roles", role_xml(name, permissions, channel_ids, is_admin)).findtext("id")
+    return api.xml("POST", RBAC + "/roles", role_xml(name, permissions, channel_ids, is_admin,
+                                                        restricted=restricted)).findtext("id")
 
 
 def post_role(api, xml):
@@ -231,6 +241,8 @@ def parse_import(text):
             "no_channel_found": el.findtext("noChannelFound") == "true",
             "dropped": [s.text for s in el.findall("droppedPermissions/string")],
             "exists_here": el.findtext("existsHere") == "true",
+            "restricted_now": el.findtext("restrictedNow") == "true",
+            "restricted_after": el.findtext("restrictedAfter") == "true",
             "description_now": el.findtext("descriptionNow"),
             "description_after": el.findtext("descriptionAfter"),
             "permissions_now": [s.text for s in el.findall("permissionsNow/string")],

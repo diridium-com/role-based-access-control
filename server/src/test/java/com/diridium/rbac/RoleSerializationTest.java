@@ -5,6 +5,7 @@ package com.diridium.rbac;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -50,6 +51,7 @@ class RoleSerializationTest {
         original.setDescription("Read-only with channel limits");
         original.setPermissions(new HashSet<>(Arrays.asList("viewChannels", "viewMessages")));
         original.setChannelIds(new HashSet<>(Arrays.asList("ch-a", "ch-b")));
+        original.setRestricted(true);
         original.setAdmin(true);
 
         String xml = xstream.toXML(original);
@@ -62,6 +64,8 @@ class RoleSerializationTest {
         assertEquals(original.isAdmin(), restored.isAdmin());
         assertEquals(original.getPermissions(), restored.getPermissions());
         assertEquals(original.getChannelIds(), restored.getChannelIds());
+        assertEquals(original.isRestricted(), restored.isRestricted());
+        assertTrue(xml.contains("<restricted>"), "the field name is the element name, like isAdmin");
     }
 
     @Test
@@ -80,6 +84,8 @@ class RoleSerializationTest {
         row.setChannels(RoleImportRow.Channels.KEPT);
         row.setNoChannelFound(true);
         row.setExistsHere(true);
+        row.setRestrictedNow(true);
+        row.setRestrictedAfter(true);
         row.setDescriptionNow("old");
         row.setDescriptionAfter("new");
         row.setPermissionsNow(new ArrayList<>(Arrays.asList("viewMessages")));
@@ -131,6 +137,8 @@ class RoleSerializationTest {
         assertEquals(RoleImportRow.Channels.KEPT, back.getChannels());
         assertEquals(true, back.isNoChannelFound());
         assertEquals(true, back.isExistsHere());
+        assertEquals(true, back.isRestrictedNow());
+        assertEquals(true, back.isRestrictedAfter());
         assertEquals("old", back.getDescriptionNow());
         assertEquals("new", back.getDescriptionAfter());
         assertEquals(row.getPermissionsNow(), back.getPermissionsNow());

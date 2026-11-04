@@ -212,7 +212,7 @@ test('normalizeRole coerces missing/degenerate fields', () => {
     const bare = normalizeRole({});
     assert.deepEqual(
         { ...bare, permissions: [...bare.permissions], channelIds: [...bare.channelIds] },
-        { id: null, name: '', description: '', permissions: [], channelIds: [], isAdmin: false });
+        { id: null, name: '', description: '', permissions: [], channelIds: [], restricted: false, isAdmin: false });
 
     assert.equal(normalizeRole({ id: '' }).id, null);
     assert.equal(normalizeRole({ id: '5' }).id, 5);
@@ -220,15 +220,26 @@ test('normalizeRole coerces missing/degenerate fields', () => {
     assert.equal(normalizeRole({ isAdmin: 'false' }).isAdmin, false);
 });
 
+test('normalizeRole reads restricted: a boolean, the XML fallback string, absent from an old server is false', () => {
+    assert.equal(normalizeRole({ restricted: true }).restricted, true);
+    assert.equal(normalizeRole({ restricted: 'true' }).restricted, true);
+    assert.equal(normalizeRole({ restricted: false }).restricted, false);
+    assert.equal(normalizeRole({ restricted: 'false' }).restricted, false);
+    assert.equal(normalizeRole({ channelIds: { string: 'a' } }).restricted, false, 'no flag: false, whatever the list');
+});
+
 /* ---- roleXml: the XStream XML write path ------------------------------------------ */
 
 test('roleXml create omits <id>; update includes it', () => {
-    const role = { id: 3, name: 'RO', description: 'd', permissions: ['a'], channelIds: [], isAdmin: false };
+    const role = { id: 3, name: 'RO', description: 'd', permissions: ['a'], channelIds: [], restricted: false, isAdmin: false };
     assert.equal(
         roleXml(role),
         '<com.diridium.rbac.Role><name>RO</name><description>d</description>'
         + '<permissions><string>a</string></permissions><channelIds></channelIds>'
-        + '<isAdmin>false</isAdmin></com.diridium.rbac.Role>');
+        + '<restricted>false</restricted><isAdmin>false</isAdmin></com.diridium.rbac.Role>');
+    assert.ok(roleXml({ ...role, restricted: true }).includes('<channelIds></channelIds><restricted>true</restricted><isAdmin>'),
+        'restricted with no channels is written as such');
+    assert.ok(roleXml({ name: 'x' }).includes('<restricted>false</restricted>'), 'no flag: false');
     assert.ok(roleXml(role, { includeId: true }).startsWith('<com.diridium.rbac.Role><id>3</id><name>'));
 });
 
@@ -239,23 +250,23 @@ test('roleXml escapes markup in text fields', () => {
     assert.ok(xml.includes('<string>p&amp;q</string>'));
 });
 
-/* ---- role import: verbatim captures (wire-probe-5.log, 2026-11-03, this branch's server on OIE 4.7.0, Derby) ---- */
+/* ---- role import: verbatim captures (wire-probe-6.log, 2026-11-04, this branch's server on OIE 4.7.0, Derby) ---- */
 
 // preview, two rows (one new with two channels, one unchanged)
 const WIRE_IMPORT_PREVIEW_TWO_ROWS =
-    '{"com.diridium.rbac.RoleImportResult":{"importable":true,"formatVersion":1,"sourceRbacVersion":"1.2.0","sourceEngineVersion":"4.7.0","applyChannels":true,"matchChannelsByName":false,"applied":false,"planToken":"e9dad92685b52dfbd26a8dd5bb823ae05b06b85a0dbc7467723c0dd034072783","rows":{"com.diridium.rbac.RoleImportRow":[{"index":0,"name":"probe lab","action":"CREATE","droppedPermissions":null,"matchedChannelCount":2,"channels":"FROM_FILE","noChannelFound":false,"existsHere":false,"descriptionAfter":"rbac e2e","permissionsNow":null,"permissionsAfter":{"string":["viewChannels","viewDashboard"]},"channelsNow":null,"channelsAfter":{"com.diridium.rbac.RoleImportChannel":[{"id":"2fad31d7-49bb-4e34-9e0a-1386ddfbc16f","name":"probe one","fileId":"2fad31d7-49bb-4e34-9e0a-1386ddfbc16f","fileName":"probe one","match":"BY_ID","used":true},{"id":"8aa9d413-09bf-405d-a72c-d43179c683ae","name":"probe two","fileId":"8aa9d413-09bf-405d-a72c-d43179c683ae","fileName":"probe two","match":"BY_ID","used":true}]}},{"index":1,"name":"probe everyone","action":"UNCHANGED","reason":"Identical to the role on this engine.","droppedPermissions":null,"matchedChannelCount":0,"channels":"FROM_FILE","noChannelFound":false,"existsHere":true,"descriptionNow":"rbac e2e","descriptionAfter":"rbac e2e","permissionsNow":{"string":"viewChannels"},"permissionsAfter":{"string":"viewChannels"},"channelsNow":null,"channelsAfter":null}]},"channelNameMatches":null}}';
+    '{"com.diridium.rbac.RoleImportResult":{"importable":true,"formatVersion":1,"sourceRbacVersion":"1.2.0","sourceEngineVersion":"4.7.0","applyChannels":true,"matchChannelsByName":false,"applied":false,"planToken":"db20cc12df362450116f32a4e5c879961dec93b9d20f70f517b8176f8bdcc441","rows":{"com.diridium.rbac.RoleImportRow":[{"index":0,"name":"probe lab","action":"CREATE","droppedPermissions":null,"matchedChannelCount":2,"channels":"FROM_FILE","noChannelFound":false,"existsHere":false,"restrictedNow":false,"restrictedAfter":true,"descriptionAfter":"rbac e2e","permissionsNow":null,"permissionsAfter":{"string":["viewChannels","viewDashboard"]},"channelsNow":null,"channelsAfter":{"com.diridium.rbac.RoleImportChannel":[{"id":"2eb679d3-e17a-42e3-80c1-5be12303d391","name":"probe one","fileId":"2eb679d3-e17a-42e3-80c1-5be12303d391","fileName":"probe one","match":"BY_ID","used":true},{"id":"3b4255a3-dab2-4de2-afb0-207a35aa0c64","name":"probe two","fileId":"3b4255a3-dab2-4de2-afb0-207a35aa0c64","fileName":"probe two","match":"BY_ID","used":true}]}},{"index":1,"name":"probe everyone","action":"UNCHANGED","reason":"Identical to the role on this engine.","droppedPermissions":null,"matchedChannelCount":0,"channels":"FROM_FILE","noChannelFound":false,"existsHere":true,"restrictedNow":false,"restrictedAfter":false,"descriptionNow":"rbac e2e","descriptionAfter":"rbac e2e","permissionsNow":{"string":"viewChannels"},"permissionsAfter":{"string":"viewChannels"},"channelsNow":null,"channelsAfter":null}]},"channelNameMatches":null}}';
 
 // preview, an overwrite: channels now (one deleted here) and after (one renamed here), several permissions each
 const WIRE_IMPORT_OVERWRITE_DETAILS =
-    '{"com.diridium.rbac.RoleImportResult":{"importable":true,"formatVersion":1,"sourceRbacVersion":"1.2.0","sourceEngineVersion":"4.7.0","applyChannels":true,"matchChannelsByName":false,"applied":false,"planToken":"658bfcfb827dda749e2363953ae29bf2cd44542fc5d294106cad899818a7bf2d","rows":{"com.diridium.rbac.RoleImportRow":[{"index":0,"name":"probe lab","action":"OVERWRITE","droppedPermissions":null,"matchedChannelCount":2,"channels":"FROM_FILE","noChannelFound":false,"existsHere":true,"descriptionNow":"rbac e2e","descriptionAfter":"rbac e2e","permissionsNow":{"string":["viewAlerts","viewChannels"]},"permissionsAfter":{"string":["viewChannels","viewDashboard"]},"channelsNow":{"com.diridium.rbac.RoleImportChannel":[{"id":"8aa9d413-09bf-405d-a72c-d43179c683ae","name":"probe two renamed","match":"BY_ID","used":true},{"id":"816e2fde-18af-4906-9025-1a88ec2bcb34","match":"NOT_FOUND","used":true}]},"channelsAfter":{"com.diridium.rbac.RoleImportChannel":[{"id":"2fad31d7-49bb-4e34-9e0a-1386ddfbc16f","name":"probe one","fileId":"2fad31d7-49bb-4e34-9e0a-1386ddfbc16f","fileName":"probe one","match":"BY_ID","used":true},{"id":"8aa9d413-09bf-405d-a72c-d43179c683ae","name":"probe two renamed","fileId":"8aa9d413-09bf-405d-a72c-d43179c683ae","fileName":"probe two","match":"BY_ID","used":true}]}},{"index":1,"name":"probe everyone","action":"UNCHANGED","reason":"Identical to the role on this engine.","droppedPermissions":null,"matchedChannelCount":0,"channels":"FROM_FILE","noChannelFound":false,"existsHere":true,"descriptionNow":"rbac e2e","descriptionAfter":"rbac e2e","permissionsNow":{"string":"viewChannels"},"permissionsAfter":{"string":"viewChannels"},"channelsNow":null,"channelsAfter":null}]},"channelNameMatches":null}}';
+    '{"com.diridium.rbac.RoleImportResult":{"importable":true,"formatVersion":1,"sourceRbacVersion":"1.2.0","sourceEngineVersion":"4.7.0","applyChannels":true,"matchChannelsByName":false,"applied":false,"planToken":"c5b8008a186f6bb7fc3ba7c361923b517ae7cb08a6de1b60a767dde6f23aacc7","rows":{"com.diridium.rbac.RoleImportRow":[{"index":0,"name":"probe lab","action":"OVERWRITE","droppedPermissions":null,"matchedChannelCount":2,"channels":"FROM_FILE","noChannelFound":false,"existsHere":true,"restrictedNow":true,"restrictedAfter":true,"descriptionNow":"rbac e2e","descriptionAfter":"rbac e2e","permissionsNow":{"string":["viewAlerts","viewChannels"]},"permissionsAfter":{"string":["viewChannels","viewDashboard"]},"channelsNow":{"com.diridium.rbac.RoleImportChannel":[{"id":"3b4255a3-dab2-4de2-afb0-207a35aa0c64","name":"probe two renamed","match":"BY_ID","used":true},{"id":"8098689b-dfcb-43f2-81e6-8dc0c685f0fa","match":"NOT_FOUND","used":true}]},"channelsAfter":{"com.diridium.rbac.RoleImportChannel":[{"id":"2eb679d3-e17a-42e3-80c1-5be12303d391","name":"probe one","fileId":"2eb679d3-e17a-42e3-80c1-5be12303d391","fileName":"probe one","match":"BY_ID","used":true},{"id":"3b4255a3-dab2-4de2-afb0-207a35aa0c64","name":"probe two renamed","fileId":"3b4255a3-dab2-4de2-afb0-207a35aa0c64","fileName":"probe two","match":"BY_ID","used":true}]}},{"index":1,"name":"probe everyone","action":"UNCHANGED","reason":"Identical to the role on this engine.","droppedPermissions":null,"matchedChannelCount":0,"channels":"FROM_FILE","noChannelFound":false,"existsHere":true,"restrictedNow":false,"restrictedAfter":false,"descriptionNow":"rbac e2e","descriptionAfter":"rbac e2e","permissionsNow":{"string":"viewChannels"},"permissionsAfter":{"string":"viewChannels"},"channelsNow":null,"channelsAfter":null}]},"channelNameMatches":null}}';
 
 // preview, one match by name, matching off (the role is skipped)
 const WIRE_IMPORT_NAME_MATCH_OFF =
-    '{"com.diridium.rbac.RoleImportResult":{"importable":true,"formatVersion":1,"sourceRbacVersion":"e2e","sourceEngineVersion":"e2e","applyChannels":true,"matchChannelsByName":false,"applied":false,"planToken":"1c180224a1817813e7d5fe050a70f7168a724ef9be8799fc4565cf4150293b68","rows":{"com.diridium.rbac.RoleImportRow":{"index":0,"name":"probe moved one","action":"CREATE","reason":"The import restricts this role to 1 channel. None of those channels exist on this engine. If imported, this role will see every channel until an administrator sets channels for this role. 1 of those channels matches a channel on this engine by name.","droppedPermissions":null,"matchedChannelCount":0,"channels":"FROM_FILE","noChannelFound":true,"existsHere":false,"descriptionAfter":"rbac e2e","permissionsNow":null,"permissionsAfter":{"string":"viewChannels"},"channelsNow":null,"channelsAfter":{"com.diridium.rbac.RoleImportChannel":{"id":"2fad31d7-49bb-4e34-9e0a-1386ddfbc16f","name":"probe one","fileId":"5e74aeb2-1124-485e-ae77-5e12cf998387","fileName":"probe one","match":"BY_NAME","used":false}}}},"channelNameMatches":{"com.diridium.rbac.ChannelNameMatch":{"name":"probe one","fileChannelId":"5e74aeb2-1124-485e-ae77-5e12cf998387","channelId":"2fad31d7-49bb-4e34-9e0a-1386ddfbc16f"}}}}';
+    '{"com.diridium.rbac.RoleImportResult":{"importable":true,"formatVersion":1,"sourceRbacVersion":"e2e","sourceEngineVersion":"e2e","applyChannels":true,"matchChannelsByName":false,"applied":false,"planToken":"b7e06e3b45998ae076469aa3bc036af7cd045d293ebbc5f4c6536f64156d8bb2","rows":{"com.diridium.rbac.RoleImportRow":{"index":0,"name":"probe moved one","action":"CREATE","reason":"The import restricts this role to 1 channel. None of those channels exist on this engine. If imported, this role is restricted to no channels until an administrator sets channels for this role. 1 of those channels matches a channel on this engine by name.","droppedPermissions":null,"matchedChannelCount":0,"channels":"FROM_FILE","noChannelFound":true,"existsHere":false,"restrictedNow":false,"restrictedAfter":true,"descriptionAfter":"rbac e2e","permissionsNow":null,"permissionsAfter":{"string":"viewChannels"},"channelsNow":null,"channelsAfter":{"com.diridium.rbac.RoleImportChannel":{"id":"2eb679d3-e17a-42e3-80c1-5be12303d391","name":"probe one","fileId":"277c210e-b8cd-43fc-a1b1-d164d655323c","fileName":"probe one","match":"BY_NAME","used":false}}}},"channelNameMatches":{"com.diridium.rbac.ChannelNameMatch":{"name":"probe one","fileChannelId":"277c210e-b8cd-43fc-a1b1-d164d655323c","channelId":"2eb679d3-e17a-42e3-80c1-5be12303d391"}}}}';
 
 // preview, one match by name, matching on (the role is new)
 const WIRE_IMPORT_NAME_MATCH_ONE_ON =
-    '{"com.diridium.rbac.RoleImportResult":{"importable":true,"formatVersion":1,"sourceRbacVersion":"e2e","sourceEngineVersion":"e2e","applyChannels":true,"matchChannelsByName":true,"applied":false,"planToken":"4e3d6683a93e4af6e838fde0ee8c2778e383337e0bcfa96cfc11a7b7c0139d67","rows":{"com.diridium.rbac.RoleImportRow":{"index":0,"name":"probe moved one","action":"CREATE","droppedPermissions":null,"matchedChannelCount":1,"channels":"FROM_FILE","noChannelFound":false,"existsHere":false,"descriptionAfter":"rbac e2e","permissionsNow":null,"permissionsAfter":{"string":"viewChannels"},"channelsNow":null,"channelsAfter":{"com.diridium.rbac.RoleImportChannel":{"id":"2fad31d7-49bb-4e34-9e0a-1386ddfbc16f","name":"probe one","fileId":"5e74aeb2-1124-485e-ae77-5e12cf998387","fileName":"probe one","match":"BY_NAME","used":true}}}},"channelNameMatches":{"com.diridium.rbac.ChannelNameMatch":{"name":"probe one","fileChannelId":"5e74aeb2-1124-485e-ae77-5e12cf998387","channelId":"2fad31d7-49bb-4e34-9e0a-1386ddfbc16f"}}}}';
+    '{"com.diridium.rbac.RoleImportResult":{"importable":true,"formatVersion":1,"sourceRbacVersion":"e2e","sourceEngineVersion":"e2e","applyChannels":true,"matchChannelsByName":true,"applied":false,"planToken":"cbf410d9910c31de2485c9a42595fc8a7fe7f3d0e0c4ef2deb7f650243397fd0","rows":{"com.diridium.rbac.RoleImportRow":{"index":0,"name":"probe moved one","action":"CREATE","droppedPermissions":null,"matchedChannelCount":1,"channels":"FROM_FILE","noChannelFound":false,"existsHere":false,"restrictedNow":false,"restrictedAfter":true,"descriptionAfter":"rbac e2e","permissionsNow":null,"permissionsAfter":{"string":"viewChannels"},"channelsNow":null,"channelsAfter":{"com.diridium.rbac.RoleImportChannel":{"id":"2eb679d3-e17a-42e3-80c1-5be12303d391","name":"probe one","fileId":"277c210e-b8cd-43fc-a1b1-d164d655323c","fileName":"probe one","match":"BY_NAME","used":true}}}},"channelNameMatches":{"com.diridium.rbac.ChannelNameMatch":{"name":"probe one","fileChannelId":"277c210e-b8cd-43fc-a1b1-d164d655323c","channelId":"2eb679d3-e17a-42e3-80c1-5be12303d391"}}}}';
 
 // preview, two matches by name, matching on (wire-probe-2.log, 2026-11-02, before the row's now and after
 // fields existed: used only for channelNameMatches)
@@ -265,11 +276,11 @@ const WIRE_IMPORT_NAME_MATCH_TWO_ON =
 // preview, a new row with a channel found by id, one not found, one not found with no name in the file, and a
 // permission this engine doesn't offer
 const WIRE_IMPORT_NOT_FOUND_AND_DROPPED =
-    '{"com.diridium.rbac.RoleImportResult":{"importable":true,"formatVersion":1,"sourceRbacVersion":"e2e","sourceEngineVersion":"e2e","applyChannels":true,"matchChannelsByName":false,"applied":false,"planToken":"2a1958f6b2ddf65beda9618c41d698f0276c774c307cdf170ad10c2397182b94","rows":{"com.diridium.rbac.RoleImportRow":{"index":0,"name":"probe mixed","action":"CREATE","reason":"Of the 3 channels in the import, 2 are not on this engine. 1 permission in the import is not offered by this engine and is left out.","droppedPermissions":{"string":"Run Lab Reports"},"matchedChannelCount":1,"channels":"FROM_FILE","noChannelFound":false,"existsHere":false,"descriptionAfter":"rbac e2e","permissionsNow":null,"permissionsAfter":{"string":"viewChannels"},"channelsNow":null,"channelsAfter":{"com.diridium.rbac.RoleImportChannel":[{"id":"2fad31d7-49bb-4e34-9e0a-1386ddfbc16f","name":"probe one","fileId":"2fad31d7-49bb-4e34-9e0a-1386ddfbc16f","fileName":"probe one","match":"BY_ID","used":true},{"id":"6794502c-52a6-4314-837d-deebe3006955","name":"probe nowhere","fileId":"6794502c-52a6-4314-837d-deebe3006955","fileName":"probe nowhere","match":"NOT_FOUND","used":false},{"id":"c19524e5-0903-41c7-84c8-2f701b36cbb5","fileId":"c19524e5-0903-41c7-84c8-2f701b36cbb5","fileName":null,"match":"NOT_FOUND","used":false}]}}},"channelNameMatches":null}}';
+    '{"com.diridium.rbac.RoleImportResult":{"importable":true,"formatVersion":1,"sourceRbacVersion":"e2e","sourceEngineVersion":"e2e","applyChannels":true,"matchChannelsByName":false,"applied":false,"planToken":"f78df83eb5e5d9302d060ff3437810f80400fdd5a8a7e3529a82dd12d384094e","rows":{"com.diridium.rbac.RoleImportRow":{"index":0,"name":"probe mixed","action":"CREATE","reason":"Of the 3 channels in the import, 2 are not on this engine. 1 permission in the import is not offered by this engine and is left out.","droppedPermissions":{"string":"Run Lab Reports"},"matchedChannelCount":1,"channels":"FROM_FILE","noChannelFound":false,"existsHere":false,"restrictedNow":false,"restrictedAfter":true,"descriptionAfter":"rbac e2e","permissionsNow":null,"permissionsAfter":{"string":"viewChannels"},"channelsNow":null,"channelsAfter":{"com.diridium.rbac.RoleImportChannel":[{"id":"2eb679d3-e17a-42e3-80c1-5be12303d391","name":"probe one","fileId":"2eb679d3-e17a-42e3-80c1-5be12303d391","fileName":"probe one","match":"BY_ID","used":true},{"id":"c2b960a0-9f66-426f-a154-f7c1be15134f","name":"probe nowhere","fileId":"c2b960a0-9f66-426f-a154-f7c1be15134f","fileName":"probe nowhere","match":"NOT_FOUND","used":false},{"id":"22499a70-ce70-4531-9695-c0e12e03880a","fileId":"22499a70-ce70-4531-9695-c0e12e03880a","fileName":null,"match":"NOT_FOUND","used":false}]}}},"channelNameMatches":null}}';
 
 // preview, channels not applied: an existing role keeps its own, a new role sees every channel
 const WIRE_IMPORT_CHANNELS_NOT_APPLIED =
-    '{"com.diridium.rbac.RoleImportResult":{"importable":true,"formatVersion":1,"sourceRbacVersion":"e2e","sourceEngineVersion":"e2e","applyChannels":false,"matchChannelsByName":false,"applied":false,"planToken":"add4998d9eea1f9f69089d92acdb4414dc48b10ffc88f67bce1bee8b22163e71","rows":{"com.diridium.rbac.RoleImportRow":[{"index":0,"name":"probe lab","action":"OVERWRITE","reason":"This role keeps the channels currently set on this engine.","droppedPermissions":null,"matchedChannelCount":0,"channels":"KEPT","noChannelFound":false,"existsHere":true,"descriptionNow":"rbac e2e","descriptionAfter":"rbac e2e","permissionsNow":{"string":["viewAlerts","viewChannels"]},"permissionsAfter":{"string":"viewChannels"},"channelsNow":{"com.diridium.rbac.RoleImportChannel":[{"id":"8aa9d413-09bf-405d-a72c-d43179c683ae","name":"probe two renamed","match":"BY_ID","used":true},{"id":"816e2fde-18af-4906-9025-1a88ec2bcb34","match":"NOT_FOUND","used":true}]},"channelsAfter":{"com.diridium.rbac.RoleImportChannel":[{"id":"8aa9d413-09bf-405d-a72c-d43179c683ae","name":"probe two renamed","match":"BY_ID","used":true},{"id":"816e2fde-18af-4906-9025-1a88ec2bcb34","match":"NOT_FOUND","used":true}]}},{"index":1,"name":"probe fresh","action":"CREATE","reason":"The import restricts this role to 1 channel. Restrictions are not applied, so this role will see every channel on this engine until an administrator sets channels for this role.","droppedPermissions":null,"matchedChannelCount":0,"channels":"EVERY_CHANNEL","noChannelFound":false,"existsHere":false,"descriptionAfter":"rbac e2e","permissionsNow":null,"permissionsAfter":{"string":"viewChannels"},"channelsNow":null,"channelsAfter":null}]},"channelNameMatches":null}}';
+    '{"com.diridium.rbac.RoleImportResult":{"importable":true,"formatVersion":1,"sourceRbacVersion":"e2e","sourceEngineVersion":"e2e","applyChannels":false,"matchChannelsByName":false,"applied":false,"planToken":"7b799d966c32c8460c6c4eb31637fdafe17d61af0c6e42a75c573a902b694250","rows":{"com.diridium.rbac.RoleImportRow":[{"index":0,"name":"probe lab","action":"OVERWRITE","reason":"This role keeps the channels currently set on this engine.","droppedPermissions":null,"matchedChannelCount":0,"channels":"KEPT","noChannelFound":false,"existsHere":true,"restrictedNow":true,"restrictedAfter":true,"descriptionNow":"rbac e2e","descriptionAfter":"rbac e2e","permissionsNow":{"string":["viewAlerts","viewChannels"]},"permissionsAfter":{"string":"viewChannels"},"channelsNow":{"com.diridium.rbac.RoleImportChannel":[{"id":"3b4255a3-dab2-4de2-afb0-207a35aa0c64","name":"probe two renamed","match":"BY_ID","used":true},{"id":"8098689b-dfcb-43f2-81e6-8dc0c685f0fa","match":"NOT_FOUND","used":true}]},"channelsAfter":{"com.diridium.rbac.RoleImportChannel":[{"id":"3b4255a3-dab2-4de2-afb0-207a35aa0c64","name":"probe two renamed","match":"BY_ID","used":true},{"id":"8098689b-dfcb-43f2-81e6-8dc0c685f0fa","match":"NOT_FOUND","used":true}]}},{"index":1,"name":"probe fresh","action":"CREATE","reason":"The import restricts this role to 1 channel. Restrictions are not applied, so this role is restricted to no channels on this engine until an administrator sets channels for this role.","droppedPermissions":null,"matchedChannelCount":0,"channels":"NO_CHANNEL","noChannelFound":false,"existsHere":false,"restrictedNow":false,"restrictedAfter":true,"descriptionAfter":"rbac e2e","permissionsNow":null,"permissionsAfter":{"string":"viewChannels"},"channelsNow":null,"channelsAfter":null}]},"channelNameMatches":null}}';
 
 // preview, refused file (wire-probe-2.log; the shape has no rows)
 const WIRE_IMPORT_REFUSED =
@@ -277,7 +288,7 @@ const WIRE_IMPORT_REFUSED =
 
 // apply, one row written
 const WIRE_IMPORT_APPLIED =
-    '{"com.diridium.rbac.RoleImportResult":{"importable":true,"formatVersion":1,"sourceRbacVersion":"e2e","sourceEngineVersion":"e2e","applyChannels":true,"matchChannelsByName":false,"applied":true,"planToken":"2a1958f6b2ddf65beda9618c41d698f0276c774c307cdf170ad10c2397182b94","rows":{"com.diridium.rbac.RoleImportRow":{"index":0,"name":"probe mixed","action":"CREATE","reason":"Of the 3 channels in the import, 2 are not on this engine. 1 permission in the import is not offered by this engine and is left out.","droppedPermissions":{"string":"Run Lab Reports"},"matchedChannelCount":1,"channels":"FROM_FILE","noChannelFound":false,"existsHere":false,"descriptionAfter":"rbac e2e","permissionsNow":null,"permissionsAfter":{"string":"viewChannels"},"channelsNow":null,"channelsAfter":{"com.diridium.rbac.RoleImportChannel":[{"id":"2fad31d7-49bb-4e34-9e0a-1386ddfbc16f","name":"probe one","fileId":"2fad31d7-49bb-4e34-9e0a-1386ddfbc16f","fileName":"probe one","match":"BY_ID","used":true},{"id":"6794502c-52a6-4314-837d-deebe3006955","name":"probe nowhere","fileId":"6794502c-52a6-4314-837d-deebe3006955","fileName":"probe nowhere","match":"NOT_FOUND","used":false},{"id":"c19524e5-0903-41c7-84c8-2f701b36cbb5","fileId":"c19524e5-0903-41c7-84c8-2f701b36cbb5","fileName":null,"match":"NOT_FOUND","used":false}]}}},"channelNameMatches":null}}';
+    '{"com.diridium.rbac.RoleImportResult":{"importable":true,"formatVersion":1,"sourceRbacVersion":"e2e","sourceEngineVersion":"e2e","applyChannels":true,"matchChannelsByName":false,"applied":true,"planToken":"f78df83eb5e5d9302d060ff3437810f80400fdd5a8a7e3529a82dd12d384094e","rows":{"com.diridium.rbac.RoleImportRow":{"index":0,"name":"probe mixed","action":"CREATE","reason":"Of the 3 channels in the import, 2 are not on this engine. 1 permission in the import is not offered by this engine and is left out.","droppedPermissions":{"string":"Run Lab Reports"},"matchedChannelCount":1,"channels":"FROM_FILE","noChannelFound":false,"existsHere":false,"restrictedNow":false,"restrictedAfter":true,"descriptionAfter":"rbac e2e","permissionsNow":null,"permissionsAfter":{"string":"viewChannels"},"channelsNow":null,"channelsAfter":{"com.diridium.rbac.RoleImportChannel":[{"id":"2eb679d3-e17a-42e3-80c1-5be12303d391","name":"probe one","fileId":"2eb679d3-e17a-42e3-80c1-5be12303d391","fileName":"probe one","match":"BY_ID","used":true},{"id":"c2b960a0-9f66-426f-a154-f7c1be15134f","name":"probe nowhere","fileId":"c2b960a0-9f66-426f-a154-f7c1be15134f","fileName":"probe nowhere","match":"NOT_FOUND","used":false},{"id":"22499a70-ce70-4531-9695-c0e12e03880a","fileId":"22499a70-ce70-4531-9695-c0e12e03880a","fileName":null,"match":"NOT_FOUND","used":false}]}}},"channelNameMatches":null}}';
 
 const importResult = (wire) => normalizeImportResult(unwrap(JSON.parse(wire)));
 
@@ -344,7 +355,7 @@ test('import preview with two rows: an array of rows, null lists become [], form
     assert.equal(r.formatVersion, '1', 'the number 1 on the wire');
     assert.equal(r.sourceRbacVersion, '1.2.0');
     assert.equal(r.sourceEngineVersion, '4.7.0');
-    assert.equal(r.planToken, 'e9dad92685b52dfbd26a8dd5bb823ae05b06b85a0dbc7467723c0dd034072783');
+    assert.equal(r.planToken, 'db20cc12df362450116f32a4e5c879961dec93b9d20f70f517b8176f8bdcc441');
     assert.equal(r.applied, false);
     assert.equal(r.refusal, '', 'absent on an importable file');
     assert.deepEqual(r.channelNameMatches, [], '"channelNameMatches":null');
@@ -378,12 +389,12 @@ test('import preview row details: the role now and after, lists of one as bare v
     assert.deepEqual(lab.permissionsAfter, ['viewChannels', 'viewDashboard']);
     assert.deepEqual(lab.droppedPermissions, []);
     assert.deepEqual(lab.channelsNow, [
-        { id: '8aa9d413-09bf-405d-a72c-d43179c683ae', name: 'probe two renamed', fileId: null, fileName: null, match: 'BY_ID', used: true },
-        { id: '816e2fde-18af-4906-9025-1a88ec2bcb34', name: null, fileId: null, fileName: null, match: 'NOT_FOUND', used: true }
+        { id: '3b4255a3-dab2-4de2-afb0-207a35aa0c64', name: 'probe two renamed', fileId: null, fileName: null, match: 'BY_ID', used: true },
+        { id: '8098689b-dfcb-43f2-81e6-8dc0c685f0fa', name: null, fileId: null, fileName: null, match: 'NOT_FOUND', used: true }
     ], 'a now list: no file id or name; a deleted channel has no name on the wire at all');
     assert.deepEqual(lab.channelsAfter, [
-        { id: '2fad31d7-49bb-4e34-9e0a-1386ddfbc16f', name: 'probe one', fileId: '2fad31d7-49bb-4e34-9e0a-1386ddfbc16f', fileName: 'probe one', match: 'BY_ID', used: true },
-        { id: '8aa9d413-09bf-405d-a72c-d43179c683ae', name: 'probe two renamed', fileId: '8aa9d413-09bf-405d-a72c-d43179c683ae', fileName: 'probe two', match: 'BY_ID', used: true }
+        { id: '2eb679d3-e17a-42e3-80c1-5be12303d391', name: 'probe one', fileId: '2eb679d3-e17a-42e3-80c1-5be12303d391', fileName: 'probe one', match: 'BY_ID', used: true },
+        { id: '3b4255a3-dab2-4de2-afb0-207a35aa0c64', name: 'probe two renamed', fileId: '3b4255a3-dab2-4de2-afb0-207a35aa0c64', fileName: 'probe two', match: 'BY_ID', used: true }
     ], 'an array of channels in file order; a found-by-id entry\'s fileId is its id; the renamed one keeps the file\'s name');
     assert.deepEqual(everyone.permissionsNow, ['viewChannels'], '{"string":"..."} for one element');
     assert.deepEqual(everyone.channelsNow, [], '"channelsNow":null');
@@ -399,11 +410,11 @@ test('import preview row details: the role now and after, lists of one as bare v
         [null, null, 'NOT_FOUND', false]
     ], 'a nameless channel in the file: no name, "fileName":null');
     const skipped = importResult(WIRE_IMPORT_NAME_MATCH_OFF).rows[0];
-    assert.deepEqual(skipped.channelsAfter, [{ id: '2fad31d7-49bb-4e34-9e0a-1386ddfbc16f', name: 'probe one',
-        fileId: '5e74aeb2-1124-485e-ae77-5e12cf998387', fileName: 'probe one', match: 'BY_NAME', used: false }],
+    assert.deepEqual(skipped.channelsAfter, [{ id: '2eb679d3-e17a-42e3-80c1-5be12303d391', name: 'probe one',
+        fileId: '277c210e-b8cd-43fc-a1b1-d164d655323c', fileName: 'probe one', match: 'BY_NAME', used: false }],
         'a bare channel object; a match by name, not used: its fileId is the file\'s, not the id here');
     assert.deepEqual(mixed.channelsAfter.map((c) => c.fileId), [
-        '2fad31d7-49bb-4e34-9e0a-1386ddfbc16f', '6794502c-52a6-4314-837d-deebe3006955', 'c19524e5-0903-41c7-84c8-2f701b36cbb5'
+        '2eb679d3-e17a-42e3-80c1-5be12303d391', 'c2b960a0-9f66-426f-a154-f7c1be15134f', '22499a70-ce70-4531-9695-c0e12e03880a'
     ], 'a not-found entry\'s fileId is its id');
 });
 
@@ -418,8 +429,8 @@ test('channelNameMatches: one match arrives as a bare object, two as an array, n
     const one = importResult(WIRE_IMPORT_NAME_MATCH_OFF);
     assert.deepEqual(one.channelNameMatches, [{
         name: 'probe one',
-        fileChannelId: '5e74aeb2-1124-485e-ae77-5e12cf998387',
-        channelId: '2fad31d7-49bb-4e34-9e0a-1386ddfbc16f'
+        fileChannelId: '277c210e-b8cd-43fc-a1b1-d164d655323c',
+        channelId: '2eb679d3-e17a-42e3-80c1-5be12303d391'
     }]);
     assert.equal(one.matchChannelsByName, false);
 
@@ -444,13 +455,15 @@ test('a refused file has importable false, the refusal text, no rows, and empty 
     assert.equal(r.planToken, '');
 });
 
-test('channels not applied: EVERY_CHANNEL with its reason; an applied result says so', () => {
+test('channels not applied: NO_CHANNEL with its reason; an applied result says so', () => {
     const r = importResult(WIRE_IMPORT_CHANNELS_NOT_APPLIED);
     assert.equal(r.applyChannels, false);
     assert.equal(r.rows[0].channels, 'KEPT');
     assert.deepEqual(r.rows[0].channelsAfter, r.rows[0].channelsNow, 'the existing role keeps its channels');
-    assert.equal(r.rows[1].channels, 'EVERY_CHANNEL');
-    assert.match(r.rows[1].reason, /^The import restricts this role to 1 channel\. Restrictions are not applied, so this role will see every channel on this engine/);
+    assert.equal(r.rows[1].channels, 'NO_CHANNEL');
+    assert.match(r.rows[1].reason, /^The import restricts this role to 1 channel\. Restrictions are not applied, so this role is restricted to no channels on this engine/);
+    assert.equal(r.rows[1].restrictedAfter, true);
+    assert.equal(r.rows[0].restrictedNow, true);
     assert.equal(r.rows[0].reason, 'This role keeps the channels currently set on this engine.');
     const applied = importResult(WIRE_IMPORT_APPLIED);
     assert.equal(applied.applied, true);
@@ -461,6 +474,15 @@ test('noChannelFound: a real boolean on the wire is read as is', () => {
     const raw = { importable: true, rows: [{ index: 0, name: 'R', action: 'CREATE', noChannelFound: true },
         { index: 1, name: 'S', action: 'CREATE', noChannelFound: false }] };
     assert.deepEqual(normalizeImportResult(raw).rows.map((x) => x.noChannelFound), [true, false]);
+});
+
+test('restrictedNow and restrictedAfter: booleans and strings; absent is false', () => {
+    const raw = { importable: true, rows: [
+        { index: 0, name: 'A', action: 'OVERWRITE', restrictedNow: true, restrictedAfter: false },
+        { index: 1, name: 'B', action: 'OVERWRITE', restrictedNow: 'false', restrictedAfter: 'true' },
+        { index: 2, name: 'C', action: 'CREATE' }] };
+    const rows = normalizeImportResult(raw).rows;
+    assert.deepEqual(rows.map((x) => [x.restrictedNow, x.restrictedAfter]), [[true, false], [false, true], [false, false]]);
 });
 
 test('normalizeImportResult takes the root key too, and tolerates nothing at all', () => {

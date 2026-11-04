@@ -13,7 +13,8 @@
  *
  * Apply runs Swing's exact validation chain: name required; refusal to save
  * an existing role with no permission catalog (a silent wipe otherwise);
- * missing-base-permissions Yes/No warn; empty-whitelist flip Yes/No guard.
+ * missing-base-permissions Yes/No warn. "Specific Channels" with nothing ticked is
+ * legal (the role sees no channels); a line under the list says so.
  * Orphan permissions (grants not in the fetched catalog) render no checkbox
  * and are silently preserved on Apply, mirroring the keep-by-default policy
  * for deleted-channel references.
@@ -31,7 +32,7 @@ import {
     TITLE_ADD_ROLE, TITLE_EDIT_ROLE, MSG_NAME_REQUIRED, TITLE_VALIDATION_ERROR,
     MSG_CATALOG_EMPTY_EDIT, TITLE_PERMISSIONS_UNAVAILABLE,
     missingBaseWarningText, TITLE_MISSING_BASE_PERMISSIONS,
-    MSG_EMPTY_WHITELIST_FLIP, TITLE_NO_CHANNEL_RESTRICTIONS,
+    MSG_NO_CHANNELS_TICKED,
     ORPHAN_CHANNELS_TITLE, ORPHAN_CHANNELS_HINT,
     orphanChannelRowLabel
 } from './rbac-core.js';
@@ -159,13 +160,16 @@ export function makeRoleEditor(platform) {
         const [selected, setSelected] = React.useState(() => new Set(
             role ? [...role.permissions].filter((p) => catalog && catalog.has(p)) : []));
         const [mode, setMode] = React.useState(
-            role && role.channelIds.size > 0 ? 'specific' : 'all');
+            role && role.restricted ? 'specific' : 'all');
         const [checkedChannels, setCheckedChannels] = React.useState(() => new Set(
             role ? [...role.channelIds].filter((id) => liveIds.has(id)) : []));
         const [purged, setPurged] = React.useState(() => new Set());
         const [tab, setTab] = React.useState('permissions');
 
         const channelsEnabled = mode === 'specific' && !isAdmin;
+        // Kept deleted channels count as ticked.
+        const noneTicked = mode === 'specific' && checkedChannels.size === 0
+            && orphanChannels.every((id) => purged.has(id));
 
         // Escape cancels (Swing dialog parity) — unless a host modal (confirm/
         // alert) is stacked on top, which owns the key.
@@ -216,13 +220,6 @@ export function makeRoleEditor(platform) {
                 for (const id of orphanChannels) {
                     if (!purged.has(id)) selectedChannels.add(id);
                 }
-                // Flip guard: "Specific Channels" with an empty set means
-                // unrestricted (all channels), not "no access".
-                if (selectedChannels.size === 0) {
-                    if (!await confirmYesNo(TITLE_NO_CHANNEL_RESTRICTIONS, MSG_EMPTY_WHITELIST_FLIP)) {
-                        return;
-                    }
-                }
             }
 
             onApply({
@@ -232,7 +229,8 @@ export function makeRoleEditor(platform) {
                 // Admin role: permission/channel controls are locked, so re-send
                 // the stored values unchanged — only the description can differ.
                 permissions: isAdmin ? new Set(role.permissions) : selectedPerms,
-                channelIds: isAdmin ? new Set(role.channelIds) : selectedChannels
+                channelIds: isAdmin ? new Set(role.channelIds) : selectedChannels,
+                restricted: isAdmin ? role.restricted : mode === 'specific'
             });
         }
 
@@ -330,6 +328,7 @@ export function makeRoleEditor(platform) {
                                         <div className="hint">No channels</div>
                                     ) : null}
                                 </div>
+                                {noneTicked ? <div className="hint">{MSG_NO_CHANNELS_TICKED}</div> : null}
                             </div>
                         )}
                     </div>

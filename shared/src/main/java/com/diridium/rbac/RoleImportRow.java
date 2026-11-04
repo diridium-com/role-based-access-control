@@ -14,8 +14,9 @@ import java.util.List;
  *
  * <p>The "now" fields describe the role here that has the file role's name, when
  * there is one ({@link #isExistsHere()}); the "after" fields describe the role as
- * the import would leave it, from the file's content. A role with no channel in its
- * list sees every channel.</p>
+ * the import would leave it, from the file's content. An unrestricted role sees every
+ * channel and lists none; a restricted role sees only its list, and a restricted role
+ * with an empty list sees no channel.</p>
  */
 public class RoleImportRow implements Serializable {
 
@@ -32,8 +33,8 @@ public class RoleImportRow implements Serializable {
         FROM_FILE,
         /** Channel restrictions were not applied; the existing role keeps its own. */
         KEPT,
-        /** Channel restrictions were not applied; the new role sees every channel. */
-        EVERY_CHANNEL
+        /** Channel restrictions were not applied; the new role is restricted to no channel. */
+        NO_CHANNEL
     }
 
     private int index;
@@ -45,6 +46,8 @@ public class RoleImportRow implements Serializable {
     private Channels channels;
     private boolean noChannelFound;
     private boolean existsHere;
+    private boolean restrictedNow;
+    private boolean restrictedAfter;
     private String descriptionNow;
     private String descriptionAfter;
     private List<String> permissionsNow = new ArrayList<>();
@@ -119,8 +122,8 @@ public class RoleImportRow implements Serializable {
 
     /**
      * @return whether the import restricts this role to channels none of which was found on this
-     *         engine, so that importing the row as it stands gives the role every channel. The
-     *         row can still be picked; the Administrators start it unticked.
+     *         engine, so that importing the row as it stands restricts the role to no channel
+     *         until an administrator sets its channels.
      */
     public boolean isNoChannelFound() {
         return noChannelFound;
@@ -137,6 +140,27 @@ public class RoleImportRow implements Serializable {
 
     public void setExistsHere(boolean existsHere) {
         this.existsHere = existsHere;
+    }
+
+    /** @return whether the role here is restricted to {@link #getChannelsNow()}; false means every channel */
+    public boolean isRestrictedNow() {
+        return restrictedNow;
+    }
+
+    public void setRestrictedNow(boolean restrictedNow) {
+        this.restrictedNow = restrictedNow;
+    }
+
+    /**
+     * @return whether the role is restricted after the import, to the used entries of
+     *         {@link #getChannelsAfter()}; false means every channel. Meaningless on a SKIP row.
+     */
+    public boolean isRestrictedAfter() {
+        return restrictedAfter;
+    }
+
+    public void setRestrictedAfter(boolean restrictedAfter) {
+        this.restrictedAfter = restrictedAfter;
     }
 
     /** @return the description of the role here, empty when it has none; {@code null} when there is no role here */
@@ -177,7 +201,7 @@ public class RoleImportRow implements Serializable {
 
     /**
      * @return the channels the role here is restricted to, by name, the deleted ones last;
-     *         empty when it sees every channel or there is no role here
+     *         empty when it sees every channel, sees no channel, or there is no role here
      */
     public List<RoleImportChannel> getChannelsNow() {
         return channelsNow;
@@ -190,7 +214,8 @@ public class RoleImportRow implements Serializable {
     /**
      * @return with channel restrictions applied, the file's channels in file order, each
      *         with what was found for it here; without, the channels the role keeps
-     *         ({@link Channels#KEPT}). Empty when the role sees every channel after the import.
+     *         ({@link Channels#KEPT}). Empty when the role sees every channel, or no channel,
+     *         after the import.
      */
     public List<RoleImportChannel> getChannelsAfter() {
         return channelsAfter;

@@ -153,8 +153,10 @@ export function buildAssignmentPreview(username, currentRoleName, role, channelI
     details += 'New role:     ' + role.name + '\n\n';
 
     const channelIds = toArray(role.channelIds);
-    if (channelIds.length === 0) {
+    if (!role.restricted) {
         details += 'Channel access: All channels\n\n';
+    } else if (channelIds.length === 0) {
+        details += 'Channel access: No channels\n\n';
     } else {
         details += 'Channel access: restricted to ' + channelIds.length + ' channel(s):\n';
         const channelLabels = channelIds.map((id) => {
@@ -232,12 +234,9 @@ export function missingBaseWarningText(missing) {
 }
 export const TITLE_MISSING_BASE_PERMISSIONS = 'Missing Base Permissions';
 
-// RoleEditorDialog.save() — flip guard when "Specific Channels" is selected
-// with an empty set (Yes/No, title "No Channel Restrictions").
-export const MSG_EMPTY_WHITELIST_FLIP =
-    'This role will no longer be restricted to specific channels.\n'
-    + 'Users with this role will be able to access ALL channels.\n\nContinue?';
-export const TITLE_NO_CHANNEL_RESTRICTIONS = 'No Channel Restrictions';
+// RoleEditorDialog, the line under the channel list while "Specific Channels"
+// is selected and nothing is ticked.
+export const MSG_NO_CHANNELS_TICKED = 'This role sees no channels until some are ticked.';
 
 // RoleEditorDialog — Channel Restrictions tab strings. Live channels render as
 // "<name> (<id>)"; deleted-channel rows use TWO spaces before "(deleted)"
@@ -347,18 +346,21 @@ export const PERMISSIONS_LEGEND = 'Currently: this role has the permission on th
 export const CHANNELS_LEGEND = 'Currently: this role is restricted to the channel on this engine. After import: this role will'
     + ' be restricted to the channel if imported. Match: how the import\'s channel was found on this engine.';
 export const CHANNELS_NOT_APPLIED = 'Channel restrictions from the import are not applied. Roles that already exist on this'
-    + ' engine keep their current channels. New roles see every channel.';
+    + ' engine keep their current channels. New roles are restricted to no channels until an administrator sets'
+    + ' channels for them.';
 // The channel columns that hold ids (shown in a monospace font).
 export const CHANNEL_ID_COLUMNS = [1, 6];
 export const EXPORT_PERMISSION_COLUMNS = ['Permission'];
 export const EXPORT_CHANNEL_COLUMNS = ['Channel', 'Id on this engine'];
 export const EXPORT_CHANNEL_ID_COLUMNS = [1];
 const EVERY = 'every';
+const NONE = 'none';
 const YES = 'yes';
 const NO_LONGER_EXISTS = '(no longer exists)';
 const DELETED = 'deleted on this engine';
 const NOT_IN_IMPORT = 'not in the import';
 export const EXPORT_EVERY_CHANNEL = 'This role sees every channel.';
+export const EXPORT_NO_CHANNEL = 'This role sees no channels.';
 export function importRefusedText(refusal) {
     return "This file can't be imported: " + refusal;
 }
@@ -381,17 +383,14 @@ export function canTick(row) {
     return row.action === 'CREATE' || row.action === 'OVERWRITE';
 }
 
-// New starts ticked unless none of its channels was found on this engine (it
-// would see every channel); Overwrite starts unticked.
+// New starts ticked; Overwrite starts unticked.
 export function defaultTick(row) {
-    return row.action === 'CREATE' && !row.noChannelFound;
+    return row.action === 'CREATE';
 }
 
 // Ticks for a fresh preview of the same file. A row keeps the user's choice if
 // it was shown before with the same name, action and no-channel-found state;
-// any other row starts at its default, so a role whose channels are found once
-// matching by name is ticked again as a new role would be. Returns a Set of
-// row index values.
+// any other row starts at its default. Returns a Set of row index values.
 export function mergeTicks(previousRows, previousTicks, rows) {
     const next = new Set();
     for (const row of rows) {
@@ -454,16 +453,20 @@ export function countText(row, now, after) {
 
 const usedCount = (row) => row.channelsAfter.filter((c) => c.used).length;
 
-// The number of channels the role is restricted to, or "every", here now (null
-// when there is no role here) and after the import. A Skipped row never
-// becomes "every": nothing was looked up.
+// The number of channels the role is restricted to, "every" for a role that is
+// not restricted, or "none" for a restricted role with no channel, here now
+// (null when there is no role here) and after the import. From the flags, never
+// from whether a list is empty.
 export function channelsNowCount(row) {
     if (!row.existsHere) return null;
-    return row.channelsNow.length === 0 ? EVERY : row.channelsNow.length;
+    if (!row.restrictedNow) return EVERY;
+    return row.channelsNow.length === 0 ? NONE : row.channelsNow.length;
 }
 export function channelsAfterCount(row) {
     const used = usedCount(row);
-    return used === 0 && row.action !== 'SKIP' ? EVERY : used;
+    if (row.action === 'SKIP') return used;
+    if (!row.restrictedAfter) return EVERY;
+    return used === 0 ? NONE : used;
 }
 
 export function permissionsCountText(row) {
@@ -473,12 +476,16 @@ export function channelsCountText(row) {
     return countText(row, channelsNowCount(row), channelsAfterCount(row));
 }
 
-// The line above the channel table when the role sees every channel now, after
-// the import, or both. Empty when it does not.
+// The line above the channel table when the role sees every channel or no
+// channel now, after the import, or both. Empty when it does neither.
 export function everyChannelText(row) {
     const parts = [];
-    if (channelsNowCount(row) === EVERY) parts.push('This role sees every channel currently.');
-    if (channelsAfterCount(row) === EVERY) parts.push('This role sees every channel after the import.');
+    const now = channelsNowCount(row);
+    const after = channelsAfterCount(row);
+    if (now === EVERY) parts.push('This role sees every channel currently.');
+    if (now === NONE) parts.push('This role sees no channels currently.');
+    if (after === EVERY) parts.push('This role sees every channel after the import.');
+    if (after === NONE) parts.push('This role sees no channels after the import.');
     return parts.join(' ');
 }
 
@@ -554,5 +561,6 @@ export function exportPermissionsCount(role) {
     return role.permissions.size;
 }
 export function exportChannelsCount(role) {
-    return role.channelIds.size === 0 ? EVERY : role.channelIds.size;
+    if (!role.restricted) return EVERY;
+    return role.channelIds.size === 0 ? NONE : role.channelIds.size;
 }

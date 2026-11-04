@@ -15,14 +15,15 @@ import { mockEngineWithRbac } from './mock.js';
 import {
     rbacFixtures, rolesList, ADMIN_ROLE, READ_ONLY_ROLE, EXPORT_FILE,
     IMPORT_PREVIEW_TWO_ROWS, IMPORT_NAME_MATCH_OFF, IMPORT_NAME_MATCH_ON, IMPORT_OVERWRITE_DETAILS,
-    IMPORT_SEVERAL_ROWS, IMPORT_MATCH_VALUES, IMPORT_NO_CHANNEL_FOUND, IMPORT_APPLIED, IMPORT_REFUSED
+    IMPORT_SEVERAL_ROWS, IMPORT_MATCH_VALUES, IMPORT_NONE_ROWS, IMPORT_NO_CHANNEL_FOUND, IMPORT_APPLIED, IMPORT_REFUSED
 } from './fixtures.js';
 
 const LAB_ROLE = {
     ...READ_ONLY_ROLE, id: 3, name: 'Lab', description: 'Lab staff',
     permissions: { string: ['viewDashboard', 'viewAlerts'] },
-    channelIds: { string: ['c-stopped', 'c-deleted', 'c-started'] }
+    restricted: true, channelIds: { string: ['c-stopped', 'c-deleted', 'c-started'] }
 };
+const NONE_ROLE = { ...READ_ONLY_ROLE, id: 5, name: 'Sees None', description: 'Sees nothing', restricted: true, channelIds: null };
 const VIEW_ROLES_ONLY = { ...READ_ONLY_ROLE, id: 4, name: 'Roles Viewer', permissions: { string: 'View Roles' } };
 const FILE = { name: 'roles.xml', mimeType: 'application/xml', buffer: Buffer.from(EXPORT_FILE) };
 const STALE = 'The roles changed since the preview. Preview the import again.';
@@ -88,7 +89,8 @@ const PERMISSIONS_LEGEND = 'Currently: this role has the permission on this engi
 const CHANNELS_LEGEND = 'Currently: this role is restricted to the channel on this engine. After import: this role will'
     + " be restricted to the channel if imported. Match: how the import's channel was found on this engine.";
 const NOT_APPLIED = 'Channel restrictions from the import are not applied. Roles that already exist on this engine'
-    + ' keep their current channels. New roles see every channel.';
+    + ' keep their current channels. New roles are restricted to no channels until an administrator sets channels'
+    + ' for them.';
 const APPLY_LABEL = 'Apply channel restrictions from the import';
 const COL = { name: 1, action: 2, descNow: 3, descAfter: 4, perms: 5, chans: 6, notes: 7 };
 const cell = (row, name) => row.locator('td').nth(COL[name]);
@@ -215,6 +217,18 @@ test.describe('Export Roles', () => {
         const channelCells = detail(box, 'Channels of Lab').locator('tbody tr').first().locator('td');
         await expect(channelCells.nth(1)).toHaveClass(/rbac-xfer-id/);
         await expect(channelCells.nth(0)).not.toHaveClass(/rbac-xfer-id/);
+    });
+
+    test('a role restricted to no channel counts "none" and says it sees no channels', async ({ page }) => {
+        await openPanel(page, {}, { roles: [ADMIN_ROLE, READ_ONLY_ROLE, LAB_ROLE, NONE_ROLE] });
+        await task(page, 'Export Roles').click();
+        const box = dialog(page, 'Export Roles');
+        const rows = box.locator('.rbac-xfer-roles tbody tr');
+        await expect(rows.nth(0).locator('td').nth(4)).toHaveText('every');
+        await expect(rows.nth(2).locator('td').nth(4)).toHaveText('none');
+        await rows.nth(2).locator('td').nth(2).click();
+        await expect(detail(box, 'Channels of Sees None')).toHaveText('This role sees no channels.');
+        await expect(detail(box, 'Channels of Sees None').locator('tbody tr')).toHaveCount(0);
     });
 
     test('a tick box does not select its row; sorting a header keeps the selection and the ticks', async ({ page }) => {
@@ -396,6 +410,27 @@ test.describe('Import Roles', () => {
         expect(await white(cell(rows.nth(0), 'name'))).toBe('nowrap');
     });
 
+    test('restricted to no channel: the counts say "none" and the lines say so, from the flags', async ({ page }) => {
+        await openPanel(page, importFixtures(IMPORT_NONE_ROWS));
+        await chooseFile(page);
+        const box = dialog(page, 'Import Roles');
+        const rows = box.locator('.rbac-xfer-roles tbody tr');
+        await expect(rows).toHaveCount(4);
+        const chans = async () => rows.evaluateAll((trs) => trs.map((tr) => tr.querySelectorAll('td')[6].textContent));
+        expect(await chans()).toEqual(['none', 'none ' + ARROW + ' every', 'every ' + ARROW + ' none', 'none']);
+        const lines = {
+            Quiet: 'This role sees no channels currently. This role sees no channels after the import.',
+            Reopen: 'This role sees no channels currently. This role sees every channel after the import.',
+            Close: 'This role sees every channel currently. This role sees no channels after the import.',
+            'Fresh none': 'This role sees no channels after the import.'
+        };
+        for (const [name, line] of Object.entries(lines)) {
+            await rows.filter({ hasText: name }).locator('td').nth(1).click();
+            await expect(detail(box, 'Channels of ' + name).locator('.rbac-xfer-notice')).toHaveText(line);
+            await expect(detail(box, 'Channels of ' + name).locator('tbody tr')).toHaveCount(0);
+        }
+    });
+
     test('sorting the roles table and the detail tables keeps the selection and the ticks', async ({ page }) => {
         await openPanel(page, importFixtures(IMPORT_SEVERAL_ROWS));
         await chooseFile(page);
@@ -454,25 +489,23 @@ test.describe('Import Roles', () => {
         await expect(box.getByLabel('Import Fresh')).not.toBeChecked();
     });
 
-    test('a role with no channel found starts unticked and says it would see every channel', async ({ page }) => {
+    test('a role with no channel found is ticked like any new role and says it sees no channels', async ({ page }) => {
         const seen = watch(page);
         await openPanel(page, importFixtures(IMPORT_NO_CHANNEL_FOUND));
         await chooseFile(page);
         const box = dialog(page, 'Import Roles');
         const lost = box.getByLabel('Import probe lost');
         await expect(lost).toBeEnabled();
-        await expect(lost).not.toBeChecked();
+        await expect(lost).toBeChecked();
         await expect(box.getByLabel('Import probe lab')).toBeChecked();
         const row = box.locator('.rbac-xfer-roles tbody tr').nth(0);
         await expect(cell(row, 'action')).toHaveText('New');
-        await expect(cell(row, 'chans')).toHaveText('every');
+        await expect(cell(row, 'chans')).toHaveText('none');
         await expect(cell(row, 'notes')).toContainText('None of those channels exist on this engine.');
         expect(await cellsOf(detail(box, 'Channels of probe lost'))).toEqual([
             ['probe nowhere', '', '', '', 'not on this engine', 'probe nowhere', NOWHERE]]);
         await expect(detail(box, 'Channels of probe lost').locator('.rbac-xfer-notice')).toHaveText(
-            'This role sees every channel after the import.');
-        // Only the ticked row is picked; the user can tick the other one.
-        await lost.check();
+            'This role sees no channels after the import.');
         await box.getByRole('button', { name: 'Import', exact: true }).click();
         await expect(toast(page, 'Imported 2 role(s).')).toBeVisible();
         expect(seen.applies[0].pick).toEqual(['0', '1']);
@@ -536,23 +569,23 @@ test.describe('Import Roles', () => {
         await expect(byName).not.toBeChecked();
         await expect(byName).toBeEnabled();
 
-        // Matching is off: a New role with no channel found (every channel if imported), so it starts unticked;
-        // the channel listed as found by name but not used, and the hint.
+        // Matching is off: a New role with no channel found (restricted to no channel if imported), ticked like any
+        // New role; the channel listed as found by name but not used, and the hint.
         const row = box.locator('.rbac-xfer-roles tbody tr').nth(0);
         await expect(cell(row, 'action')).toHaveText('New');
-        await expect(cell(row, 'chans')).toHaveText('every');
+        await expect(cell(row, 'chans')).toHaveText('none');
         await expect(cell(row, 'notes')).toHaveText('The import restricts this role to 1 channel. None of those channels'
-            + ' exist on this engine. If imported, this role will see every channel until an administrator sets channels'
-            + ' for this role. 1 of those channels matches a channel on this engine by name.');
+            + ' exist on this engine. If imported, this role is restricted to no channels until an administrator sets'
+            + ' channels for this role. 1 of those channels matches a channel on this engine by name.');
         expect(await cellsOf(detail(box, 'Channels of probe moved one'))).toEqual([
             ['probe one', ONE, '', '', 'by name, not used', 'probe one', MOVED]]);
         await expect(row.getByRole('checkbox')).toBeEnabled();
-        await expect(row.getByRole('checkbox')).not.toBeChecked();
-        await expect(box.getByRole('button', { name: 'Import', exact: true })).toBeDisabled();
+        await expect(row.getByRole('checkbox')).toBeChecked();
+        await expect(box.getByRole('button', { name: 'Import', exact: true })).toBeEnabled();
         await expect(box.getByText(NAME_MATCH_HINT)).toBeVisible();
 
         // Ticking the second previews again: the channel is found by name and there is no hint. The row is no
-        // longer a no-channel-found row, so the default for a new role applies and it is ticked, enabling Import.
+        // longer a no-channel-found row; the user's tick is kept.
         await byName.check();
         await expect(cell(row, 'chans')).toHaveText('1');
         await expect(row.getByRole('checkbox')).toBeChecked();

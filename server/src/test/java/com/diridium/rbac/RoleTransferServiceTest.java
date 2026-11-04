@@ -301,6 +301,7 @@ class RoleTransferServiceTest {
         role.setName(name);
         role.setPermissions(new HashSet<>(permissions));
         role.setChannelIds(new HashSet<>(channelIds));
+        role.setRestricted(!channelIds.isEmpty());
         return role;
     }
 

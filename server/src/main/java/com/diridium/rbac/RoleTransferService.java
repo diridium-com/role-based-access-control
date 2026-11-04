@@ -114,7 +114,7 @@ class RoleTransferService {
             channels.sort(Comparator.comparing(RoleTransferFormat.Channel::name)
                     .thenComparing(RoleTransferFormat.Channel::id));
             exported.add(new ExportedRole(role.getName(), role.getDescription(),
-                    new ArrayList<>(new TreeSet<>(role.getPermissions())), !role.getChannelIds().isEmpty(), channels));
+                    new ArrayList<>(new TreeSet<>(role.getPermissions())), role.isRestricted(), channels));
         }
         try {
             return RoleTransferFormat.write(rbacVersion.get(), engineVersion.get(), exported);

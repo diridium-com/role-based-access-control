@@ -76,6 +76,8 @@ export function normalizeRole(raw) {
         description: raw.description === undefined || raw.description === null ? '' : String(raw.description),
         permissions: stringSet(raw.permissions),
         channelIds: stringSet(raw.channelIds),
+        // A server that predates the flag sends none: false (every channel).
+        restricted: raw.restricted === true || raw.restricted === 'true',
         // JSON gives a real boolean; the host's XML fallback parser gives 'true'/true.
         isAdmin: raw.isAdmin === true || raw.isAdmin === 'true'
     };
@@ -131,6 +133,8 @@ function normalizeImportRow(raw) {
         // The captured wire fixtures predate this field: absent means false.
         noChannelFound: raw.noChannelFound === true || raw.noChannelFound === 'true',
         existsHere: raw.existsHere === true || raw.existsHere === 'true',
+        restrictedNow: raw.restrictedNow === true || raw.restrictedNow === 'true',
+        restrictedAfter: raw.restrictedAfter === true || raw.restrictedAfter === 'true',
         descriptionNow: text(raw.descriptionNow),
         descriptionAfter: text(raw.descriptionAfter),
         permissionsNow: stringList(raw.permissionsNow),
@@ -193,6 +197,7 @@ export function roleXml(role, { includeId = false } = {}) {
     parts.push(`<description>${escapeXml(role.description ?? '')}</description>`);
     parts.push(stringsXml('permissions', role.permissions ?? []));
     parts.push(stringsXml('channelIds', role.channelIds ?? []));
+    parts.push(`<restricted>${role.restricted === true}</restricted>`);
     parts.push(`<isAdmin>${role.isAdmin === true}</isAdmin>`);
     return `<${ROLE_FQCN}>${parts.join('')}</${ROLE_FQCN}>`;
 }

@@ -87,7 +87,7 @@ class RoleDetailTables extends JPanel {
     /** Shows a role's permissions and channels for export. */
     void showExport(Role role, Map<String, String> channelMap) {
         List<String[]> rows = RoleExportText.channelRows(role, channelMap);
-        show(role.getName(), RoleExportText.permissionRows(role), rows, rows.isEmpty() ? RoleExportText.EVERY_CHANNEL_LINE : "");
+        show(role.getName(), RoleExportText.permissionRows(role), rows, RoleExportText.channelsLine(role));
     }
 
     /** Empties both tables, when no role is selected. */

@@ -18,6 +18,7 @@ import { buildAssignmentPreview } from './rbac-core.js';
 test('restricted role with a deleted channel and no current role (the canonical case)', () => {
     const role = {
         name: 'RO',
+        restricted: true,
         channelIds: ['id1', 'id2'],
         permissions: ['viewDashboard', 'viewChannels'],
     };
@@ -50,6 +51,25 @@ test('unrestricted role with a current role', () => {
         + '  viewDashboard\n');
 });
 
+test('restricted role with no channels shows "No channels"', () => {
+    const role = { name: 'Nothing', restricted: true, channelIds: [], permissions: ['viewDashboard'] };
+    assert.equal(
+        buildAssignmentPreview('erin', null, role, new Map()),
+        'User:         erin\n'
+        + 'Current role: (none)\n'
+        + 'New role:     Nothing\n'
+        + '\n'
+        + 'Channel access: No channels\n'
+        + '\n'
+        + 'Permissions (1):\n'
+        + '  viewDashboard\n');
+});
+
+test('a role without the flag is unrestricted, even with a channel list', () => {
+    const role = { name: 'Old', channelIds: ['id1'], permissions: [] };
+    assert.ok(buildAssignmentPreview('f', null, role, {}).includes('Channel access: All channels\n'));
+});
+
 test('zero-permissions role shows the explicit could-log-in-but-do-nothing line', () => {
     const role = { name: 'Empty', channelIds: [], permissions: [] };
     assert.equal(
@@ -67,7 +87,7 @@ test('zero-permissions role shows the explicit could-log-in-but-do-nothing line'
 test('channel rows sort AFTER labeling, so deleted ids interleave with live names', () => {
     // Live channel "zeta" labels to "  zeta"; deleted id "abc" labels to
     // "  abc (deleted)" — sorted after labeling, the deleted row comes first.
-    const role = { name: 'Mix', channelIds: ['zzz', 'abc'], permissions: ['viewChannels'] };
+    const role = { name: 'Mix', restricted: true, channelIds: ['zzz', 'abc'], permissions: ['viewChannels'] };
     assert.equal(
         buildAssignmentPreview('dave', null, role, new Map([['zzz', 'zeta']])),
         'User:         dave\n'
@@ -84,10 +104,10 @@ test('channel rows sort AFTER labeling, so deleted ids interleave with live name
 
 test('Set inputs and Map lookups produce the same text as arrays and plain objects', () => {
     const asArrays = buildAssignmentPreview('bob', null,
-        { name: 'RO', channelIds: ['id1', 'id2'], permissions: ['viewDashboard', 'viewChannels'] },
+        { name: 'RO', restricted: true, channelIds: ['id1', 'id2'], permissions: ['viewDashboard', 'viewChannels'] },
         { id1: 'Alpha' });
     const asSets = buildAssignmentPreview('bob', null,
-        { name: 'RO', channelIds: new Set(['id1', 'id2']), permissions: new Set(['viewDashboard', 'viewChannels']) },
+        { name: 'RO', restricted: true, channelIds: new Set(['id1', 'id2']), permissions: new Set(['viewDashboard', 'viewChannels']) },
         new Map([['id1', 'Alpha']]));
     assert.equal(asSets, asArrays);
 });

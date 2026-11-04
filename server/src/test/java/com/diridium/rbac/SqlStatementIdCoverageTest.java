@@ -36,7 +36,8 @@ class SqlStatementIdCoverageTest {
             "getRoleIdByName", "getAdminRoleId", "setRoleIsAdmin", "countUsersByRoleId",
             "getUserRoleId", "deleteUserRole", "insertUserRole", "deleteOrphanUserRoles",
             "getPermissionsForRole", "deletePermissionsForRole", "insertPermission",
-            "getChannelIdsForRole", "deleteChannelIdsForRole", "insertChannelId");
+            "getChannelIdsForRole", "deleteChannelIdsForRole", "insertChannelId", "getAllRoleChannels",
+            "deleteChannelIdForRole");
 
     @Test
     void everyReferencedStatementIdIsDeclaredInSqlmap() throws IOException {

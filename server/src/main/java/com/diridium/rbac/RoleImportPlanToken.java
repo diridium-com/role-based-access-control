@@ -48,14 +48,15 @@ RoleImportPlanToken addAll(Collection<String> values) {
             add("no role");
             return;
         }
-        add(role.getId()).add(role.getName()).add(nullToEmpty(role.getDescription()))
+        add(role.getId()).add(role.getName()).add(nullToEmpty(role.getDescription())).add(role.isRestricted())
                 .addAll(role.getPermissions()).addAll(role.getChannelIds());
     }
 
     void addRow(RoleImportRow row, Role planned) {
         add(row.getIndex()).add(row.getName()).add(row.getAction()).add(row.getReason()).add(row.getChannels())
                 .add(row.getMatchedChannelCount()).addAll(row.getDroppedPermissions())
-                .add(row.isNoChannelFound()).add(row.isExistsHere()).add(row.getDescriptionNow())
+                .add(row.isNoChannelFound()).add(row.isExistsHere()).add(row.isRestrictedNow())
+                .add(row.isRestrictedAfter()).add(row.getDescriptionNow())
                 .add(row.getDescriptionAfter())
                 .addAll(row.getPermissionsNow()).addAll(row.getPermissionsAfter());
         addChannels(row.getChannelsNow());

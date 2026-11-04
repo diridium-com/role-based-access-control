@@ -32,6 +32,7 @@ def export_import(r, w, db_server):
     _transfer_without_channels(r, a, t)
     _transfer_refusals(r, a, t)
     _transfer_names(r, a)
+    _transfer_none_role(r, a)
     _transfer_renamed_channel(r, a, t)
     _transfer_from_another_engine(r, a, db_server)
 
@@ -193,9 +194,9 @@ def _transfer_without_channels(r, a, t):
     rows = plan["rows"]
     r.check("import without channels: the existing role keeps its channels, the new one sees every channel",
             rows.get("e2e transfer restricted", {}).get("channels") == "KEPT"
-            and rows.get("e2e transfer everywhere", {}).get("channels") == "EVERY_CHANNEL"
+            and rows.get("e2e transfer everywhere", {}).get("channels") == "NO_CHANNEL"
             and (rows.get("e2e transfer everywhere", {}).get("reason") or "").startswith("The import restricts this role"
-                " to 1 channel. Restrictions are not applied, so this role will see every channel on this engine")
+                " to 1 channel. Restrictions are not applied, so this role is restricted to no channels on this engine")
             and rows.get("e2e transfer restricted", {}).get("reason")
             == "This role keeps the channels currently set on this engine.", str(rows))
     r.check("import without channels: the existing role's channels after are the ones it has now",
@@ -208,8 +209,9 @@ def _transfer_without_channels(r, a, t):
             status == 200 and now["e2e transfer restricted"]["permissions"] == {"viewChannels"}
             and now["e2e transfer restricted"]["channelIds"] == {t.t1, t.t2},
             f"HTTP {status}: {now.get('e2e transfer restricted')}")
-    r.check("import without channels: the new role sees every channel",
-            now.get("e2e transfer everywhere", {}).get("channelIds") == set(), str(now.get("e2e transfer everywhere")))
+    r.check("import without channels: the new role is restricted to no channel",
+            now.get("e2e transfer everywhere", {}).get("channelIds") == set()
+            and now.get("e2e transfer everywhere", {}).get("restricted") is True, str(now.get("e2e transfer everywhere")))
 
 
 def _transfer_refusals(r, a, t):
@@ -224,8 +226,8 @@ def _transfer_refusals(r, a, t):
             rows.get("e2e transfer gone", {}).get("action") == "CREATE"
             and rows.get("e2e transfer gone", {}).get("no_channel_found") is True
             and rows.get("e2e transfer gone", {}).get("reason") == "The import restricts this role to 1 channel. None of"
-            " those channels exist on this engine. If imported, this role will see every channel until an administrator"
-            " sets channels for this role.", str(rows))
+            " those channels exist on this engine. If imported, this role is restricted to no channels until an"
+            " administrator sets channels for this role.", str(rows))
     gone = rows.get("e2e transfer gone", {}).get("channels_after", [])
     r.check("import: the channel that doesn't exist is listed as not found, under the file's name",
             len(gone) == 1 and gone[0][1:5] == ("rbac e2e no such channel", "rbac e2e no such channel", "NOT_FOUND", False)
@@ -253,8 +255,9 @@ def _transfer_refusals(r, a, t):
     plan = _preview(r, a, mixed, label="a preview after the first apply")
     status, body = _apply(a, mixed, plan, ["e2e transfer gone"])
     gone_role = _roles_by_name(a).get("e2e transfer gone", {})
-    r.check("import: picking the flagged role writes it seeing every channel",
-            status == 200 and gone_role.get("channelIds") == set(), f"HTTP {status}: {gone_role}")
+    r.check("import: picking the flagged role writes it restricted to no channel",
+            status == 200 and gone_role.get("channelIds") == set() and gone_role.get("restricted") is True,
+            f"HTTP {status}: {gone_role}")
 
     before = b.roles(a)
     newer = b.role_file([("e2e transfer newer", ["viewChannels"], None)], format_version="2")
@@ -337,6 +340,27 @@ def _transfer_names(r, a):
             f"HTTP {status}: {body[:200]}; written: {written}")
     r.note("import of two names that differ only by an accent",
            "both written" if status == 200 else f"HTTP {status}, neither written: {body[:200]}")
+
+
+def _transfer_none_role(r, a):
+    """A role restricted to no channel goes out as restricted="true" with no channel and comes back the same."""
+    rid = b.create_role(a, "e2e transfer none", ["viewChannels"], restricted=True)
+    status, text = b.export_roles(a, [rid])
+    exported = b.parse_export(text)[1].get("e2e transfer none", {}) if status == 200 else {}
+    r.check("export: a role restricted to no channel is written restricted with no channel",
+            status == 200 and exported.get("restricted") is True and exported.get("channels") == {},
+            f"HTTP {status}: {text[:300]}")
+    b.delete_role(a, rid)
+    plan = _preview(r, a, text, label="a preview of a role restricted to no channel")
+    row = plan["rows"].get("e2e transfer none", {})
+    r.check("import: a role restricted to no channel is planned as new, restricted to no channel",
+            row.get("action") == "CREATE" and row.get("no_channel_found") is False
+            and row.get("reason") is None, str(row))
+    status, body = _apply(a, text, plan, ["e2e transfer none"])
+    back = _roles_by_name(a).get("e2e transfer none", {})
+    r.check("import: the role comes back restricted to no channel",
+            status == 200 and back.get("restricted") is True and back.get("channelIds") == set(),
+            f"HTTP {status}: {body[:200]}; {back}")
 
 
 def _transfer_renamed_channel(r, a, t):

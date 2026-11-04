@@ -11,7 +11,7 @@
 import {
     TITLE_EXPORT_ROLES, EXPORT_PROMPT, EXPORT_CHANNELS_NOTE, EXPORT_CHANNELS_BOLD, EXPORT_COLUMNS,
     EXPORT_FILE_NAME, EXPORT_PERMISSION_COLUMNS, EXPORT_CHANNEL_COLUMNS, EXPORT_CHANNEL_ID_COLUMNS,
-    EXPORT_EVERY_CHANNEL, exportedText, exportPermissionRows, exportChannelRows,
+    EXPORT_EVERY_CHANNEL, EXPORT_NO_CHANNEL, exportedText, exportPermissionRows, exportChannelRows,
     exportPermissionsCount, exportChannelsCount, permissionsHeading, channelsHeading, sortRows
 } from './rbac-core.js';
 import { makeTransferShell } from './role-transfer-shell.jsx';
@@ -106,7 +106,7 @@ export function makeRoleExportDialog(platform, api) {
                         columns: EXPORT_PERMISSION_COLUMNS, rows: exportPermissionRows(selected) }}
                     channels={{ heading: channelsHeading(selected.name), columns: EXPORT_CHANNEL_COLUMNS,
                         rows: exportChannelRows(selected, channelMap), idColumns: EXPORT_CHANNEL_ID_COLUMNS,
-                        empty: EXPORT_EVERY_CHANNEL }} />
+                        empty: selected.restricted ? EXPORT_NO_CHANNEL : EXPORT_EVERY_CHANNEL }} />
             </Shell>
         );
     };

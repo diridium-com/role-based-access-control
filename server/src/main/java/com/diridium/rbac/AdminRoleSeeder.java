@@ -138,6 +138,7 @@ class AdminRoleSeeder {
         params.put("name", BOOTSTRAP_ADMIN_ROLE_NAME);
         params.put("description", BOOTSTRAP_ADMIN_ROLE_DESCRIPTION);
         params.put("isAdmin", Boolean.TRUE);
+        params.put("restricted", Boolean.FALSE);
         session.insert(stmt("insertRole"), params);
 
         Integer adminRoleId = RbacRepository.insertedRoleId(session, params, BOOTSTRAP_ADMIN_ROLE_NAME);

@@ -34,12 +34,13 @@ class RoleImportTextTest {
     }
 
     @Test
-    void keepTicks_noChannelFoundRowStartsUnticked_andKeepsTheUsersTick() {
+    void keepTicks_noChannelFoundRowStartsTicked_andKeepsTheUsersUntick() {
         RoleImportRow none = row(0, "Lab", RoleImportRow.Action.CREATE);
         none.setNoChannelFound(true);
         List<RoleImportRow> rows = Arrays.asList(none);
-        assertFalse(RoleImportText.keepTicks(Collections.<RoleImportRow>emptyList(), new boolean[0], rows)[0]);
-        assertTrue(RoleImportText.keepTicks(rows, new boolean[] {true}, rows)[0], "the user ticked it");
+        assertTrue(RoleImportText.keepTicks(Collections.<RoleImportRow>emptyList(), new boolean[0], rows)[0],
+                "restricted to no channel grants nothing, so it starts ticked like any new role");
+        assertFalse(RoleImportText.keepTicks(rows, new boolean[] {false}, rows)[0], "the user unticked it");
         RoleImportRow found = row(0, "Lab", RoleImportRow.Action.CREATE);
         assertTrue(RoleImportText.keepTicks(rows, new boolean[] {false}, Arrays.asList(found))[0],
                 "its channels found after matching by name: the default for a new role applies again");
@@ -93,7 +94,7 @@ class RoleImportTextTest {
         assertFalse(RoleImportText.defaultTicked(row(RoleImportRow.Action.SKIP)));
         RoleImportRow none = row(RoleImportRow.Action.CREATE);
         none.setNoChannelFound(true);
-        assertFalse(RoleImportText.defaultTicked(none), "no channel found: starts unticked");
+        assertTrue(RoleImportText.defaultTicked(none), "no channel found: still ticked, the role sees no channel");
         RoleImportRow noneOver = row(RoleImportRow.Action.OVERWRITE);
         noneOver.setNoChannelFound(true);
         assertFalse(RoleImportText.defaultTicked(noneOver));
@@ -126,11 +127,13 @@ class RoleImportTextTest {
     }
 
     @Test
-    void countText_arrowAndEvery() {
+    void countText_arrowEveryAndNone() {
         RoleImportRow created = row(RoleImportRow.Action.CREATE);
         created.setPermissionsAfter(Arrays.asList("a", "b", "c"));
         assertEquals("3", RoleImportText.permissionsCountText(created), "a role not here: the after count");
-        assertEquals("every", RoleImportText.channelsCountText(created), "nothing used: every channel");
+        assertEquals("every", RoleImportText.channelsCountText(created), "not restricted: every channel");
+        created.setRestrictedAfter(true);
+        assertEquals("none", RoleImportText.channelsCountText(created), "restricted, nothing used: none");
 
         RoleImportRow over = row(RoleImportRow.Action.OVERWRITE);
         over.setExistsHere(true);
@@ -140,6 +143,8 @@ class RoleImportTextTest {
         over.setPermissionsAfter(Arrays.asList("a", "b", "c", "d", "e", "g"));
         assertEquals("6", RoleImportText.permissionsCountText(over), "equal counts show once");
 
+        over.setRestrictedNow(true);
+        over.setRestrictedAfter(true);
         over.setChannelsNow(Arrays.asList(ch("a", "A", null, null, RoleImportChannel.Match.BY_ID, true),
                 ch("b", "B", null, null, RoleImportChannel.Match.BY_ID, true)));
         over.setChannelsAfter(Arrays.asList(ch("a", "A", "A", "a", RoleImportChannel.Match.BY_ID, true),
@@ -149,13 +154,20 @@ class RoleImportTextTest {
         over.setChannelsAfter(Arrays.asList(ch("a", "A", "A", "a", RoleImportChannel.Match.BY_ID, true)));
         assertEquals("2 \u2192 1", RoleImportText.channelsCountText(over));
         over.setChannelsAfter(Collections.<RoleImportChannel>emptyList());
+        assertEquals("2 \u2192 none", RoleImportText.channelsCountText(over), "restricted, nothing used");
+        over.setRestrictedAfter(false);
         assertEquals("2 \u2192 every", RoleImportText.channelsCountText(over));
+        over.setRestrictedNow(false);
         over.setChannelsNow(Collections.<RoleImportChannel>emptyList());
+        over.setRestrictedAfter(true);
         over.setChannelsAfter(Arrays.asList(ch("a", "A", "A", "a", RoleImportChannel.Match.BY_ID, true),
                 ch("c", "C", "C", "c", RoleImportChannel.Match.BY_ID, true)));
         assertEquals("every \u2192 2", RoleImportText.channelsCountText(over));
+        over.setRestrictedAfter(false);
         over.setChannelsAfter(Collections.<RoleImportChannel>emptyList());
         assertEquals("every", RoleImportText.channelsCountText(over));
+        over.setRestrictedNow(true);
+        assertEquals("none \u2192 every", RoleImportText.channelsCountText(over), "restricted to no channel now");
     }
 
     @Test
@@ -167,24 +179,44 @@ class RoleImportTextTest {
         assertEquals("1", RoleImportText.permissionsCountText(same));
         RoleImportRow skipHere = row(RoleImportRow.Action.SKIP);
         skipHere.setExistsHere(true);
+        skipHere.setRestrictedNow(true);
         skipHere.setChannelsNow(Arrays.asList(ch("a", "A", null, null, RoleImportChannel.Match.BY_ID, true)));
         assertEquals("1", RoleImportText.channelsCountText(skipHere));
         skipHere.setChannelsNow(Collections.<RoleImportChannel>emptyList());
+        assertEquals("none", RoleImportText.channelsCountText(skipHere));
+        skipHere.setRestrictedNow(false);
         assertEquals("every", RoleImportText.channelsCountText(skipHere));
-        assertEquals("0", RoleImportText.channelsCountText(row(RoleImportRow.Action.SKIP)));
+        RoleImportRow skipNotHere = row(RoleImportRow.Action.SKIP);
+        skipNotHere.setRestrictedAfter(true);
+        assertEquals("none", RoleImportText.channelsCountText(skipNotHere), "not here: the after value"
+                + " (the server does not set restrictedAfter on a skipped row, so this is every in practice)");
     }
 
     @Test
-    void everyChannelText_nowAfterBothOrNone() {
+    void everyChannelText_everyAndNoneNowAndAfter() {
         RoleImportRow r = row(RoleImportRow.Action.OVERWRITE);
         r.setExistsHere(true);
         assertEquals("This role sees every channel currently. This role sees every channel after the import.",
                 RoleImportText.everyChannelText(r));
+        r.setRestrictedAfter(true);
         r.setChannelsAfter(Arrays.asList(ch("a", "A", "A", "a", RoleImportChannel.Match.BY_ID, true)));
         assertEquals("This role sees every channel currently.", RoleImportText.everyChannelText(r));
+        r.setRestrictedNow(true);
         r.setChannelsNow(Arrays.asList(ch("a", "A", null, null, RoleImportChannel.Match.BY_ID, true)));
+        r.setRestrictedAfter(false);
         r.setChannelsAfter(Collections.<RoleImportChannel>emptyList());
         assertEquals("This role sees every channel after the import.", RoleImportText.everyChannelText(r));
+        r.setRestrictedAfter(true);
+        r.setChannelsNow(Collections.<RoleImportChannel>emptyList());
+        assertEquals("This role sees no channels currently. This role sees no channels after the import.",
+                RoleImportText.everyChannelText(r));
+        r.setRestrictedNow(false);
+        assertEquals("This role sees every channel currently. This role sees no channels after the import.",
+                RoleImportText.everyChannelText(r));
+        RoleImportRow created = row(RoleImportRow.Action.CREATE);
+        created.setRestrictedAfter(true);
+        assertEquals("This role sees no channels after the import.", RoleImportText.everyChannelText(created),
+                "a new role: nothing currently");
         assertEquals("", RoleImportText.everyChannelText(row(RoleImportRow.Action.SKIP)), "skipped, not here");
     }
 
@@ -192,6 +224,7 @@ class RoleImportTextTest {
     void compareCounts_numbersByValue_everyLast() {
         assertTrue(RoleImportText.compareCounts("9", "10") < 0);
         assertTrue(RoleImportText.compareCounts("10", "every") < 0);
+        assertTrue(RoleImportText.compareCounts("10", "none") < 0);
         assertTrue(RoleImportText.compareCounts("6 \u2192 7", "7") < 0);
         assertEquals(0, RoleImportText.compareCounts("every", "every"));
     }

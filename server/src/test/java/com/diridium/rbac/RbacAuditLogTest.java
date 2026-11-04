@@ -111,6 +111,7 @@ class RbacAuditLogTest {
         role.setName(name);
         role.setPermissions(new HashSet<>(permissions));
         role.setChannelIds(new HashSet<>(channelIds));
+        role.setRestricted(!channelIds.isEmpty());
         return new RoleImportPlanner.PlannedRole(existingId, role, writeChannels);
     }
 

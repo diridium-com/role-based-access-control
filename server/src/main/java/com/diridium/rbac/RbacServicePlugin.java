@@ -87,6 +87,10 @@ public class RbacServicePlugin implements ServicePlugin {
         // (PERSON-driven), so it is safe even if user enumeration below fails.
         RbacRepository.deleteOrphanUserRoles();
         RbacRepository.init(gatherExistingUserIds());
+        // The same for channels: a deleted channel leaves its restriction rows behind. The role
+        // stays restricted (to no channel, if none is left), so nothing widens. After init, since
+        // the sweep names the roles it touched through the repository.
+        DeletedChannelSweep.run();
         log.info("RBAC plugin started");
     }
 

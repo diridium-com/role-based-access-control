@@ -46,7 +46,8 @@ class RoleDetailRowsTest {
                 + "After import: this role will be restricted to the channel if imported. "
                 + "Match: how the import's channel was found on this engine.", RoleDetailRows.CHANNELS_LEGEND);
         assertEquals("Channel restrictions from the import are not applied. Roles that already exist on this engine "
-                + "keep their current channels. New roles see every channel.", RoleDetailRows.CHANNELS_NOT_APPLIED);
+                + "keep their current channels. New roles are restricted to no channels until an administrator "
+                + "sets channels for them.", RoleDetailRows.CHANNELS_NOT_APPLIED);
     }
 
     @Test

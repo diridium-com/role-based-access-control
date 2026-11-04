@@ -493,8 +493,10 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
         details.append("New role:     ").append(role.getName()).append("\n\n");
 
         Set<String> channelIds = role.getChannelIds();
-        if (channelIds == null || channelIds.isEmpty()) {
+        if (!role.isRestricted()) {
             details.append("Channel access: All channels\n\n");
+        } else if (channelIds == null || channelIds.isEmpty()) {
+            details.append("Channel access: No channels\n\n");
         } else {
             details.append("Channel access: restricted to ").append(channelIds.size()).append(" channel(s):\n");
             List<String> channelLabels = new ArrayList<>();

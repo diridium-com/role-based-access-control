@@ -165,12 +165,14 @@ export const LIVE_TASK_PERMISSIONS = taskPermissionMap([
 ]);
 
 // Roles in the live capture shape: FQCN root (Role has no XStream alias),
-// channelIds:null for an unrestricted role, isAdmin a real JSON boolean.
+// channelIds:null and restricted:false for an unrestricted role, isAdmin and
+// restricted real JSON booleans.
 export const ADMIN_ROLE = {
     id: 1, name: 'Administrator',
     description: 'Full access to all operations and channels',
     permissions: { string: FULL_PERMISSIONS.filter((p) => !p.includes(' ')) },
     channelIds: null,
+    restricted: false,
     isAdmin: true
 };
 
@@ -179,6 +181,7 @@ export const READ_ONLY_ROLE = {
     description: 'View-only access',
     permissions: { string: READ_ONLY_PERMISSIONS },
     channelIds: null,
+    restricted: false,
     isAdmin: false
 };
 
@@ -246,7 +249,7 @@ const nowChannel = (id, name, over = {}) => channel(id, name, { fileId: null, fi
 function wireRow(over) {
     const row = {
         index: 0, name: 'role', action: 'CREATE', droppedPermissions: [], matchedChannelCount: 0, channels: 'FROM_FILE',
-        noChannelFound: false, existsHere: false, descriptionNow: null, descriptionAfter: '',
+        noChannelFound: false, existsHere: false, restrictedNow: false, restrictedAfter: false, descriptionNow: null, descriptionAfter: '',
         permissionsNow: [], permissionsAfter: [], channelsNow: [], channelsAfter: [], ...over
     };
     return {
@@ -273,7 +276,7 @@ function wireResult(rows, over = {}) {
 const ONE = '4c468ff3-0cf7-4e8b-88e7-a7d8a3b538bf';
 const TWO = 'ee366a8b-755b-4f73-9f1b-abe1801cc121';
 const NEW_LAB = wireRow({
-    index: 0, name: 'probe lab', action: 'CREATE', matchedChannelCount: 2,
+    index: 0, name: 'probe lab', action: 'CREATE', matchedChannelCount: 2, restrictedAfter: true,
     descriptionAfter: 'rbac e2e', permissionsAfter: ['viewChannels', 'viewDashboard'],
     channelsAfter: [channel(ONE, 'probe one'), channel(TWO, 'probe two')]
 });
@@ -290,17 +293,17 @@ export const IMPORT_PREVIEW_TWO_ROWS = wireResult([
 const MOVED = '8163af3f-7ed2-4a0c-b326-34830263c504';
 const NAME_MATCH = { name: 'probe one', fileChannelId: MOVED, channelId: ONE };
 // Notes as the server composes them (RoleImportPlanner.notes). A role whose only channel is found by name alone
-// has no channel found while matching by name is off: New, but it starts unticked.
+// has no channel found while matching by name is off: New, restricted to no channel, ticked like any New role.
 export const IMPORT_NAME_MATCH_OFF = wireResult([wireRow({
-    index: 0, name: 'probe moved one', action: 'CREATE', noChannelFound: true,
+    index: 0, name: 'probe moved one', action: 'CREATE', noChannelFound: true, restrictedAfter: true,
     reason: 'The import restricts this role to 1 channel. None of those channels exist on this engine. If imported,'
-        + ' this role will see every channel until an administrator sets channels for this role.'
+        + ' this role is restricted to no channels until an administrator sets channels for this role.'
         + ' 1 of those channels matches a channel on this engine by name.',
     descriptionAfter: 'moved', permissionsAfter: ['viewChannels'],
     channelsAfter: [channel(ONE, 'probe one', { fileId: MOVED, match: 'BY_NAME', used: false })]
 })], { channelNameMatches: { 'com.diridium.rbac.ChannelNameMatch': NAME_MATCH } });
 export const IMPORT_NAME_MATCH_ON = wireResult([wireRow({
-    index: 0, name: 'probe moved one', action: 'CREATE', matchedChannelCount: 1,
+    index: 0, name: 'probe moved one', action: 'CREATE', matchedChannelCount: 1, restrictedAfter: true,
     reason: '1 of those channels matches a channel on this engine by name.',
     descriptionAfter: 'moved', permissionsAfter: ['viewChannels'],
     channelsAfter: [channel(ONE, 'probe one', { fileId: MOVED, match: 'BY_NAME' })]
@@ -310,6 +313,7 @@ export const IMPORT_NAME_MATCH_ON = wireResult([wireRow({
 const NOWHERE = 'bbb4ce36-25d9-4830-9644-7fcd5682f5fd';
 const LAB_OVERWRITE = wireRow({
     index: 0, name: 'Lab', action: 'OVERWRITE', existsHere: true, matchedChannelCount: 2,
+    restrictedNow: true, restrictedAfter: true,
     droppedPermissions: ['oldPermission'],
     reason: 'Of the 3 channels in the import, 1 is not on this engine.'
         + ' 1 permission in the import is not offered by this engine and is left out.',
@@ -326,7 +330,7 @@ export const IMPORT_OVERWRITE_DETAILS = wireResult([LAB_OVERWRITE]);
 export const IMPORT_SEVERAL_ROWS = wireResult([
     LAB_OVERWRITE,
     wireRow({
-        index: 1, name: 'Day', action: 'OVERWRITE', existsHere: true, matchedChannelCount: 0,
+        index: 1, name: 'Day', action: 'OVERWRITE', existsHere: true, matchedChannelCount: 0, restrictedNow: true,
         reason: 'On this engine this role is restricted to 1 channel. The import removes the restriction, so after the'
             + ' import this role will see every channel.',
         descriptionNow: 'Day shift', descriptionAfter: 'Day team',
@@ -334,7 +338,7 @@ export const IMPORT_SEVERAL_ROWS = wireResult([
         channelsNow: [nowChannel(ONE, 'probe one')], channelsAfter: []
     }),
     wireRow({
-        index: 2, name: 'Night', action: 'OVERWRITE', existsHere: true, matchedChannelCount: 2,
+        index: 2, name: 'Night', action: 'OVERWRITE', existsHere: true, matchedChannelCount: 2, restrictedAfter: true,
         reason: 'On this engine this role sees every channel. The import restricts this role to 2 channels.',
         descriptionNow: 'Night shift', descriptionAfter: 'Night team',
         permissionsNow: ['viewChannels'], permissionsAfter: ['viewChannels'],
@@ -349,6 +353,7 @@ export const IMPORT_SEVERAL_ROWS = wireResult([
 const GONE_NAMED = '0a1b2c3d-1111-4222-8333-444455556666';
 export const IMPORT_MATCH_VALUES = wireResult([wireRow({
     index: 0, name: 'Ward', action: 'OVERWRITE', existsHere: true, matchedChannelCount: 1,
+    restrictedNow: true, restrictedAfter: true,
     reason: 'Of the 3 channels in the import, 2 are not on this engine.',
     descriptionNow: 'Ward staff', descriptionAfter: 'Ward team',
     permissionsNow: ['viewChannels'], permissionsAfter: ['viewChannels'],
@@ -359,11 +364,33 @@ export const IMPORT_MATCH_VALUES = wireResult([wireRow({
         channel(NOWHERE, 'probe nowhere', { match: 'NOT_FOUND', used: false })]
 })]);
 
-// A New role whose import channels exist nowhere on this engine, with the apply box ticked: it would see every channel.
+// Roles restricted to no channel: one that stays so, one that goes to every channel, one that goes from every
+// channel to none, and a New role restricted to no channel.
+export const IMPORT_NONE_ROWS = wireResult([
+    wireRow({
+        index: 0, name: 'Quiet', action: 'OVERWRITE', existsHere: true, restrictedNow: true, restrictedAfter: true,
+        descriptionNow: 'Quiet', descriptionAfter: 'Quiet team',
+        permissionsNow: ['viewChannels'], permissionsAfter: ['viewChannels']
+    }),
+    wireRow({
+        index: 1, name: 'Reopen', action: 'OVERWRITE', existsHere: true, restrictedNow: true,
+        descriptionNow: 'Reopen', descriptionAfter: 'Reopen team',
+        permissionsNow: ['viewChannels'], permissionsAfter: ['viewChannels']
+    }),
+    wireRow({
+        index: 2, name: 'Close', action: 'OVERWRITE', existsHere: true, restrictedAfter: true,
+        descriptionNow: 'Close', descriptionAfter: 'Close team',
+        permissionsNow: ['viewChannels'], permissionsAfter: ['viewChannels']
+    }),
+    wireRow({ index: 3, name: 'Fresh none', action: 'CREATE', restrictedAfter: true, descriptionAfter: 'none',
+        permissionsAfter: ['viewChannels'] })
+]);
+
+// A New role whose import channels exist nowhere on this engine, with the apply box ticked: it is restricted to no channel.
 export const IMPORT_NO_CHANNEL_FOUND = wireResult([wireRow({
-    index: 0, name: 'probe lost', action: 'CREATE', noChannelFound: true,
+    index: 0, name: 'probe lost', action: 'CREATE', noChannelFound: true, restrictedAfter: true,
     reason: 'The import restricts this role to 1 channel. None of those channels exist on this engine. If imported,'
-        + ' this role will see every channel until an administrator sets channels for this role.',
+        + ' this role is restricted to no channels until an administrator sets channels for this role.',
     descriptionAfter: 'lost', permissionsAfter: ['viewChannels'],
     channelsAfter: [channel(NOWHERE, 'probe nowhere', { match: 'NOT_FOUND', used: false })]
 }), { ...NEW_LAB, index: 1 }]);

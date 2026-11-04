@@ -16,14 +16,28 @@ import org.junit.jupiter.api.Test;
 class RoleExportTextTest {
 
     @Test
-    void counts_permissionsAndChannelsOrEvery() {
+    void counts_permissionsAndChannelsEveryNoneOrCount() {
         Role role = new Role();
         assertEquals("0", RoleExportText.permissionsCount(role));
         assertEquals("every", RoleExportText.channelsCount(role));
         role.setPermissions(new HashSet<>(Arrays.asList("a", "b")));
         role.setChannelIds(new HashSet<>(Arrays.asList("x", "y", "z")));
         assertEquals("2", RoleExportText.permissionsCount(role));
+        assertEquals("every", RoleExportText.channelsCount(role), "the flag decides, not the list");
+        role.setRestricted(true);
         assertEquals("3", RoleExportText.channelsCount(role));
+        role.setChannelIds(new HashSet<String>());
+        assertEquals("none", RoleExportText.channelsCount(role));
+    }
+
+    @Test
+    void channelsLine_everyNoneOrNothing() {
+        Role role = new Role();
+        assertEquals("This role sees every channel.", RoleExportText.channelsLine(role));
+        role.setRestricted(true);
+        assertEquals("This role sees no channels.", RoleExportText.channelsLine(role));
+        role.setChannelIds(new HashSet<>(Arrays.asList("x")));
+        assertEquals("", RoleExportText.channelsLine(role));
     }
 
     @Test

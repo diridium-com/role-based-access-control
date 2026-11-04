@@ -117,7 +117,7 @@ def check_tables(r, db, dbname, want, where=""):
 def check_schema_version(r, db, dbname, where=""):
     version = db.schema_version(dbname)
     if version is not None or db.kind != "derby":
-        r.check(f"{where}schema_version is 3 in CONFIGURATION", version == 3, f"found {version}")
+        r.check(f"{where}schema_version is 4 in CONFIGURATION", version == 4, f"found {version}")
 
 
 # ---------- fresh install: every feature
@@ -171,16 +171,56 @@ def fresh(r, engine, db, dbname, new_zip, **_):
     if rows is not None:
         r.check("before the restart, the deleted user's rbac_user_role row is still there", rows == 1, f"found {rows}")
 
+    # Deleting a channel leaves the restriction rows that name it; the sweep at the next start removes them and
+    # leaves each role restricted, to no channel if none is left.
+    gone = b.new_id()
+    ok, detail = b.create_channel(api, gone, "rbac e2e gone")
+    r.check("create channel gone", ok, detail)
+    sweep_both = b.create_role(api, "e2e sweep A and gone", ["viewChannels"], [w.channels["A"], gone])
+    sweep_only = b.create_role(api, "e2e sweep gone only", ["viewChannels"], [gone])
+    w.roles["sweep-only"] = sweep_only
+    k.add_user(w, "sweep-only", "sweep-only")
+    status, _ = api.request("DELETE", f"/channels/{gone}")
+    r.check("a channel a role is restricted to can be deleted", status in (200, 204), f"HTTP {status} {api.reason}")
+    r.check("before the restart, the roles still list the deleted channel",
+            b.roles(api)[sweep_both]["channelIds"] == {w.channels["A"], gone}
+            and b.roles(api)[sweep_only]["channelIds"] == {gone}, str(b.roles(api)))
+
     before_roles = b.roles(api)
+    # Earlier checks deleted channels too (A2 in the channel-limited bulk remove), so the sweep also trims those
+    # roles: every other role is expected back with its restrictions to live channels only.
+    live = b.channel_ids(api)[1] or set()
+    expected_roles = {rid: dict(role, channelIds=role["channelIds"] & live) for rid, role in before_roles.items()}
     before_users = {key: (b.user_role(api, uid) or {}).get("id") for key, uid in w.ids.items()}
     log_len = len(engine.log())
     api = engine.restart()
     after = engine.log()[log_len:]
+    now_roles = b.roles(api)
+    r.check("after a restart, the sweep removed the deleted channel from the role that keeps another",
+            now_roles[sweep_both]["channelIds"] == {w.channels["A"]} and now_roles[sweep_both]["restricted"] is True,
+            str(now_roles.get(sweep_both)))
+    r.check("after a restart, the role whose only channel was deleted is restricted to no channel",
+            now_roles[sweep_only]["channelIds"] == set() and now_roles[sweep_only]["restricted"] is True,
+            str(now_roles.get(sweep_only)))
+    r.check("mirth.log: the sweep names each role it trimmed",
+            "removed 1 restriction(s) to deleted channels from role 'e2e sweep A and gone'" in after
+            and "removed 1 restriction(s) to deleted channels from role 'e2e sweep gone only', which is now restricted"
+                " to no channels" in after
+            and "removed 1 restriction(s) to deleted channels from role 'e2e channels A and A2 only'" in after,
+            after[-1500:])
+    status, ids = b.channel_ids(login(engine, "rbac-e2e-sweep-only"))
+    r.check("a user whose role is restricted to no channel sees no channel", status == 200 and ids == set(),
+            f"HTTP {status}: {ids}")
+    before_roles = {rid: role for rid, role in expected_roles.items() if rid not in (sweep_both, sweep_only)}
     r.check("after a restart, the deleted user's role assignment is gone", b.user_role(api, orphan) is None)
     rows = db.user_role_rows(dbname, orphan)
     if rows is not None:
         r.check("after a restart, the deleted user's rbac_user_role row is gone", rows == 0, f"found {rows}")
-    r.check("after a restart, every role is unchanged", b.roles(api) == before_roles)
+    other_roles = {rid: role for rid, role in b.roles(api).items() if rid not in (sweep_both, sweep_only)}
+    r.check("after a restart, every other role is unchanged but for restrictions to deleted channels",
+            other_roles == before_roles,
+            str({rid: (before_roles.get(rid), other_roles.get(rid)) for rid in set(before_roles) | set(other_roles)
+                 if before_roles.get(rid) != other_roles.get(rid)}))
     after_users = {key: (b.user_role(api, uid) or {}).get("id") for key, uid in w.ids.items()}
     r.check("after a restart, every user keeps its role", after_users == before_users, f"{before_users} -> {after_users}")
     r.check("after a restart, no schema step ran", "Applying RBAC schema" not in after)
@@ -251,14 +291,18 @@ def upgrade(r, engine, db, dbname, new_zip, old_zip, upgrade_engine=None, **_):
             got = b.user_role(api, uid)
             r.check(f"{name} holds the admin role again", admin_role and got and got["id"] == admin_role["id"], str(got))
     else:
-        # Releases before schema step v3 left SQL Server's text columns VARCHAR; no other database needs a step.
+        # Releases before schema step v3 left SQL Server's text columns VARCHAR; every release before v4 lacks the
+        # restricted column, which v4 adds and sets for the roles that have channel rows.
         steps = re.findall(r"Applying RBAC schema (v\d)", after)
-        want = ["v3"] if db.server == "sqlserver" else []
+        want = ["v3", "v4"] if db.server == "sqlserver" else ["v4"]
         r.check(f"the upgrade ran schema steps {want}", steps == want, f"ran {steps}")
         now = b.roles(api)
         others = {rid: role for rid, role in snapshot.items() if not role["isAdmin"]}
         r.check("every non-admin role is kept as it was", {rid: now.get(rid) for rid in others} == others,
                 f"{others} -> {now}")
+        r.check("v4 set the restricted flag for the role with channel rows and not for the others",
+                now.get(rid, {}).get("restricted") is True
+                and all(role["restricted"] is False for rid2, role in now.items() if rid2 != rid), str(now))
         old_admin = next(role for role in snapshot.values() if role["isAdmin"])
         r.check("the admin role is kept, flagged, with at least its permissions",
                 admin_role and admin_role["id"] == old_admin["id"]

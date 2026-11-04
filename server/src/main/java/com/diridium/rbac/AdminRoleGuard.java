@@ -105,7 +105,7 @@ class AdminRoleGuard {
             throw badRequest("The admin role must retain all permissions; users assigned to it would otherwise lose access");
         }
 
-        if (incoming.getChannelIds() != null && !incoming.getChannelIds().isEmpty()) {
+        if (incoming.isRestricted() || (incoming.getChannelIds() != null && !incoming.getChannelIds().isEmpty())) {
             throw badRequest("The admin role cannot have channel restrictions");
         }
     }

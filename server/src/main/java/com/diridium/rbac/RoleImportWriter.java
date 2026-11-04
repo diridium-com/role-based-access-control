@@ -46,6 +46,8 @@ final class RoleImportWriter {
             Map<String, Object> params = new HashMap<>();
             params.put("name", role.getName());
             params.put("description", role.getDescription());
+            // For a kept-channels overwrite the planner set this from the existing role, so the update keeps it.
+            params.put("restricted", role.isRestricted());
             int roleId;
             if (write.existingId() == null) {
                 // Asked inside the transaction, so it sees the roles this import already inserted.
