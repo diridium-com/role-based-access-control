@@ -106,6 +106,7 @@ public class RbacAuthorizationController extends AuthorizationController {
     // cannot be removed via the Users panel, which would otherwise leave the
     // system with zero admins (rbac_user_role has no FK to the person table, so
     // RBAC never sees the deletion through its own role/assignment operations).
+    // Also the only signal RBAC gets of a user delete, see DeletedUserCleanup.
     private static final String REMOVE_USER_OPERATION = "removeUser";
 
     // Maps operation name -> permission string (e.g., "getChannel" -> "viewChannels")
@@ -130,6 +131,9 @@ public class RbacAuthorizationController extends AuthorizationController {
 
     // The engine's plugin-settings calls, decided before the permission lookup.
     private final PluginSettingsGuard pluginSettingsGuard = new PluginSettingsGuard();
+
+    // A deleted user's assignment row, removed on the next request after the engine's delete.
+    private final DeletedUserCleanup deletedUsers = DeletedUserCleanup.create(this::invalidateCache);
 
     /**
      * Builds the operation→permission map immediately so every later
@@ -211,6 +215,18 @@ public class RbacAuthorizationController extends AuthorizationController {
      */
     @Override
     public boolean isUserAuthorized(Integer userId, Operation operation, Map<String, Object> parameterMap, String address, boolean audit) throws ControllerException {
+        deletedUsers.run();
+        boolean allowed = decide(userId, operation, parameterMap, address, audit);
+        if (allowed && operation != null && REMOVE_USER_OPERATION.equals(operation.getName())
+                && parameterMap != null && parameterMap.get("userId") instanceof Integer target) {
+            // The engine deletes the user right after this; the row goes on the next request.
+            deletedUsers.expect(target, DeletedUserCleanup.usernameOf(target));
+        }
+        return allowed;
+    }
+
+    /** The decision itself; see {@link #isUserAuthorized}. */
+    private boolean decide(Integer userId, Operation operation, Map<String, Object> parameterMap, String address, boolean audit) throws ControllerException {
         // Lockout guard: refuse to delete the last admin user, even for admins.
         // This sits ahead of the admin bypass on purpose — an admin deleting the
         // only admin (including themselves) would otherwise lock everyone out.

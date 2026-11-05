@@ -161,15 +161,22 @@ def fresh(r, engine, db, dbname, new_zip, **_):
     k.cache(r, w)
     k.unknown_operations(r, engine)
 
-    # Deleting an engine user leaves its rbac row (rbac_user_role has no foreign key to the engine's users);
-    # the sweep at the next start removes it.
+    # Deleting an engine user: the engine tells no plugin, but it asks rbac to authorize the delete first, so
+    # rbac removes the user's assignment row on the next request it authorizes (DeletedUserCleanup).
     orphan = b.create_user(api, "rbac-e2e-orphan", PASSWORD)
     b.assign_role(api, orphan, w.roles["viewer"])
+    log_len = len(engine.log())
     status, _ = api.request("DELETE", f"/users/{orphan}")
     r.check("a user holding a role can be deleted", status in (200, 204), f"HTTP {status} {api.reason}")
+    b.roles(api)  # any authorized request after the delete
     rows = db.user_role_rows(dbname, orphan)
     if rows is not None:
-        r.check("before the restart, the deleted user's rbac_user_role row is still there", rows == 1, f"found {rows}")
+        r.check("on the next request after the delete, the deleted user's rbac_user_role row is gone", rows == 0,
+                f"found {rows}")
+    r.check("on the next request after the delete, the deleted user has no role", b.user_role(api, orphan) is None)
+    r.check("mirth.log: the delete names the user and the role",
+            "RBAC maintenance: user 'rbac-e2e-orphan' was deleted, removed the assignment to role 'e2e read-only'."
+            in engine.log()[log_len:], engine.log()[log_len:][-1500:])
 
     # Deleting a channel: the engine tells rbac (RbacChannelPlugin.remove), which removes the restriction rows that
     # name it at that moment and leaves each role restricted, to no channel if none is left.

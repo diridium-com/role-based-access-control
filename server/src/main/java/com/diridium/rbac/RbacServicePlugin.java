@@ -79,12 +79,13 @@ public class RbacServicePlugin implements ServicePlugin {
             return;
         }
         MigrationStatus.markOk();
-        // One-time orphan sweep: the engine deletes users without notifying RBAC (no FK,
-        // no deletion hook), leaving rbac_user_role rows behind. Remove any assignment row
-        // whose user no longer exists in the engine PERSON table, so a future reused id
-        // cannot inherit a deleted user's role. Run BEFORE seeding so it only ever removes
-        // pre-existing orphans and never a row the seeder just wrote. Self-contained
-        // (PERSON-driven), so it is safe even if user enumeration below fails.
+        // Orphan sweep: the engine deletes users without notifying RBAC (no FK, no deletion
+        // hook). While RBAC runs, DeletedUserCleanup removes the assignment row on the request
+        // after the delete; this sweep covers users deleted while RBAC was not loaded. Remove
+        // any assignment row whose user no longer exists in the engine PERSON table. Run
+        // BEFORE seeding so it only ever removes pre-existing orphans and never a row the
+        // seeder just wrote. Self-contained (PERSON-driven), so it is safe even if user
+        // enumeration below fails.
         RbacRepository.deleteOrphanUserRoles();
         RbacRepository.init(gatherExistingUserIds());
         // The same for channels: a deleted channel leaves its restriction rows behind. The role
