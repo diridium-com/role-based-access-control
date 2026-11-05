@@ -49,7 +49,7 @@ This runs the Java tests and the web UI's unit tests; `-DskipTests` skips both. 
 The distributable zip lands at:
 
 ```
-package/target/rbac-1.2.0.zip
+package/target/rbac-1.3.0.zip
 ```
 
 ## Testing
@@ -62,7 +62,7 @@ package/target/rbac-1.2.0.zip
 To run `e2e` locally you need Java 17 or later, Docker for every database but Derby, and the OIE distribution for the POM's `mc.version` (`oie_unix_4_7_0.tar.gz` from the engine's release):
 
 ```bash
-python3 e2e/run.py --db postgres --zip package/target/rbac-1.2.0.zip \
+python3 e2e/run.py --db postgres --zip package/target/rbac-1.3.0.zip \
     --tarball oie_unix_4_7_0.tar.gz --work /tmp/rbac-e2e-1
 ```
 

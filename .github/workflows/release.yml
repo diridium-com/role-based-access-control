@@ -38,6 +38,11 @@ on:
 permissions:
   contents: read
 
+# -C makes every Maven run, the engine-jar install script's included, fail on a
+# checksum mismatch instead of only warning.
+env:
+  MAVEN_ARGS: -C
+
 jobs:
   build:
     runs-on: ubuntu-latest
