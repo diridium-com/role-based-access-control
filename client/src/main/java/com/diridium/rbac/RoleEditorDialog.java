@@ -71,6 +71,7 @@ public class RoleEditorDialog extends JDialog {
     private JRadioButton allChannelsRadio;
     private JRadioButton specificChannelsRadio;
     private JLabel noChannelsLabel;
+    private JLabel adminPermissionsLabel;
     private final Map<String, JCheckBox> channelCheckboxes = new LinkedHashMap<>();
     // Granted permissions that are not in the fetched catalog (e.g. an extension
     // was temporarily uninstalled). No checkbox is rendered for them; they are
@@ -299,6 +300,10 @@ public class RoleEditorDialog extends JDialog {
 
         JScrollPane permScroll = new JScrollPane(permGridPanel);
         permissionsPanel.add(permScroll, BorderLayout.CENTER);
+        adminPermissionsLabel = new JLabel(RolePermissionDisplay.ADMIN_LINE);
+        adminPermissionsLabel.setBorder(BorderFactory.createEmptyBorder(4, 6, 4, 6));
+        adminPermissionsLabel.setVisible(false);
+        permissionsPanel.add(adminPermissionsLabel, BorderLayout.SOUTH);
         tabbedPane.addTab("Permissions", permissionsPanel);
 
         // --- Channel Restrictions Tab ---
@@ -380,11 +385,13 @@ public class RoleEditorDialog extends JDialog {
             allChannelsRadio.setEnabled(false);
             specificChannelsRadio.setEnabled(false);
             setChannelCheckboxesEnabled(false);
+            adminPermissionsLabel.setVisible(true);
         }
 
-        // Check granted permissions
-        if (role.getPermissions() != null) {
-            for (String perm : role.getPermissions()) {
+        // Check granted permissions: the whole catalog for the admin role, whose holders have
+        // every permission whatever its stored list says (issue #28)
+        if (role.isAdmin() || role.getPermissions() != null) {
+            for (String perm : RolePermissionDisplay.shown(role, permissionCheckboxes.keySet())) {
                 JCheckBox cb = permissionCheckboxes.get(perm);
                 if (cb != null) {
                     cb.setSelected(true);

@@ -146,6 +146,18 @@ export function editorChannelIds(ticked, storedIds, liveIds) {
     return saved;
 }
 
+// What the editor shows ticked: the whole catalog for the admin role, whose holders
+// have every permission whatever its stored list says (issue #28); otherwise the
+// role's stored permissions that the catalog has. role is the stored role or null.
+export function editorPermissions(role, catalog) {
+    if (!role) return new Set();
+    if (role.isAdmin) return new Set(catalog);
+    return new Set([...role.permissions].filter((p) => catalog.has(p)));
+}
+
+export const MSG_ADMIN_EVERY_PERMISSION =
+    'The admin role has every permission, including those of plugins installed later.';
+
 // The restricted flag a save sends: the admin role keeps its stored flag, any
 // other role is restricted exactly when Specific Channels is selected. role is
 // the stored role or null for a new one; mode is 'all' or 'specific'.

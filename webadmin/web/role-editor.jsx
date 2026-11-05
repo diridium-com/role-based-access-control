@@ -27,6 +27,7 @@
 
 import {
     groupPermissions, orphanPermissionsOf, missingBase, editorChannelIds, editorRestricted,
+    editorPermissions, MSG_ADMIN_EVERY_PERMISSION,
     READ_ONLY_PERMISSIONS, permissionWarning, READ_ONLY_TOOLTIP,
     TITLE_ADD_ROLE, TITLE_EDIT_ROLE, MSG_NAME_REQUIRED, TITLE_VALIDATION_ERROR,
     MSG_CATALOG_EMPTY_EDIT, TITLE_PERMISSIONS_UNAVAILABLE,
@@ -152,8 +153,7 @@ export function makeRoleEditor(platform) {
 
         const [name, setName] = React.useState(role ? role.name : '');
         const [description, setDescription] = React.useState(role ? role.description : '');
-        const [selected, setSelected] = React.useState(() => new Set(
-            role ? [...role.permissions].filter((p) => catalog && catalog.has(p)) : []));
+        const [selected, setSelected] = React.useState(() => editorPermissions(role, catalog || new Set()));
         const [mode, setMode] = React.useState(
             role && role.restricted ? 'specific' : 'all');
         const [checkedChannels, setCheckedChannels] = React.useState(() => new Set(
@@ -274,6 +274,7 @@ export function makeRoleEditor(platform) {
                                         </fieldset>
                                     ))}
                                 </div>
+                                {isAdmin ? <div className="hint">{MSG_ADMIN_EVERY_PERMISSION}</div> : null}
                             </div>
                         ) : (
                             <div>
