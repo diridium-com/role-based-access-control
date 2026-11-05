@@ -11,9 +11,10 @@
 
 import { test, expect } from '@playwright/test';
 import { mockEngineWithRbac } from './mock.js';
-import { rbacFixtures, ADMIN_ROLE, READ_ONLY_ROLE } from './fixtures.js';
+import { rbacFixtures, ADMIN_ROLE, READ_ONLY_ROLE, FULL_PERMISSIONS } from './fixtures.js';
 
 const NO_CHANNELS = 'This role sees no channels until some are ticked.';
+const ADMIN_EVERY = 'The admin role has every permission, including those of plugins installed later.';
 const NONE_ROLE = { ...READ_ONLY_ROLE, id: 5, name: 'Sees None', restricted: true, channelIds: null };
 const SOME_ROLE = { ...READ_ONLY_ROLE, id: 6, name: 'Sees Some', restricted: true, channelIds: { string: 'c-started' } };
 const UNKNOWN_ID_ROLE = {
@@ -62,6 +63,37 @@ async function addRole(page, name) {
 
 const all = (editor) => editor.getByLabel('All Channels');
 const specific = (editor) => editor.getByLabel('Specific Channels');
+
+test.describe('role editor: the admin role shows every permission (issue #28)', () => {
+    test('every catalog permission is ticked and disabled, the line shows, and Apply re-sends the stored list', async ({ page }) => {
+        const writes = watchWrites(page);
+        await openPanel(page);
+        // The roles table lists the name once; the users table repeats it per holder.
+        await page.getByRole('cell', { name: ADMIN_ROLE.name, exact: true }).first().click();
+        await page.getByRole('button', { name: 'Edit', exact: true }).click();
+        const editor = page.locator('.rbac-overlay');
+        const boxes = editor.locator('.rbac-perm-grid input[type=checkbox]');
+        await expect(boxes).toHaveCount(FULL_PERMISSIONS.length);
+        await expect(editor.locator('.rbac-perm-grid input[type=checkbox]:checked')).toHaveCount(FULL_PERMISSIONS.length);
+        await expect(editor.locator('.rbac-perm-grid input[type=checkbox]:disabled')).toHaveCount(FULL_PERMISSIONS.length);
+        await expect(editor.getByText(ADMIN_EVERY)).toBeVisible();
+        await editor.getByRole('button', { name: 'Apply' }).click();
+        await expect.poll(() => writes.length).toBe(1);
+        expect(writes[0][0]).toBe('PUT');
+        // The stored list, not the catalog: the fixture's admin role holds the core permissions only.
+        const extension = FULL_PERMISSIONS.find((p) => p.includes(' '));
+        expect(writes[0][1]).toContain('<string>viewChannels</string>');
+        expect(writes[0][1]).not.toContain('<string>' + extension + '</string>');
+    });
+
+    test('a non-admin role shows only its stored permissions and no line', async ({ page }) => {
+        await openPanel(page);
+        const editor = await editRole(page, 'Read Only');
+        await editor.getByRole('button', { name: 'Permissions' }).click();
+        await expect(editor.locator('.rbac-perm-grid input[type=checkbox]:checked')).toHaveCount(READ_ONLY_ROLE.permissions.string.length);
+        await expect(editor.getByText(ADMIN_EVERY)).toHaveCount(0);
+    });
+});
 
 test.describe('role editor: the restricted flag', () => {
     test('the radio comes from the flag: unrestricted is All, restricted with no channels or some is Specific', async ({ page }) => {
