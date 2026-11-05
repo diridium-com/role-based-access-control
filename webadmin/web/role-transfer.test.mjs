@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 /*
- * The strings and pure logic of Export Roles and Import Roles in rbac-core.js.
+ * The strings and pure logic of Export Roles and Import Roles in role-transfer-core.js.
  * The Swing client has the same texts; a change here is a change there.
  *
  * Run: npm test   (from webadmin/; node --test web/)
@@ -12,16 +12,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     TASK_EXPORT_ROLES, TASK_EXPORT_ROLES_TOOLTIP, TASK_IMPORT_ROLES, TASK_IMPORT_ROLES_TOOLTIP,
-    TITLE_EXPORT_ROLES, EXPORT_PROMPT, EXPORT_CHANNELS_LINE, EXPORT_CHANNELS_NOTE, EXPORT_CHANNELS_BOLD, EXPORT_COLUMNS, MSG_NO_ROLES_TO_EXPORT, EXPORT_FILE_NAME, exportedText,
+    TITLE_EXPORT_ROLES, EXPORT_PROMPT, EXPORT_CHANNELS_NOTE, EXPORT_CHANNELS_BOLD, EXPORT_COLUMNS, MSG_NO_ROLES_TO_EXPORT, EXPORT_FILE_NAME, exportedText,
     TITLE_IMPORT_ROLES, IMPORT_APPLY_CHANNELS, IMPORT_MATCH_BY_NAME, IMPORT_COLUMNS,
     importRefusedText, importSourceText, importedText,
     actionLabel, canTick, defaultTick, mergeTicks, pickedIndexes, notesText, nameMatchHint,
     PERMISSION_COLUMNS, CHANNEL_COLUMNS, CHANNEL_ID_COLUMNS, PERMISSIONS_LEGEND, CHANNELS_LEGEND, CHANNELS_NOT_APPLIED,
-    EXPORT_PERMISSION_COLUMNS, EXPORT_CHANNEL_COLUMNS, MSG_NO_CHANNELS_TICKED,
+    EXPORT_PERMISSION_COLUMNS, EXPORT_CHANNEL_COLUMNS,
     EXPORT_EVERY_CHANNEL, EXPORT_NO_CHANNEL, countText, permissionsCountText, channelsCountText, everyChannelText, foundText,
-    permissionRows, channelRows, permissionsHeading, channelsHeading, sortRows,
+    permissionRows, channelRows, permissionsHeading, channelsHeading, sortRows, compareCounts,
     exportPermissionRows, exportChannelRows, exportPermissionsCount, exportChannelsCount
-} from './rbac-core.js';
+} from './role-transfer-core.js';
+import { MSG_NO_CHANNELS_TICKED } from './rbac-core.js';
 
 const row = (over = {}) => ({
     index: 0, name: 'R', action: 'CREATE', reason: '',
@@ -40,9 +41,6 @@ test('the strings are the agreed wording', () => {
         'Export Roles', 'Export roles to a file.', 'Import Roles', 'Import roles from a file.']);
     assert.equal(TITLE_EXPORT_ROLES, 'Export Roles');
     assert.equal(EXPORT_PROMPT, 'Pick the roles to export. The admin role is never exported.');
-    assert.equal(EXPORT_CHANNELS_LINE,
-        'Channel restrictions are included. When importing, you can choose not to apply them.');
-    assert.equal(EXPORT_CHANNELS_NOTE + EXPORT_CHANNELS_BOLD, EXPORT_CHANNELS_LINE);
     assert.equal(EXPORT_CHANNELS_NOTE, 'Channel restrictions are included. ');
     assert.equal(EXPORT_CHANNELS_BOLD, 'When importing, you can choose not to apply them.');
     assert.deepEqual(EXPORT_COLUMNS, ['Export', 'Role', 'Description', 'Permissions', 'Channels']);
@@ -79,8 +77,8 @@ test('the strings are the agreed wording', () => {
 
 test('no string has an em dash', () => {
     const role = { restricted: true, channelIds: new Set(['a']), permissions: new Set(['p']) };
-    const all = [TASK_EXPORT_ROLES_TOOLTIP, TASK_IMPORT_ROLES_TOOLTIP, EXPORT_PROMPT, EXPORT_CHANNELS_LINE,
-        MSG_NO_ROLES_TO_EXPORT, IMPORT_APPLY_CHANNELS, IMPORT_MATCH_BY_NAME,
+    const all = [TASK_EXPORT_ROLES_TOOLTIP, TASK_IMPORT_ROLES_TOOLTIP, EXPORT_PROMPT,
+        EXPORT_CHANNELS_NOTE, EXPORT_CHANNELS_BOLD, MSG_NO_ROLES_TO_EXPORT, IMPORT_APPLY_CHANNELS, IMPORT_MATCH_BY_NAME,
         nameMatchHint(2, true, false), notesText(row({ action: 'UNCHANGED' })),
         everyChannelText(row({ existsHere: true })), EXPORT_EVERY_CHANNEL, EXPORT_NO_CHANNEL, MSG_NO_CHANNELS_TICKED,
         everyChannelText(row({ existsHere: true, restrictedNow: true, restrictedAfter: true })),
@@ -278,6 +276,21 @@ test('channel rows: a kept channel list is one row each, now and after, with not
     assert.deepEqual(channelRows(row({ action: 'SKIP' })), [], 'nothing looked up: no rows');
 });
 
+test('compareCounts: by first number, every and none after any number, ties by the text', () => {
+    const sorted = (counts) => [...counts].sort(compareCounts);
+    assert.deepEqual(sorted([10, 9, 2, 'every', 'none', '12 \u2192 14']), [2, 9, 10, '12 \u2192 14', 'every', 'none']);
+    assert.deepEqual(sorted(['none', 'every']), ['every', 'none']);
+    assert.deepEqual(sorted(['3 \u2192 5', '3 \u2192 4', 3]), [3, '3 \u2192 4', '3 \u2192 5']);
+    assert.equal(compareCounts(10, 10), 0);
+});
+
+test('sortRows with a comparator: count texts sort by number, descending reverses it, ties keep their order', () => {
+    const rows = [['a', '10'], ['b', '2'], ['c', 'every'], ['d', '2'], ['e', 'none']];
+    assert.deepEqual(sortRows(rows, 1, 'asc', compareCounts).map((r) => r[0]), ['b', 'd', 'a', 'c', 'e']);
+    assert.deepEqual(sortRows(rows, 1, 'desc', compareCounts).map((r) => r[0]), ['e', 'c', 'a', 'b', 'd']);
+    assert.deepEqual(sortRows(rows, 1, 'asc').map((r) => r[0]), ['a', 'b', 'd', 'c', 'e'], 'as text, "10" is first');
+});
+
 test('sortRows: ascending, descending, by index, name or function; stable; a copy', () => {
     const rows = [['b', '2'], ['a', '2'], ['c', '1']];
     assert.deepEqual(sortRows(rows, 0, 'asc').map((r) => r[0]), ['a', 'b', 'c']);
@@ -289,13 +302,17 @@ test('sortRows: ascending, descending, by index, name or function; stable; a cop
     assert.deepEqual(rows.map((r) => r[0]), ['b', 'a', 'c'], 'the input is untouched');
 });
 
-test('Export rows: permissions sorted; channels by name with unknown ids last, shown as the id; list not loaded; counts', () => {
+test('Export rows: permissions sorted; channels by shown text, case-insensitive, ids mixed in; list not loaded; counts', () => {
     assert.deepEqual(exportPermissionRows({ permissions: new Set(['viewDashboard', 'viewAlerts']) }),
         [['viewAlerts'], ['viewDashboard']]);
     const map = new Map([['id-b', 'Beta'], ['id-a', 'Alpha']]);
     assert.deepEqual(exportChannelRows({ restricted: true, channelIds: new Set() }, map), []);
     assert.deepEqual(exportChannelRows({ restricted: true, channelIds: new Set(['id-b', 'zzz', 'id-a']) }, map),
         [['Alpha', 'id-a'], ['Beta', 'id-b'], ['zzz', 'zzz']], 'a map with a missing id');
+    const mixed = new Map([['i1', 'beta'], ['i2', 'Alpha'], ['i3', 'Gamma']]);
+    assert.deepEqual(exportChannelRows({ channelIds: new Set(['i1', 'i2', 'i3', 'c-id', 'zz-id']) }, mixed),
+        [['Alpha', 'i2'], ['beta', 'i1'], ['c-id', 'c-id'], ['Gamma', 'i3'], ['zz-id', 'zz-id']],
+        'a missing id sorts among the names by its own text, ignoring case');
     assert.deepEqual(exportChannelRows({ channelIds: new Set(['id-b', 'id-a']) }, null),
         [['id-a', 'id-a'], ['id-b', 'id-b']], 'a null map');
     assert.equal(exportPermissionsCount({ permissions: new Set(['a', 'b']) }), 2);

@@ -220,12 +220,14 @@ test('normalizeRole coerces missing/degenerate fields', () => {
     assert.equal(normalizeRole({ isAdmin: 'false' }).isAdmin, false);
 });
 
-test('normalizeRole reads restricted: a boolean, the XML fallback string, absent from an old server is false', () => {
+test('normalizeRole reads restricted: a boolean, the XML fallback string, absent is true only with channel ids', () => {
     assert.equal(normalizeRole({ restricted: true }).restricted, true);
     assert.equal(normalizeRole({ restricted: 'true' }).restricted, true);
     assert.equal(normalizeRole({ restricted: false }).restricted, false);
     assert.equal(normalizeRole({ restricted: 'false' }).restricted, false);
-    assert.equal(normalizeRole({ channelIds: { string: 'a' } }).restricted, false, 'no flag: false, whatever the list');
+    assert.equal(normalizeRole({ channelIds: { string: 'a' } }).restricted, true, 'no flag, channel ids: restricted');
+    assert.equal(normalizeRole({ channelIds: null }).restricted, false, 'no flag, no ids: every channel');
+    assert.equal(normalizeRole({ restricted: false, channelIds: { string: 'a' } }).restricted, false, 'the flag wins');
 });
 
 /* ---- roleXml: the XStream XML write path ------------------------------------------ */

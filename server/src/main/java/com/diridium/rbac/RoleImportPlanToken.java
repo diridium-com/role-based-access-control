@@ -21,7 +21,7 @@ import java.util.TreeSet;
 final class RoleImportPlanToken {
     private final MessageDigest digest;
 
-RoleImportPlanToken() {
+    RoleImportPlanToken() {
         try {
             digest = MessageDigest.getInstance("SHA-256");
         } catch (NoSuchAlgorithmException e) {
@@ -29,14 +29,14 @@ RoleImportPlanToken() {
         }
     }
 
-RoleImportPlanToken add(Object value) {
+    RoleImportPlanToken add(Object value) {
         byte[] bytes = String.valueOf(value).getBytes(UTF_8);
         digest.update((bytes.length + ":").getBytes(UTF_8));
         digest.update(bytes);
         return this;
     }
 
-RoleImportPlanToken addAll(Collection<String> values) {
+    RoleImportPlanToken addAll(Collection<String> values) {
         Set<String> sorted = values != null ? new TreeSet<>(values) : new TreeSet<>();
         add(sorted.size());
         sorted.forEach(this::add);

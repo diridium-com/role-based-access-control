@@ -135,7 +135,7 @@ test.describe('role editor: the restricted flag', () => {
         expect(writes[0][1]).toContain('<channelIds><string>c-started</string></channelIds><restricted>true</restricted>');
     });
 
-    test('a stored channel id the engine does not have is not shown and is not sent back', async ({ page }) => {
+    test('a stored channel id the editor does not list is not shown and is sent back with the ticked ones', async ({ page }) => {
         const writes = watchWrites(page);
         await openPanel(page);
         const editor = await editRole(page, 'Sees Unknown');
@@ -145,7 +145,18 @@ test.describe('role editor: the restricted flag', () => {
         await expect(editor.getByText('Purge')).toHaveCount(0);
         await editor.getByRole('button', { name: 'Apply' }).click();
         await expect.poll(() => writes.length).toBe(1);
-        expect(writes[0][1]).toContain('<channelIds><string>c-started</string></channelIds><restricted>true</restricted>');
+        expect(writes[0][1]).toContain(
+            '<channelIds><string>c-started</string><string>c-not-here</string></channelIds><restricted>true</restricted>');
+    });
+
+    test('All Channels drops a stored id the editor does not list', async ({ page }) => {
+        const writes = watchWrites(page);
+        await openPanel(page);
+        const editor = await editRole(page, 'Sees Unknown');
+        await all(editor).check();
+        await editor.getByRole('button', { name: 'Apply' }).click();
+        await expect.poll(() => writes.length).toBe(1);
+        expect(writes[0][1]).toContain('<channelIds></channelIds><restricted>false</restricted>');
     });
 
     test('editing a restricted role with no channels and applying keeps it restricted', async ({ page }) => {

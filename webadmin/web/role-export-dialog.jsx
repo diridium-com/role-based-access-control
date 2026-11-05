@@ -12,8 +12,8 @@ import {
     TITLE_EXPORT_ROLES, EXPORT_PROMPT, EXPORT_CHANNELS_NOTE, EXPORT_CHANNELS_BOLD, EXPORT_COLUMNS,
     EXPORT_FILE_NAME, EXPORT_PERMISSION_COLUMNS, EXPORT_CHANNEL_COLUMNS, EXPORT_CHANNEL_ID_COLUMNS,
     EXPORT_EVERY_CHANNEL, EXPORT_NO_CHANNEL, exportedText, exportPermissionRows, exportChannelRows,
-    exportPermissionsCount, exportChannelsCount, permissionsHeading, channelsHeading, sortRows
-} from './rbac-core.js';
+    exportPermissionsCount, exportChannelsCount, permissionsHeading, channelsHeading, sortRows, compareCounts
+} from './role-transfer-core.js';
 import { makeTransferShell } from './role-transfer-shell.jsx';
 import { makeDetailTables } from './role-detail-tables.jsx';
 
@@ -65,7 +65,9 @@ export function makeRoleExportDialog(platform, api) {
             (r) => (ticked.has(r.id) ? 1 : 0), (r) => r.name, (r) => r.description,
             exportPermissionsCount, exportChannelsCount
         ];
-        const shownRoles = sort ? sortRows(roles, sortKeys[sort.col], sort.dir) : roles;
+        // The Permissions and Channels columns (3 and 4) sort by number.
+        const shownRoles = sort
+            ? sortRows(roles, sortKeys[sort.col], sort.dir, sort.col >= 3 ? compareCounts : undefined) : roles;
 
         return (
             <Shell title={TITLE_EXPORT_ROLES} onCancel={onClose} footer={(

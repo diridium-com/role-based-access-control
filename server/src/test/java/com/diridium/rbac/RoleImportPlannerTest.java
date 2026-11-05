@@ -325,7 +325,49 @@ class RoleImportPlannerTest {
         Plan plan = plan(true, fileRole("Lab", List.of(), false));
         assertEquals(Action.OVERWRITE, plan.rows().get(0).getAction());
         assertEquals(Set.of(), plan.writes().get(0).role().getChannelIds());
+        assertFalse(plan.writes().get(0).role().isRestricted());
+        assertTrue(plan.rows().get(0).isRestrictedNow());
+        assertFalse(plan.rows().get(0).isRestrictedAfter());
         assertTrue(plan.writes().get(0).writeChannels());
+    }
+
+    @Test
+    void anExistingRoleRestrictedToNoChannels_isDescribed_andWidenedOnlyByAnUnrestrictedFile() throws Exception {
+        roles.put(5, role(5, "Lab", "d", Set.of(), Set.of(), true));
+        Plan plan = plan(true, fileRole("Lab", List.of(), false));
+        RoleImportRow row = plan.rows().get(0);
+        assertEquals(Action.OVERWRITE, row.getAction());
+        assertTrue(row.isExistsHere());
+        assertTrue(row.isRestrictedNow(), "restricted to no channels is still restricted");
+        assertEquals(List.of(), row.getChannelsNow());
+        assertFalse(row.isRestrictedAfter());
+        assertEquals("On this engine this role is restricted to no channels. The import removes the restriction, so"
+                + " after the import this role will see every channel.", row.getReason());
+        assertFalse(plan.writes().get(0).role().isRestricted());
+    }
+
+    @Test
+    void aFileRoleRestrictedToNoChannels_overAnUnrestrictedRole_isAnOverwrite_notUnchanged() throws Exception {
+        // The two differ only in the flag: the empty channel lists are equal, so the flag must be compared.
+        roles.put(5, role(5, "Lab", "d", Set.of(), Set.of(), false));
+        Plan plan = plan(true, fileRole("Lab", List.of(), true));
+        RoleImportRow row = plan.rows().get(0);
+        assertEquals(Action.OVERWRITE, row.getAction());
+        assertFalse(row.isRestrictedNow());
+        assertTrue(row.isRestrictedAfter());
+        assertEquals("On this engine this role sees every channel. The import restricts this role to no channels.",
+                row.getReason());
+        assertTrue(plan.writes().get(0).role().isRestricted());
+        assertEquals(Set.of(), plan.writes().get(0).role().getChannelIds());
+    }
+
+    @Test
+    void aFileRoleRestrictedToNoChannels_overTheSameRole_isUnchanged() throws Exception {
+        roles.put(5, role(5, "Lab", "d", Set.of(), Set.of(), true));
+        Plan plan = plan(true, fileRole("Lab", List.of(), true));
+        assertEquals(Action.UNCHANGED, plan.rows().get(0).getAction());
+        assertTrue(plan.rows().get(0).isRestrictedNow());
+        assertTrue(plan.rows().get(0).isRestrictedAfter());
     }
 
     // ========== Channels, not applied ==========
@@ -477,13 +519,18 @@ class RoleImportPlannerTest {
     }
 
     private static Role role(int id, String name, String description, Set<String> permissions, Set<String> channelIds) {
+        return role(id, name, description, permissions, channelIds, !channelIds.isEmpty());
+    }
+
+    private static Role role(int id, String name, String description, Set<String> permissions, Set<String> channelIds,
+            boolean restricted) {
         Role role = new Role();
         role.setId(id);
         role.setName(name);
         role.setDescription(description);
         role.setPermissions(new java.util.HashSet<>(permissions));
         role.setChannelIds(new java.util.HashSet<>(channelIds));
-        role.setRestricted(!channelIds.isEmpty());
+        role.setRestricted(restricted);
         role.setAdmin(id == ADMIN_ID);
         return role;
     }

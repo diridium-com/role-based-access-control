@@ -61,7 +61,7 @@ class RoleDetailRowsTest {
         assertEquals(Arrays.asList("a", "yes", "yes", ""), cols(rows.get(0)));
         assertEquals(Arrays.asList("b", "yes", "", ""), cols(rows.get(1)));
         assertEquals(Arrays.asList("c", "", "yes", ""), cols(rows.get(2)));
-        assertEquals(Arrays.asList("x", "", "", "not on this engine, left out"), cols(rows.get(3)));
+        assertEquals(Arrays.asList("x", "", "", "not offered by this engine, left out"), cols(rows.get(3)));
     }
 
     @Test

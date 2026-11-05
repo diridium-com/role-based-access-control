@@ -28,9 +28,11 @@ import {
     MSG_NO_ROLES, deleteRoleConfirmText, TITLE_CONFIRM_DELETE,
     removeRoleConfirmText, TITLE_CONFIRM_REMOVE, assignRolePromptText,
     TITLE_ASSIGN_ROLE, buildAssignmentPreview, ASSIGN_PREVIEW_HEADER,
-    ASSIGN_PREVIEW_FOOTER, TITLE_CONFIRM_ASSIGNMENT,
-    TASK_EXPORT_ROLES, TASK_EXPORT_ROLES_TOOLTIP, TASK_IMPORT_ROLES, TASK_IMPORT_ROLES_TOOLTIP
+    ASSIGN_PREVIEW_FOOTER, TITLE_CONFIRM_ASSIGNMENT
 } from './rbac-core.js';
+import {
+    TASK_EXPORT_ROLES, TASK_EXPORT_ROLES_TOOLTIP, TASK_IMPORT_ROLES, TASK_IMPORT_ROLES_TOOLTIP
+} from './role-transfer-core.js';
 import { mapEntries } from './rbac-api.js';
 import { makeRoleEditor } from './role-editor.jsx';
 import { makeRoleTransfer } from './role-transfer.jsx';
@@ -129,8 +131,9 @@ export function registerRolesPanel(platform, api) {
                 // Grouping is cosmetic — failure just leaves plugin permissions
                 // under "Other".
                 if (extGroupsRes.status === 'fulfilled') setExtGroups(extGroupsRes.value);
-                // A failed fetch keeps the old list, and the editor would show the
-                // missing channels as deleted, so Add/Edit wait for a fresh one.
+                // A failed fetch keeps the old list. A stale or missing list would hide
+                // live channels from the editor (the save keeps them, unseen), so
+                // Add/Edit wait for a fresh one.
                 if (channelsRes.status === 'fulfilled') {
                     setChannels(mapEntries(channelsRes.value).map(([id, name]) => ({ id, name })));
                     setChannelsLoaded(true);

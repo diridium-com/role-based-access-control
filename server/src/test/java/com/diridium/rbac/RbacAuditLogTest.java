@@ -91,17 +91,21 @@ class RbacAuditLogTest {
                 Set.of("id-lab", "id-gone"), true);
         RoleImportPlanner.PlannedRole everywhere = planned(5, "Billing", Set.of(), Set.of(), true);
         RoleImportPlanner.PlannedRole kept = planned(6, "Front desk", Set.of("viewDashboard"), Set.of("id-lab"), false);
+        RoleImportPlanner.PlannedRole nothing = planned(null, "Nobody", Set.of("viewDashboard"), Set.of(), true);
+        nothing.role().setRestricted(true);
 
-        auditLog.rolesImported(List.of(created, everywhere, kept), Map.of("id-lab", "Lab In"), true);
+        auditLog.rolesImported(List.of(created, everywhere, kept, nothing), Map.of("id-lab", "Lab In"), true);
 
         Map<String, String> attrs = capture().getAttributes();
-        assertEquals("Lab", attrs.get("Created"));
         assertEquals("Billing, Front desk", attrs.get("Overwritten"));
         assertEquals("Applied from the file", attrs.get("Channel restrictions"));
         assertEquals("Permissions: viewChannels, viewMessages. Channels: Lab In (id-lab), id-gone.",
                 attrs.get("Role: Lab"), "a channel with no name here has only its id");
         assertEquals("Permissions: (none). Channels: every channel.", attrs.get("Role: Billing"));
         assertEquals("Permissions: viewDashboard. Channels: unchanged.", attrs.get("Role: Front desk"));
+        assertEquals("Permissions: viewDashboard. Channels: no channels.", attrs.get("Role: Nobody"),
+                "restricted with no channel ids is not every channel");
+        assertEquals("Lab, Nobody", attrs.get("Created"));
         assertEquals("Imported", attrs.get("Action"));
     }
 

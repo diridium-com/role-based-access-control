@@ -16,8 +16,8 @@ import {
     PERMISSION_COLUMNS, CHANNEL_COLUMNS, CHANNEL_ID_COLUMNS, PERMISSIONS_LEGEND, CHANNELS_LEGEND, CHANNELS_NOT_APPLIED,
     importRefusedText, importSourceText, importedText, actionLabel, canTick, notesText,
     mergeTicks, pickedIndexes, nameMatchHint, sortRows, permissionsCountText, channelsCountText,
-    permissionsHeading, channelsHeading, permissionRows, channelRows, everyChannelText
-} from './rbac-core.js';
+    permissionsHeading, channelsHeading, permissionRows, channelRows, everyChannelText, compareCounts
+} from './role-transfer-core.js';
 import { makeTransferShell } from './role-transfer-shell.jsx';
 import { makeDetailTables } from './role-detail-tables.jsx';
 
@@ -106,7 +106,10 @@ export function makeRoleImportDialog(platform, api) {
             (r) => (ticks.has(r.index) ? 1 : 0), (r) => r.name, (r) => actionLabel(r.action),
             (r) => r.descriptionNow, (r) => r.descriptionAfter, permissionsCountText, channelsCountText, notesText
         ];
-        const shownRows = sort ? sortRows(result.rows, sortKeys[sort.col], sort.dir) : result.rows;
+        // The Permissions and Channels columns (5 and 6) sort by number.
+        const countColumn = sort && (sort.col === 5 || sort.col === 6);
+        const shownRows = sort
+            ? sortRows(result.rows, sortKeys[sort.col], sort.dir, countColumn ? compareCounts : undefined) : result.rows;
 
         const hint = nameMatchHint(result.channelNameMatches.length, applyChannels, matchByName);
         const nothingPicked = pickedIndexes(result.rows, ticks).length === 0;

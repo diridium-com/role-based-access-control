@@ -67,8 +67,9 @@ public class RoleExportDialog extends JDialog {
         table.getColumnModel().getColumn(0).setMaxWidth(50);
         table.setAutoResizeMode(JTable.AUTO_RESIZE_ALL_COLUMNS);
         TableRowSorter<ExportModel> sorter = new TableRowSorter<>((ExportModel) table.getModel());
-        sorter.setComparator(3, (a, b) -> RoleImportText.compareCounts((String) a, (String) b));
-        sorter.setComparator(4, (a, b) -> RoleImportText.compareCounts((String) a, (String) b));
+        sorter.setComparator(3, RoleImportText.COUNT_ORDER);
+        sorter.setComparator(4, RoleImportText.COUNT_ORDER);
+        table.setDefaultRenderer(Object.class, new PlainCellRenderer(null));
         table.setRowSorter(sorter);
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         table.getSelectionModel().addListSelectionListener(e -> {

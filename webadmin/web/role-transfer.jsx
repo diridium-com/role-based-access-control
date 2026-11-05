@@ -8,7 +8,7 @@
  * renders <TransferDialogs> for it.
  */
 
-import { MSG_NO_ROLES_TO_EXPORT, importRefusedText } from './rbac-core.js';
+import { MSG_NO_ROLES_TO_EXPORT, importRefusedText } from './role-transfer-core.js';
 import { makeRoleExportDialog } from './role-export-dialog.jsx';
 import { makeRoleImportDialog } from './role-import-dialog.jsx';
 

@@ -14,6 +14,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildAssignmentPreview } from './rbac-core.js';
+import { normalizeRole } from './rbac-api.js';
 
 test('restricted role with a nameless channel id and no current role (the canonical case)', () => {
     const role = {
@@ -65,9 +66,9 @@ test('restricted role with no channels shows "No channels"', () => {
         + '  viewDashboard\n');
 });
 
-test('a role without the flag is unrestricted, even with a channel list', () => {
-    const role = { name: 'Old', channelIds: ['id1'], permissions: [] };
-    assert.ok(buildAssignmentPreview('f', null, role, {}).includes('Channel access: All channels\n'));
+test('a role without the flag but with channel ids reads as restricted (the server\'s rule)', () => {
+    const role = normalizeRole({ name: 'Old', channelIds: { string: 'id1' }, permissions: null });
+    assert.ok(buildAssignmentPreview('f', null, role, {}).includes('Channel access: restricted to 1 channel(s):\n  id1\n'));
 });
 
 test('zero-permissions role shows the explicit could-log-in-but-do-nothing line', () => {

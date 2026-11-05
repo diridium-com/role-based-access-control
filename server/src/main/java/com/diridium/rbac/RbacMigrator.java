@@ -65,6 +65,13 @@ public class RbacMigrator extends Migrator {
     private static final Logger log = LoggerFactory.getLogger(RbacMigrator.class);
 
     /**
+     * Set when the stored version was below 4 while the restricted column already exists: the
+     * v4 ALTER went through on an earlier run but its backfill may not have, so the backfill
+     * runs again. It is idempotent: after v4 a role with channel rows is restricted by rule.
+     */
+    private boolean backfillRestricted;
+
+    /**
      * {@inheritDoc}
      *
      * <p>Always detects the schema state from {@link DatabaseMetaData} and
@@ -91,6 +98,9 @@ public class RbacMigrator extends Migrator {
         }
         if (current < 4) {
             applyV4();
+        } else if (backfillRestricted) {
+            log.info("RBAC schema v4 column found with a stored version below 4; running the backfill again");
+            backfillRestricted();
         }
         writeSchemaVersion(LATEST_VERSION);
         log.info("RBAC schema at version {}", LATEST_VERSION);
@@ -115,6 +125,7 @@ public class RbacMigrator extends Migrator {
         } else if (!sameSchema(stored, detected)) {
             log.warn("RBAC schema stored version ({}) does not match actual state ({}); realigning",
                     stored, detected);
+            backfillRestricted = stored < 4 && detected >= 4;
             writeSchemaVersion(detected);
         }
         return detected;
@@ -222,16 +233,25 @@ public class RbacMigrator extends Migrator {
             case "sqlserver" -> "ALTER TABLE rbac_role ADD restricted BIT NOT NULL DEFAULT 0";
             default -> "ALTER TABLE rbac_role ADD COLUMN restricted BOOLEAN NOT NULL DEFAULT FALSE";
         };
+        try {
+            executeStatement(add);
+        } catch (Exception e) {
+            throw new MigrationException("Failed to add restricted column", e);
+        }
+        backfillRestricted();
+    }
+
+    /** Sets {@code restricted} for every role that has channel rows. Safe to run more than once. */
+    private void backfillRestricted() throws MigrationException {
         String yes = switch (getDatabaseType()) {
             case "oracle", "sqlserver" -> "1";
             default -> "TRUE";
         };
         try {
-            executeStatement(add);
             executeStatement("UPDATE rbac_role SET restricted = " + yes
                     + " WHERE id IN (SELECT DISTINCT role_id FROM rbac_role_channel)");
         } catch (Exception e) {
-            throw new MigrationException("Failed to add restricted column", e);
+            throw new MigrationException("Failed to set the restricted column for roles with channel rows", e);
         }
     }
 

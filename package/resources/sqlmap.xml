@@ -99,8 +99,8 @@
         INSERT INTO rbac_role_channel (role_id, channel_id) VALUES (#{roleId}, #{channelId})
     </insert>
 
-    <!-- Startup sweep of restrictions to deleted channels (the engine deletes channels without
-         telling RBAC): every row, then one delete per dead row, so no NOT IN list is needed. -->
+    <!-- Startup sweep of restrictions to channels deleted while RBAC was not loaded: every row,
+         then one delete per dead row, so no NOT IN list is needed. -->
     <select id="getAllRoleChannels" resultType="map">
         SELECT role_id AS roleId, channel_id AS channelId FROM rbac_role_channel ORDER BY role_id
     </select>

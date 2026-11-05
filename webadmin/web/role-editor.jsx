@@ -26,7 +26,7 @@
  */
 
 import {
-    groupPermissions, orphanPermissionsOf, missingBase,
+    groupPermissions, orphanPermissionsOf, missingBase, editorChannelIds, editorRestricted,
     READ_ONLY_PERMISSIONS, permissionWarning, READ_ONLY_TOOLTIP,
     TITLE_ADD_ROLE, TITLE_EDIT_ROLE, MSG_NAME_REQUIRED, TITLE_VALIDATION_ERROR,
     MSG_CATALOG_EMPTY_EDIT, TITLE_PERMISSIONS_UNAVAILABLE,
@@ -205,10 +205,11 @@ export function makeRoleEditor(platform) {
                 }
             }
 
-            const selectedChannels = new Set();
-            if (mode === 'specific') {
-                for (const id of checkedChannels) selectedChannels.add(id);
-            }
+            // Specific Channels: the ticked channels plus the stored ones this editor's
+            // list does not show (kept unseen). All Channels: none.
+            const selectedChannels = mode === 'specific'
+                ? editorChannelIds(checkedChannels, role ? role.channelIds : [], liveIds)
+                : new Set();
 
             onApply({
                 id: role ? role.id : null,
@@ -218,7 +219,7 @@ export function makeRoleEditor(platform) {
                 // the stored values unchanged — only the description can differ.
                 permissions: isAdmin ? new Set(role.permissions) : selectedPerms,
                 channelIds: isAdmin ? new Set(role.channelIds) : selectedChannels,
-                restricted: isAdmin ? role.restricted : mode === 'specific'
+                restricted: editorRestricted(role, mode)
             });
         }
 

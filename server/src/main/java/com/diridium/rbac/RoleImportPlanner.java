@@ -35,9 +35,9 @@ import com.diridium.rbac.RoleTransferFormat.Refusal;
  *   <li>With channel restrictions applied, each channel is matched by id. A channel whose
  *       id isn't here but whose name only one channel here has is listed as a match by
  *       name, and used only when the import matches channels by name. A restricted role
- *       none of whose channels is found is offered with {@code noChannelFound} set: rbac
- *       stores "every channel" as an empty list, so importing it as it stands gives it
- *       every channel, and the Administrators start that row unticked.</li>
+ *       none of whose channels is found is offered with {@code noChannelFound} set and
+ *       comes in restricted to no channel, ticked like any new role, with a note that an
+ *       administrator has to set its channels.</li>
  *   <li>Without them, an existing role keeps its own channel restrictions and a new role is
  *       restricted to no channel until an administrator sets its channels.</li>
  *   <li>Every row describes the role here with the file role's name, if there is one

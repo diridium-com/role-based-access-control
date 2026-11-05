@@ -109,6 +109,9 @@ def role_crud(r, w, known_issue=None):
     status, _ = b.delete_role(a, rid)
     r.check("a role can be deleted", status in (200, 204) and rid not in b.roles(a), f"HTTP {status}")
 
+    status, _ = a.request("GET", f"{b.RBAC}/roles/{rid}")
+    r.check("a deleted role is gone (404)", status == 404, f"HTTP {status}")
+
     # The restricted flag: a role restricted to no channel is a state of its own, and a caller that sends channels
     # without the flag (a release before schema v4) still gets a restricted role.
     none = b.create_role(a, "e2e no channels", ["viewChannels"], restricted=True)
@@ -126,8 +129,6 @@ def role_crud(r, w, known_issue=None):
             status in (200, 204) and got.get("restricted") is True and got.get("channelIds") == {chans["A"]},
             f"HTTP {status}: {got}")
     b.delete_role(a, none)
-    status, _ = a.request("GET", f"{b.RBAC}/roles/{rid}")
-    r.check("a deleted role is gone (404)", status == 404, f"HTTP {status}")
 
 
 def unicode_role_name(r, api, where=""):

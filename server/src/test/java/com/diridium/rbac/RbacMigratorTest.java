@@ -13,6 +13,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -255,6 +256,24 @@ class RbacMigratorTest {
         assertEquals(2, migrator.statements.size(), migrator.statements.toString());
         verify(configController, never()).saveProperty(PLUGIN_NAME, VERSION_PROP, "3");
         verify(configController).saveProperty(PLUGIN_NAME, VERSION_PROP, "4");
+    }
+
+    @Test
+    void v3StoredWithTheRestrictedColumn_runsTheBackfillAgain_withoutTheAlter() throws Exception {
+        // The v4 ALTER went through on an earlier run and the backfill may not have (stored still 3):
+        // the column makes the state v4, so only the idempotent backfill runs, then the version is 4.
+        when(configController.getProperty(PLUGIN_NAME, VERSION_PROP)).thenReturn("3");
+        givenBaseTablesExist();
+        givenColumnExists("rbac_role", "is_admin");
+        givenColumnExists("rbac_role", "restricted");
+
+        migrator.migrate();
+
+        assertEquals(List.of(
+                "UPDATE rbac_role SET restricted = TRUE WHERE id IN (SELECT DISTINCT role_id FROM rbac_role_channel)"),
+                migrator.statements);
+        // Realigned to the detected 4 first, then recorded as 4 at the end of the run.
+        verify(configController, times(2)).saveProperty(PLUGIN_NAME, VERSION_PROP, "4");
     }
 
     @Test

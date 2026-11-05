@@ -109,9 +109,16 @@ version. On upgrade, we detect the actual database state:
 if (readRawSchemaVersion() == null) {
     if (!rbac_role table exists)           writeSchemaVersion(0);   // fresh install
     else if (!is_admin column exists)      writeSchemaVersion(1);
-    else                                   writeSchemaVersion(2);
+    else if (sqlserver && VARCHAR columns) writeSchemaVersion(2);
+    else if (!restricted column exists)    writeSchemaVersion(3);
+    else                                   writeSchemaVersion(4);
 }
 ```
+
+The same detection runs on every start and realigns a stored version that
+describes a different schema (see `detectAndAlignSchemaVersion`). When the
+stored version is below 4 but the `restricted` column exists, the v4 backfill
+runs again; it is idempotent.
 
 Table and column existence checks query `DatabaseMetaData.getTables()`
 and `DatabaseMetaData.getColumns()` from the JDBC connection, **not**

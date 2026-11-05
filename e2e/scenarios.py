@@ -214,10 +214,9 @@ def fresh(r, engine, db, dbname, new_zip, **_):
     planted = db.plant_role_channel(dbname, sweep_only, gone)
 
     before_roles = b.roles(api)
-    # Earlier checks deleted channels too (A2 in the channel-limited bulk remove), so the sweep also trims those
-    # roles: every other role is expected back with its restrictions to live channels only.
-    live = b.channel_ids(api)[1] or set()
-    expected_roles = {rid: dict(role, channelIds=role["channelIds"] & live) for rid, role in before_roles.items()}
+    # RbacChannelPlugin removed the restrictions to the channels earlier checks deleted (A2 in the channel-limited
+    # bulk remove) at delete time, so every role is expected back exactly as it is now.
+    expected_roles = before_roles
     before_users = {key: (b.user_role(api, uid) or {}).get("id") for key, uid in w.ids.items()}
     log_len = len(engine.log())
     api = engine.restart()

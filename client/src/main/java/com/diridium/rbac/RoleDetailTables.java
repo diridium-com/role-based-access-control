@@ -20,7 +20,6 @@ import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
 import javax.swing.JTable;
 import javax.swing.table.AbstractTableModel;
-import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.TableRowSorter;
 
 /**
@@ -54,8 +53,10 @@ class RoleDetailTables extends JPanel {
         int[] permissionWidths = export ? new int[] {300} : new int[] {220, 50, 50, 200};
         int[] channelWidths = export ? new int[] {260, 290} : new int[] {200, 290, 45, 50, 140, 200, 290};
         channelsScroll = table(channels, idColumns, channelWidths, !export);
-        permissionsLegend.setText(wrapped(export ? " " : RoleDetailRows.PERMISSIONS_LEGEND));
-        channelsLegend.setText(wrapped(export ? " " : RoleDetailRows.CHANNELS_LEGEND));
+        if (!export) {
+            permissionsLegend.setText(wrapped(RoleDetailRows.PERMISSIONS_LEGEND));
+            channelsLegend.setText(wrapped(RoleDetailRows.CHANNELS_LEGEND));
+        }
         permissionsLegend.setVisible(!export);
         channelsLegend.setVisible(!export);
         JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT,
@@ -146,15 +147,8 @@ class RoleDetailTables extends JPanel {
             table.getColumnModel().getColumn(i).setPreferredWidth(widths[i]);
         }
         Font mono = new Font(Font.MONOSPACED, Font.PLAIN, table.getFont().getSize());
-        DefaultTableCellRenderer monospaced = new DefaultTableCellRenderer() {
-            @Override
-            public Component getTableCellRendererComponent(JTable t, Object value, boolean selected,
-                    boolean focus, int row, int column) {
-                Component c = super.getTableCellRendererComponent(t, value, selected, focus, row, column);
-                c.setFont(mono);
-                return c;
-            }
-        };
+        table.setDefaultRenderer(Object.class, new PlainCellRenderer(null));
+        PlainCellRenderer monospaced = new PlainCellRenderer(mono);
         for (int column : idColumns) {
             table.getColumnModel().getColumn(column).setCellRenderer(monospaced);
         }

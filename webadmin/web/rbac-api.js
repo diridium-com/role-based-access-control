@@ -67,7 +67,8 @@ export function mapEntries(map) {
 }
 
 /* Coerce a raw wire Role into a stable client shape (id:number|null, name/
-   description:string, permissions/channelIds:Set<string>, isAdmin:boolean). */
+   description:string, permissions/channelIds:Set<string>, restricted and
+   isAdmin:boolean). */
 export function normalizeRole(raw) {
     if (!raw || typeof raw !== 'object') return null;
     return {
@@ -76,8 +77,11 @@ export function normalizeRole(raw) {
         description: raw.description === undefined || raw.description === null ? '' : String(raw.description),
         permissions: stringSet(raw.permissions),
         channelIds: stringSet(raw.channelIds),
-        // A server that predates the flag sends none: false (every channel).
-        restricted: raw.restricted === true || raw.restricted === 'true',
+        // A role sent without the flag but with channel ids reads as restricted
+        // (the server's rule, RoleService.impliedRestriction).
+        restricted: raw.restricted === undefined || raw.restricted === null
+            ? stringSet(raw.channelIds).size > 0
+            : raw.restricted === true || raw.restricted === 'true',
         // JSON gives a real boolean; the host's XML fallback parser gives 'true'/true.
         isAdmin: raw.isAdmin === true || raw.isAdmin === 'true'
     };

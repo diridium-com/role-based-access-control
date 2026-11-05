@@ -212,7 +212,8 @@ test.describe('Export Roles', () => {
         expect(await cellsOf(detail(box, 'Permissions of Lab'))).toEqual([['viewAlerts'], ['viewDashboard']]);
         await expect(detail(box, 'Channels of Lab').getByRole('columnheader')).toHaveText(['Channel', 'Id on this engine']);
         expect(await cellsOf(detail(box, 'Channels of Lab'))).toEqual([
-            ['Demo Started', 'c-started'], ['Demo Stopped', 'c-stopped'], ['c-unknown', 'c-unknown']]);
+            ['c-unknown', 'c-unknown'], ['Demo Started', 'c-started'], ['Demo Stopped', 'c-stopped']]);
+        // Every row sorts by its shown text, ignoring case, so the id of a channel the engine lacks mixes in with the names.
         // Ids are in a monospace font; names are not.
         const channelCells = detail(box, 'Channels of Lab').locator('tbody tr').first().locator('td');
         await expect(channelCells.nth(1)).toHaveClass(/rbac-xfer-id/);

@@ -323,6 +323,7 @@ public class RoleEditorDialog extends JDialog {
                 String channelName = entry.getValue();
                 String displayLabel = channelName + " (" + channelId + ")";
                 JCheckBox cb = new JCheckBox(displayLabel);
+                cb.putClientProperty("html.disable", Boolean.TRUE);
                 cb.setAlignmentX(Component.LEFT_ALIGNMENT);
                 channelCheckboxes.put(channelId, cb);
                 cb.setEnabled(false);
@@ -506,14 +507,15 @@ public class RoleEditorDialog extends JDialog {
         }
 
         // Collect channel restrictions
-        Set<String> selectedChannels = new HashSet<>();
-        if (specificChannelsRadio.isSelected()) {
-            for (Map.Entry<String, JCheckBox> entry : channelCheckboxes.entrySet()) {
-                if (entry.getValue().isSelected()) {
-                    selectedChannels.add(entry.getKey());
-                }
+        Set<String> ticked = new HashSet<>();
+        for (Map.Entry<String, JCheckBox> entry : channelCheckboxes.entrySet()) {
+            if (entry.getValue().isSelected()) {
+                ticked.add(entry.getKey());
             }
         }
+        // Stored ids the engine did not list for this user are kept unseen.
+        Set<String> selectedChannels = RoleChannelSelection.savedChannelIds(specificChannelsRadio.isSelected(),
+                ticked, existingRole != null ? existingRole.getChannelIds() : null, channelCheckboxes.keySet());
 
         // All validation/confirmation passed — build the result only now, so an
         // earlier cancel can't leave a stale non-null result for getResult().
@@ -523,8 +525,7 @@ public class RoleEditorDialog extends JDialog {
         }
         built.setName(name);
         built.setDescription(descriptionField.getText().trim());
-        built.setRestricted(existingRole != null && existingRole.isAdmin()
-                ? existingRole.isRestricted() : specificChannelsRadio.isSelected());
+        built.setRestricted(RoleChannelSelection.savedRestricted(existingRole, specificChannelsRadio.isSelected()));
         if (existingRole != null && existingRole.isAdmin()) {
             // Admin role: permission and channel controls are locked, so re-send the
             // stored values unchanged. Only the description (or name) can differ, and the

@@ -4,6 +4,7 @@
 package com.diridium.rbac;
 
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 
@@ -106,7 +107,7 @@ final class RoleImportText {
                 + " Tick the box above to use them.";
     }
 
-    /** The row's permissions count: the file's count for a new role, else now, or "now -> after" when it changes. */
+    /** The row's permissions count: the file's count for a new role, else now, or "now → after" when it changes. */
     static String permissionsCountText(RoleImportRow row) {
         return countText(row, String.valueOf(list(row.getPermissionsNow()).size()),
                 String.valueOf(list(row.getPermissionsAfter()).size()));
@@ -134,6 +135,9 @@ final class RoleImportText {
         }
         return now + " → " + after;
     }
+
+    /** Sorts count columns with {@link #compareCounts}. */
+    static final Comparator<Object> COUNT_ORDER = (a, b) -> compareCounts((String) a, (String) b);
 
     /** Orders count texts by their first number, with "every" and "none" after any number, so "9" sorts before "10". */
     static int compareCounts(String a, String b) {

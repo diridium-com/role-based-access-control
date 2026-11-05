@@ -9,7 +9,7 @@
  * changes the selection or any tick.
  */
 
-import { sortRows } from './rbac-core.js';
+import { sortRows } from './role-transfer-core.js';
 
 export function makeDetailTables(React) {
     // [sort, toggle]: sort is { col, dir } or null; a click on a column sorts it
@@ -31,7 +31,13 @@ export function makeDetailTables(React) {
                         return (
                             <th key={col} className={on ? 'rbac-sorted-' + sort.dir : ''}
                                 aria-sort={on ? (sort.dir === 'asc' ? 'ascending' : 'descending') : undefined}
-                                onClick={() => onSort(col)}>{label}</th>
+                                tabIndex={0} onClick={() => onSort(col)}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                        e.preventDefault();
+                                        onSort(col);
+                                    }
+                                }}>{label}</th>
                         );
                     })}
                 </tr>
@@ -56,7 +62,7 @@ export function makeDetailTables(React) {
                     {notice ? <div className="rbac-xfer-notice">{notice}</div> : null}
                     {showEmpty ? <div className="rbac-xfer-notice">{empty}</div> : null}
                     {rows.length > 0 ? (
-                        <table className="dt rbac-xfer-table rbac-xfer-detail">
+                        <table className="dt rbac-xfer-table">
                             <SortHeader columns={columns} sort={sort} onSort={toggle} />
                             <tbody>
                                 {shown.map((cells, i) => (

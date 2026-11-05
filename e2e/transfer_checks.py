@@ -18,7 +18,8 @@ ONE_NAME_FOR_BOTH_CASES = ("mysql", "sqlserver")
 def export_import(r, w, db_server):
     """Roles out to a file and back in. The parts run in this order because later ones use roles the earlier ones
     wrote: who may, a round trip, what an overwrite changes, channel restrictions not applied, what is refused,
-    names the database may hold as one, and a file from another engine."""
+    names the database may hold as one, a role restricted to no channel, a channel renamed after the export, and a
+    file from another engine."""
     a = w.api
     t = types.SimpleNamespace(t1=b.new_id(), t2=b.new_id())
     for cid, name in ((t.t1, "rbac e2e T1"), (t.t2, "rbac e2e T2")):
@@ -129,7 +130,8 @@ def _transfer_round_trip(r, a, t):
             str(got))
     got = now.get("e2e transfer open", {})
     r.check("import: the unrestricted role comes back seeing every channel",
-            got.get("permissions") == {"viewChannels"} and got.get("channelIds") == set(), str(got))
+            got.get("permissions") == {"viewChannels"} and got.get("channelIds") == set()
+            and got.get("restricted") is False, str(got))
     event = _waited(lambda: next((e for e in b.plugin_events(a, "Role: e2e transfer restricted")
                                   if e.get("Action") == "Imported"), None))
     channels = ", ".join(sorted([f"rbac e2e T1 ({t.t1})", f"rbac e2e T2 ({t.t2})"]))
@@ -156,7 +158,8 @@ def _transfer_overwrites(r, a, t):
             row.get("exists_here") is True and row.get("permissions_now") == ["viewChannels"]
             and row.get("permissions_after") == ["viewChannels", "viewMessages"]
             and row.get("description_now") == "rbac e2e" and row.get("description_after") == "rbac e2e"
-            and row.get("channels_now") == [] and row.get("channels_after") == [], str(row))
+            and row.get("channels_now") == [] and row.get("channels_after") == []
+            and row.get("restricted_now") is False and row.get("restricted_after") is False, str(row))
     new_row = plan["rows"].get("e2e transfer picked", {})
     r.check("import: a new role shows nothing now and the file's content after",
             new_row.get("exists_here") is False and new_row.get("description_now") is None
@@ -187,14 +190,17 @@ def _transfer_overwrites(r, a, t):
 
 
 def _transfer_without_channels(r, a, t):
-    """Channel restrictions not applied: an existing role keeps its own, a new one sees every channel."""
+    """Channel restrictions not applied: an existing role keeps its own, a new one is restricted to no channel."""
     off = b.role_file([("e2e transfer restricted", ["viewChannels"], [(t.t1, "rbac e2e T1")]),
                        ("e2e transfer everywhere", ["viewChannels"], [(t.t1, "rbac e2e T1")])])
     plan = _preview(r, a, off, apply_channels=False, label="a preview without channel restrictions")
     rows = plan["rows"]
-    r.check("import without channels: the existing role keeps its channels, the new one sees every channel",
+    r.check("import without channels: the existing role keeps its channels, the new one is restricted to no channel",
             rows.get("e2e transfer restricted", {}).get("channels") == "KEPT"
+            and rows.get("e2e transfer restricted", {}).get("restricted_now") is True
+            and rows.get("e2e transfer restricted", {}).get("restricted_after") is True
             and rows.get("e2e transfer everywhere", {}).get("channels") == "NO_CHANNEL"
+            and rows.get("e2e transfer everywhere", {}).get("restricted_after") is True
             and (rows.get("e2e transfer everywhere", {}).get("reason") or "").startswith("The import restricts this role"
                 " to 1 channel. Restrictions are not applied, so this role is restricted to no channels on this engine")
             and rows.get("e2e transfer restricted", {}).get("reason")
@@ -244,9 +250,11 @@ def _transfer_refusals(r, a, t):
             and rows.get("e2e transfer unknown permission", {}).get("permissions_after") == ["viewChannels"]
             and rows.get("e2e transfer unknown permission", {}).get("reason")
             == "1 permission in the import is not offered by this engine and is left out.", str(rows))
+    before = _roles_by_name(a)
     status, body = _apply(a, mixed, plan, ["Administrator"])
     r.check("import: picking the skipped admin row is refused (400) and writes nothing",
-            status == 400 and "An import never changes the admin role." in body, f"HTTP {status}: {body[:200]}")
+            status == 400 and "An import never changes the admin role." in body and _roles_by_name(a) == before,
+            f"HTTP {status}: {body[:200]}")
     status, _ = _apply(a, mixed, plan, ["e2e transfer unknown permission"])
     got = _roles_by_name(a).get("e2e transfer unknown permission", {})
     r.check("import: the permission this engine doesn't offer is left out",
@@ -355,6 +363,7 @@ def _transfer_none_role(r, a):
     row = plan["rows"].get("e2e transfer none", {})
     r.check("import: a role restricted to no channel is planned as new, restricted to no channel",
             row.get("action") == "CREATE" and row.get("no_channel_found") is False
+            and row.get("restricted_after") is True and row.get("channels_after") == []
             and row.get("reason") is None, str(row))
     status, body = _apply(a, text, plan, ["e2e transfer none"])
     back = _roles_by_name(a).get("e2e transfer none", {})
@@ -403,8 +412,8 @@ def _transfer_from_another_engine(r, a, db_server):
     r.check("import from another engine: without matching by name, a restricted role is offered flagged and says why",
             all(plan["rows"].get(n, {}).get("action") == "CREATE" and plan["rows"][n].get("no_channel_found") is True
                 and "None of those channels exist on this engine." in (plan["rows"][n].get("reason") or "")
-                and "match a channel on this engine by name." in (plan["rows"][n].get("reason") or "")
-                or "matches a channel on this engine by name." in (plan["rows"][n].get("reason") or "")
+                and ("match a channel on this engine by name." in (plan["rows"][n].get("reason") or "")
+                     or "matches a channel on this engine by name." in (plan["rows"][n].get("reason") or ""))
                 for n in restricted), str(plan["rows"]))
     r.check("import from another engine: each channel after is a match by name, not used, under this engine's id",
             all(plan["rows"].get(n, {}).get("channels_after")

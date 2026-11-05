@@ -29,7 +29,7 @@ final class RoleDetailRows {
     static final String CHANNELS_NOT_APPLIED = "Channel restrictions from the import are not applied. "
             + "Roles that already exist on this engine keep their current channels. "
             + "New roles are restricted to no channels until an administrator sets channels for them.";
-    static final String NOT_ON_ENGINE = "not on this engine, left out";
+    static final String NOT_ON_ENGINE = "not offered by this engine, left out";
     static final String NOT_IN_IMPORT = "not in the import";
 
     private RoleDetailRows() {
@@ -57,7 +57,8 @@ final class RoleDetailRows {
     /**
      * One row per channel: the import's channels in file order (or, for a role that keeps
      * its channels, the kept ones), then the role's other channels on this engine.
-     * A channel in both is one row, joined on its id, except a channel the import has that is not on this engine. Columns: CHANNEL_COLUMNS.
+     * A channel in both is one row, joined on its id, except a channel the import has that is
+     * not on this engine. Columns: CHANNEL_COLUMNS.
      */
     static List<String[]> channelRows(RoleImportRow row) {
         boolean kept = row.getChannels() == RoleImportRow.Channels.KEPT;

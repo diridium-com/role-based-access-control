@@ -57,7 +57,7 @@ public class RoleImportDialog extends JDialog {
 
     private final JLabel fromLabel = new JLabel();
     private final JCheckBox applyBox = new JCheckBox("Apply channel restrictions from the import", true);
-    private boolean applied = true;
+    private boolean channelsApplied = true;
     private final JCheckBox matchBox = new JCheckBox("Also match channels by name when the id isn't found", false);
     private final JLabel nameHint = new JLabel();
     private final RoleImportTableModel model = new RoleImportTableModel(() -> this.busy, this::updateControls);
@@ -85,7 +85,7 @@ public class RoleImportDialog extends JDialog {
             @Override
             public Component prepareRenderer(TableCellRenderer renderer, int row, int column) {
                 Component c = super.prepareRenderer(renderer, row, column);
-                if (column == 0) {
+                if (convertColumnIndexToModel(column) == 0) {
                     c.setEnabled(!busy && model.tickable(convertRowIndexToModel(row)));
                 }
                 return c;
@@ -98,8 +98,8 @@ public class RoleImportDialog extends JDialog {
         table.setAutoResizeMode(JTable.AUTO_RESIZE_ALL_COLUMNS);
         WrappingCellRenderer.install(table, 1);
         TableRowSorter<RoleImportTableModel> sorter = new TableRowSorter<>(model);
-        sorter.setComparator(5, (a, b) -> RoleImportText.compareCounts((String) a, (String) b));
-        sorter.setComparator(6, (a, b) -> RoleImportText.compareCounts((String) a, (String) b));
+        sorter.setComparator(5, RoleImportText.COUNT_ORDER);
+        sorter.setComparator(6, RoleImportText.COUNT_ORDER);
         sorter.addRowSorterListener(e -> SwingUtilities.invokeLater(() -> WrappingCellRenderer.fitRowHeights(table)));
         table.setRowSorter(sorter);
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
@@ -153,7 +153,7 @@ public class RoleImportDialog extends JDialog {
 
     private void show(RoleImportResult result) {
         current = result;
-        applied = applyBox.isSelected();
+        channelsApplied = applyBox.isSelected();
         fromLabel.setText(RoleImportText.fromLine(result));
         int keepIndex = selectedRoleIndex();
         model.setRows(result.getRows());
@@ -194,7 +194,7 @@ public class RoleImportDialog extends JDialog {
         if (view < 0) {
             details.clear();
         } else {
-            details.showImport(model.rowAt(table.convertRowIndexToModel(view)), applied);
+            details.showImport(model.rowAt(table.convertRowIndexToModel(view)), channelsApplied);
         }
     }
 

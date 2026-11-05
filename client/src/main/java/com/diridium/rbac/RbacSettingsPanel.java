@@ -260,8 +260,9 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
                         if (extensionGroups != null) {
                             cachedExtensionGroups = extensionGroups;
                         }
-                        // A failed fetch keeps the old list, and the editor would show the
-                        // missing channels as deleted, so add and edit wait for a fresh one.
+                        // A failed fetch keeps the old list, which could hide live channels from
+                        // the editor (the save would keep them unseen), so add and edit wait for
+                        // a fresh one.
                         channelListLoaded = channelMap != null;
                         if (channelMap != null) {
                             cachedChannelMap = channelMap;
@@ -360,9 +361,9 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
 
     /**
      * Guards the role editor against opening when the last refresh did not fetch
-     * the channel list. The editor lists every restricted channel missing from
-     * the list as deleted, with a Purge checkbox, so a stale or empty list would
-     * show live channels as deleted.
+     * the channel list. A stale or empty list would hide live channels from the
+     * editor, and the save would keep them unseen, so add and edit wait for a
+     * fresh list.
      *
      * @return {@code true} (after warning the user) if the channel list is not loaded
      */
