@@ -2,22 +2,34 @@
 // SPDX-License-Identifier: MPL-2.0
 
 /*
- * Export Roles: a tick box per role (never the admin role), all ticked, and an
- * Export button that asks where to save and writes the server's text as is.
+ * Export Roles: a table with a tick box per role (never the admin role), all
+ * ticked, a click on a row selects it and fills the permission and channel
+ * tables below, and an Export button that asks where to save and writes the
+ * server's text as is.
  */
 
-import { TITLE_EXPORT_ROLES, EXPORT_PROMPT, EXPORT_FILE_NAME, exportedText } from './rbac-core.js';
+import {
+    TITLE_EXPORT_ROLES, EXPORT_PROMPT, EXPORT_CHANNELS_NOTE, EXPORT_CHANNELS_BOLD, EXPORT_COLUMNS,
+    EXPORT_FILE_NAME, EXPORT_PERMISSION_COLUMNS, EXPORT_CHANNEL_COLUMNS, EXPORT_CHANNEL_ID_COLUMNS,
+    EXPORT_EVERY_CHANNEL, EXPORT_NO_CHANNEL, exportedText, exportPermissionRows, exportChannelRows,
+    exportPermissionsCount, exportChannelsCount, permissionsHeading, channelsHeading, sortRows, compareCounts
+} from './role-transfer-core.js';
 import { makeTransferShell } from './role-transfer-shell.jsx';
+import { makeDetailTables } from './role-detail-tables.jsx';
 
 export function makeRoleExportDialog(platform, api) {
     const React = platform.React;
     const ui = platform.ui;
     const Shell = makeTransferShell(React);
+    const { useSort, SortHeader, DetailTables } = makeDetailTables(React);
 
-    /* props: roles (normalized, admin role already left out), onClose() */
-    return function RoleExportDialog({ roles, onClose }) {
+    /* props: roles (normalized, admin role already left out), channelMap (a Map of
+       channel id to name, or null when the channel list isn't loaded), onClose() */
+    return function RoleExportDialog({ roles, channelMap, onClose }) {
         const [ticked, setTicked] = React.useState(() => new Set(roles.map((r) => r.id)));
         const [busy, setBusy] = React.useState(false);
+        const [selectedId, setSelectedId] = React.useState(roles[0].id);
+        const [sort, toggleSort] = useSort();
 
         const toggle = (id) => setTicked((set) => {
             const next = new Set(set);
@@ -48,6 +60,15 @@ export function makeRoleExportDialog(platform, api) {
             setBusy(false); // cancelled or failed: stay open
         }
 
+        const selected = roles.find((r) => r.id === selectedId) || roles[0];
+        const sortKeys = [
+            (r) => (ticked.has(r.id) ? 1 : 0), (r) => r.name, (r) => r.description,
+            exportPermissionsCount, exportChannelsCount
+        ];
+        // The Permissions and Channels columns (3 and 4) sort by number.
+        const shownRoles = sort
+            ? sortRows(roles, sortKeys[sort.col], sort.dir, sort.col >= 3 ? compareCounts : undefined) : roles;
+
         return (
             <Shell title={TITLE_EXPORT_ROLES} onCancel={onClose} footer={(
                 <>
@@ -57,12 +78,37 @@ export function makeRoleExportDialog(platform, api) {
                 </>
             )}>
                 <div style={{ marginBottom: 8 }}>{EXPORT_PROMPT}</div>
-                {roles.map((role) => (
-                    <label key={role.id} className="rbac-check">
-                        <input type="checkbox" checked={ticked.has(role.id)} onChange={() => toggle(role.id)} />
-                        {role.name}
-                    </label>
-                ))}
+                <div className="rbac-xfer-callout">
+                    {EXPORT_CHANNELS_NOTE}<strong>{EXPORT_CHANNELS_BOLD}</strong>
+                </div>
+                <div className="rbac-xfer-roles">
+                    <table className="dt rbac-xfer-table">
+                        <SortHeader columns={EXPORT_COLUMNS} sort={sort} onSort={toggleSort} />
+                        <tbody>
+                            {shownRoles.map((role) => (
+                                <tr key={role.id} onClick={() => setSelectedId(role.id)}
+                                    className={'rbac-xfer-pick' + (role === selected ? ' rbac-xfer-selected' : '')}>
+                                    <td>
+                                        <input type="checkbox" aria-label={role.name}
+                                            checked={ticked.has(role.id)}
+                                            onClick={(e) => e.stopPropagation()}
+                                            onChange={() => toggle(role.id)} />
+                                    </td>
+                                    <td>{role.name}</td>
+                                    <td>{role.description}</td>
+                                    <td>{exportPermissionsCount(role)}</td>
+                                    <td>{exportChannelsCount(role)}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+                <DetailTables
+                    permissions={{ heading: permissionsHeading(selected.name),
+                        columns: EXPORT_PERMISSION_COLUMNS, rows: exportPermissionRows(selected) }}
+                    channels={{ heading: channelsHeading(selected.name), columns: EXPORT_CHANNEL_COLUMNS,
+                        rows: exportChannelRows(selected, channelMap), idColumns: EXPORT_CHANNEL_ID_COLUMNS,
+                        empty: selected.restricted ? EXPORT_NO_CHANNEL : EXPORT_EVERY_CHANNEL }} />
             </Shell>
         );
     };

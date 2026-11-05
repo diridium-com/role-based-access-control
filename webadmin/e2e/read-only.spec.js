@@ -125,7 +125,7 @@ test.describe('P2 + channel restriction — server-side redaction (fixture subse
         await mockEngineWithRbac(page, {
             ...readOnly(),
             'GET /extensions/rbac/users/*/role': {
-                'com.diridium.rbac.Role': { ...READ_ONLY_ROLE, channelIds: { string: 'c-started' } }
+                'com.diridium.rbac.Role': { ...READ_ONLY_ROLE, channelIds: { string: 'c-started' }, restricted: true }
             },
             'GET /channels/statuses': { list: { dashboardStatus: SAMPLE_STATUSES[0] } },
             'GET /channels': { list: { channel: SAMPLE_CHANNELS[0] } },

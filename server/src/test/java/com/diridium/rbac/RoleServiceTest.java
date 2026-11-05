@@ -82,6 +82,31 @@ class RoleServiceTest {
     }
 
     @Test
+    void create_withChannelsButNoFlag_isStoredRestricted() {
+        // A caller from before schema version 4 sends channel ids and no restricted flag: same meaning as before.
+        Role input = roleWithName(null, "Editor");
+        input.setChannelIds(new java.util.HashSet<>(java.util.Set.of("ch1")));
+        when(repo.findRoleIdByName("Editor")).thenReturn(null);
+        when(repo.createRole(input)).thenReturn(roleWithName(42, "Editor"));
+
+        service.create(input);
+
+        assertTrue(input.isRestricted());
+    }
+
+    @Test
+    void create_restrictedWithNoChannels_staysRestricted() {
+        Role input = roleWithName(null, "Editor");
+        input.setRestricted(true);
+        when(repo.findRoleIdByName("Editor")).thenReturn(null);
+        when(repo.createRole(input)).thenReturn(roleWithName(42, "Editor"));
+
+        service.create(input);
+
+        assertTrue(input.isRestricted(), "restricted to no channel is a state of its own");
+    }
+
+    @Test
     void create_nullRole_throws400() {
         MirthApiException e = assertThrows(MirthApiException.class, () -> service.create(null));
         assertEquals(Status.BAD_REQUEST.getStatusCode(), e.getResponse().getStatus());

@@ -13,6 +13,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -131,41 +132,84 @@ class RbacMigratorTest {
     // ========== Fresh install ==========
 
     @Test
-    void freshInstall_appliesV1AndV2_andWritesVersion3() throws Exception {
+    void freshInstall_appliesV1V2AndV4_andWritesVersion4() throws Exception {
         migrator.migrate();
 
         assertEquals(List.of("/derby-rbac-tables.sql"), migrator.scripts);
-        assertEquals(1, migrator.statements.size());
+        assertEquals(3, migrator.statements.size(), migrator.statements.toString());
         assertTrue(migrator.statements.get(0).contains("ADD COLUMN is_admin"));
-        verify(configController).saveProperty(PLUGIN_NAME, VERSION_PROP, "3");
+        assertTrue(migrator.statements.get(1).contains("ADD COLUMN restricted BOOLEAN NOT NULL DEFAULT FALSE"));
+        assertEquals("UPDATE rbac_role SET restricted = TRUE WHERE id IN (SELECT DISTINCT role_id FROM rbac_role_channel)",
+                migrator.statements.get(2));
+        verify(configController).saveProperty(PLUGIN_NAME, VERSION_PROP, "4");
     }
 
     // ========== Partial states ==========
 
     @Test
-    void v1State_tablesExistWithoutIsAdmin_appliesOnlyV2() throws Exception {
+    void v1State_tablesExistWithoutIsAdmin_appliesV2AndV4() throws Exception {
         givenBaseTablesExist();
 
         migrator.migrate();
 
         assertTrue(migrator.scripts.isEmpty(), "v1 script must not rerun");
-        assertEquals(1, migrator.statements.size());
+        assertEquals(3, migrator.statements.size(), migrator.statements.toString());
         assertTrue(migrator.statements.get(0).contains("is_admin"));
-        verify(configController).saveProperty(PLUGIN_NAME, VERSION_PROP, "3");
+        assertTrue(migrator.statements.get(1).contains("restricted"));
+        verify(configController).saveProperty(PLUGIN_NAME, VERSION_PROP, "4");
     }
 
     @Test
-    void v2State_fullyMigrated_runsNoDdl() throws Exception {
+    void v2State_appliesOnlyV4() throws Exception {
         givenBaseTablesExist();
         givenColumnExists("rbac_role", "is_admin");
 
         migrator.migrate();
 
         assertTrue(migrator.scripts.isEmpty());
+        // v3 has nothing to do outside SQL Server; v4 adds the column and sets it for roles with channel rows.
+        assertEquals(List.of(
+                "ALTER TABLE rbac_role ADD COLUMN restricted BOOLEAN NOT NULL DEFAULT FALSE",
+                "UPDATE rbac_role SET restricted = TRUE WHERE id IN (SELECT DISTINCT role_id FROM rbac_role_channel)"),
+                migrator.statements);
+        verify(configController, atLeastOnce()).saveProperty(PLUGIN_NAME, VERSION_PROP, "4");
+    }
+
+    @Test
+    void v4State_fullyMigrated_runsNoDdl() throws Exception {
+        givenBaseTablesExist();
+        givenColumnExists("rbac_role", "is_admin");
+        givenColumnExists("rbac_role", "restricted");
+
+        migrator.migrate();
+
+        assertTrue(migrator.scripts.isEmpty());
         assertTrue(migrator.statements.isEmpty());
-        // v3 has nothing to do outside SQL Server, so a v2 schema there is the latest.
-        // Written once when aligning the unset stored version, once at the end
-        verify(configController, atLeastOnce()).saveProperty(PLUGIN_NAME, VERSION_PROP, "3");
+        verify(configController, atLeastOnce()).saveProperty(PLUGIN_NAME, VERSION_PROP, "4");
+    }
+
+    @Test
+    void v4Syntax_oracle_usesNumberOne() throws Exception {
+        migrator.setDatabaseType("oracle");
+        givenBaseTablesExist();
+        givenColumnExists("rbac_role", "is_admin");
+
+        migrator.migrate();
+
+        assertEquals(List.of(
+                "ALTER TABLE rbac_role ADD restricted NUMBER(1) DEFAULT 0 NOT NULL",
+                "UPDATE rbac_role SET restricted = 1 WHERE id IN (SELECT DISTINCT role_id FROM rbac_role_channel)"),
+                migrator.statements);
+    }
+
+    @Test
+    void v4StatementFailure_wrapsInMigrationException() throws Exception {
+        givenBaseTablesExist();
+        givenColumnExists("rbac_role", "is_admin");
+        migrator.statementFailure = new SQLException("disk on fire");
+
+        MigrationException e = assertThrows(MigrationException.class, () -> migrator.migrate());
+        assertTrue(e.getMessage().contains("restricted"), e.getMessage());
     }
 
     // ========== Backfill / realignment ==========
@@ -179,15 +223,15 @@ class RbacMigratorTest {
         migrator.migrate();
 
         assertEquals(List.of("/derby-rbac-tables.sql"), migrator.scripts);
-        assertEquals(1, migrator.statements.size());
+        assertEquals(3, migrator.statements.size(), migrator.statements.toString());
         verify(configController).saveProperty(PLUGIN_NAME, VERSION_PROP, "0");
-        verify(configController).saveProperty(PLUGIN_NAME, VERSION_PROP, "3");
+        verify(configController).saveProperty(PLUGIN_NAME, VERSION_PROP, "4");
     }
 
     @Test
-    void v2StoredOutsideSqlServer_isAlreadyLatest_withoutRealigning() throws Exception {
-        // An earlier release stored 2. Outside SQL Server v3 changes nothing, so this is the latest schema:
-        // no realignment (and no WARN), no DDL, and the run records 3.
+    void v2StoredOutsideSqlServer_isTheSameSchemaAsV3_soOnlyV4Runs() throws Exception {
+        // An earlier release stored 2. Outside SQL Server v3 changes nothing, so a detected 3 is the same
+        // schema: no realignment (and no WARN); then v4 runs and the run records 4.
         when(configController.getProperty(PLUGIN_NAME, VERSION_PROP)).thenReturn("2");
         givenBaseTablesExist();
         givenColumnExists("rbac_role", "is_admin");
@@ -195,9 +239,55 @@ class RbacMigratorTest {
         migrator.migrate();
 
         assertTrue(migrator.scripts.isEmpty());
-        assertTrue(migrator.statements.isEmpty());
+        assertEquals(2, migrator.statements.size(), migrator.statements.toString());
         verify(configController, never()).saveProperty(PLUGIN_NAME, VERSION_PROP, "2");
+        verify(configController, never()).saveProperty(PLUGIN_NAME, VERSION_PROP, "3");
+        verify(configController).saveProperty(PLUGIN_NAME, VERSION_PROP, "4");
+    }
+
+    @Test
+    void v3StoredOutsideSqlServer_withoutTheRestrictedColumn_appliesV4_withoutRealigning() throws Exception {
+        when(configController.getProperty(PLUGIN_NAME, VERSION_PROP)).thenReturn("3");
+        givenBaseTablesExist();
+        givenColumnExists("rbac_role", "is_admin");
+
+        migrator.migrate();
+
+        assertEquals(2, migrator.statements.size(), migrator.statements.toString());
+        verify(configController, never()).saveProperty(PLUGIN_NAME, VERSION_PROP, "3");
+        verify(configController).saveProperty(PLUGIN_NAME, VERSION_PROP, "4");
+    }
+
+    @Test
+    void v3StoredWithTheRestrictedColumn_runsTheBackfillAgain_withoutTheAlter() throws Exception {
+        // The v4 ALTER went through on an earlier run and the backfill may not have (stored still 3):
+        // the column makes the state v4, so only the idempotent backfill runs, then the version is 4.
+        when(configController.getProperty(PLUGIN_NAME, VERSION_PROP)).thenReturn("3");
+        givenBaseTablesExist();
+        givenColumnExists("rbac_role", "is_admin");
+        givenColumnExists("rbac_role", "restricted");
+
+        migrator.migrate();
+
+        assertEquals(List.of(
+                "UPDATE rbac_role SET restricted = TRUE WHERE id IN (SELECT DISTINCT role_id FROM rbac_role_channel)"),
+                migrator.statements);
+        // Realigned to the detected 4 first, then recorded as 4 at the end of the run.
+        verify(configController, times(2)).saveProperty(PLUGIN_NAME, VERSION_PROP, "4");
+    }
+
+    @Test
+    void v4StoredOverAV3Schema_isRealigned_andV4Runs() throws Exception {
+        // A stored 4 over a database without the column (a restore of an older dump) is a real mismatch everywhere.
+        when(configController.getProperty(PLUGIN_NAME, VERSION_PROP)).thenReturn("4");
+        givenBaseTablesExist();
+        givenColumnExists("rbac_role", "is_admin");
+
+        migrator.migrate();
+
         verify(configController).saveProperty(PLUGIN_NAME, VERSION_PROP, "3");
+        assertEquals(2, migrator.statements.size(), migrator.statements.toString());
+        verify(configController).saveProperty(PLUGIN_NAME, VERSION_PROP, "4");
     }
 
     @Test
@@ -213,8 +303,8 @@ class RbacMigratorTest {
         migrator.migrate();
 
         verify(configController).saveProperty(PLUGIN_NAME, VERSION_PROP, "2");
-        assertEquals(7, migrator.statements.size(), migrator.statements.toString());
-        verify(configController).saveProperty(PLUGIN_NAME, VERSION_PROP, "3");
+        assertEquals(9, migrator.statements.size(), migrator.statements.toString());
+        verify(configController).saveProperty(PLUGIN_NAME, VERSION_PROP, "4");
     }
 
     @Test
@@ -222,12 +312,13 @@ class RbacMigratorTest {
         when(configController.getProperty(PLUGIN_NAME, VERSION_PROP)).thenReturn("banana");
         givenBaseTablesExist();
         givenColumnExists("rbac_role", "is_admin");
+        givenColumnExists("rbac_role", "restricted");
 
         migrator.migrate();
 
         assertTrue(migrator.scripts.isEmpty());
         assertTrue(migrator.statements.isEmpty());
-        verify(configController, atLeastOnce()).saveProperty(PLUGIN_NAME, VERSION_PROP, "3");
+        verify(configController, atLeastOnce()).saveProperty(PLUGIN_NAME, VERSION_PROP, "4");
     }
 
     @Test
@@ -236,6 +327,7 @@ class RbacMigratorTest {
         // only answers for the uppercase candidates.
         givenBaseTablesExistUpper();
         givenColumnExists("RBAC_ROLE", "IS_ADMIN");
+        givenColumnExists("RBAC_ROLE", "RESTRICTED");
 
         migrator.migrate();
 
@@ -252,8 +344,8 @@ class RbacMigratorTest {
 
         migrator.migrate();
 
-        assertEquals(1, migrator.statements.size());
-        assertTrue(migrator.statements.get(0).contains("NUMBER(1)"));
+        assertEquals(3, migrator.statements.size(), migrator.statements.toString());
+        assertTrue(migrator.statements.get(0).contains("is_admin NUMBER(1)"));
     }
 
     @Test
@@ -286,14 +378,16 @@ class RbacMigratorTest {
                 "ALTER TABLE rbac_role ALTER COLUMN description NVARCHAR(1024) NULL",
                 "ALTER TABLE rbac_role_permission DROP CONSTRAINT [uq_role_perm]",
                 "ALTER TABLE rbac_role_permission ALTER COLUMN permission NVARCHAR(255) NOT NULL",
-                "ALTER TABLE rbac_role_permission ADD CONSTRAINT uq_role_perm UNIQUE (role_id, permission)"),
+                "ALTER TABLE rbac_role_permission ADD CONSTRAINT uq_role_perm UNIQUE (role_id, permission)",
+                "ALTER TABLE rbac_role ADD restricted BIT NOT NULL DEFAULT 0",
+                "UPDATE rbac_role SET restricted = 1 WHERE id IN (SELECT DISTINCT role_id FROM rbac_role_channel)"),
                 migrator.statements);
         verify(configController).saveProperty(PLUGIN_NAME, VERSION_PROP, "2");
-        verify(configController).saveProperty(PLUGIN_NAME, VERSION_PROP, "3");
+        verify(configController).saveProperty(PLUGIN_NAME, VERSION_PROP, "4");
     }
 
     @Test
-    void v3_sqlServerAlreadyNvarchar_runsNoDdl() throws Exception {
+    void v3_sqlServerAlreadyNvarchar_runsOnlyV4() throws Exception {
         givenSqlServerCatalog(
                 Map.of("rbac_role.name", "nvarchar", "rbac_role.description", "nvarchar",
                         "rbac_role_permission.permission", "nvarchar"),
@@ -302,8 +396,11 @@ class RbacMigratorTest {
 
         migrator.migrate();
 
-        assertTrue(migrator.statements.isEmpty(), migrator.statements.toString());
-        verify(configController, atLeastOnce()).saveProperty(PLUGIN_NAME, VERSION_PROP, "3");
+        assertEquals(List.of(
+                "ALTER TABLE rbac_role ADD restricted BIT NOT NULL DEFAULT 0",
+                "UPDATE rbac_role SET restricted = 1 WHERE id IN (SELECT DISTINCT role_id FROM rbac_role_channel)"),
+                migrator.statements);
+        verify(configController, atLeastOnce()).saveProperty(PLUGIN_NAME, VERSION_PROP, "4");
     }
 
     @Test
@@ -318,9 +415,11 @@ class RbacMigratorTest {
 
         assertEquals(List.of(
                 "ALTER TABLE rbac_role ADD CONSTRAINT uq_rbac_role_name UNIQUE (name)",
-                "ALTER TABLE rbac_role ALTER COLUMN description NVARCHAR(1024) NULL"),
+                "ALTER TABLE rbac_role ALTER COLUMN description NVARCHAR(1024) NULL",
+                "ALTER TABLE rbac_role ADD restricted BIT NOT NULL DEFAULT 0",
+                "UPDATE rbac_role SET restricted = 1 WHERE id IN (SELECT DISTINCT role_id FROM rbac_role_channel)"),
                 migrator.statements);
-        verify(configController).saveProperty(PLUGIN_NAME, VERSION_PROP, "3");
+        verify(configController).saveProperty(PLUGIN_NAME, VERSION_PROP, "4");
     }
 
     @Test

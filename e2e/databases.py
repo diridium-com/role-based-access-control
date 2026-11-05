@@ -164,6 +164,15 @@ class Database:
             return None
         return self._scalar(name, f"SELECT count(*) FROM rbac_user_role WHERE user_id = {int(user_id)}")
 
+    def plant_role_channel(self, name, role_id, channel_id):
+        """Inserts a restriction row by SQL, as a channel deleted while rbac was not loaded would leave one.
+        Nothing for Derby (embedded in the engine)."""
+        if self.kind == "derby":
+            return False
+        self._sql(f"INSERT INTO rbac_role_channel (role_id, channel_id) VALUES ({int(role_id)}, '{channel_id}')"
+                  + (";" if self.server == "oracle" else ""), database=name)
+        return True
+
     def schema_version(self, name):
         """rbac's stored schema_version, from the engine's CONFIGURATION table. None for Derby, and None when no
         row exists."""

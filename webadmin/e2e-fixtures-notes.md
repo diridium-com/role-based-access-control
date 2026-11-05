@@ -50,6 +50,18 @@ Single Role root key is the FQCN:
 {"com.diridium.rbac.Role":{"id":1,"name":"Administrator","description":"Full access to all operations and channels","permissions":{"string":["manageExtensions","viewAlerts","exportMessagesServer","deployUndeployChannels","restoreServerConfiguration","manageChannels","processMessages","editResources","sendTestEmail","viewGlobalScripts","reloadResources","removeAllMessages","viewConfigurationMap","viewMessages","viewTags","startStopChannels","viewDatabaseTasks","removeMessages","reprocessResults","viewCodeTemplates","manageAlerts","viewResources","clearLifetimeStats","clearStatistics","viewChannels","backupServerConfiguration","editConfigurationMap","editServerSettings","manageCodeTemplates","manageDatabaseTasks","removeEvents","viewChannelGroups","viewEvents","viewServerSettings","manageUsers","viewDashboard","reprocessMessages","manageTags","importMessages","editDatabaseDrivers","editGlobalScripts","removeResults"]},"channelIds":null,"isAdmin":true}}
 ```
 
+## The `restricted` field (added with the restricted flag, 2026-11-04)
+
+`Role` carries `restricted` (boolean). The captures above predate it, so none shows it;
+a server that predates it sends none, and the web normalizer reads that as false (every
+channel). On the wire it is a real JSON boolean (`"restricted":true`) and arrives as
+'true'/'false' from the host's XML fallback. False: the role sees every channel and lists
+none. True: the role sees only `channelIds`, and a restricted role with no ids sees NO
+channel (`"channelIds":null,"restricted":true`). The web client writes
+`<restricted>true|false</restricted>` after `<channelIds>`. The import preview rows carry
+`restrictedNow` and `restrictedAfter` the same way; the `Channels` value `EVERY_CHANNEL`
+is now `NO_CHANNEL`. Fixtures that build a role for the editor set `restricted` explicitly.
+
 ## Not yet pinned (defer to live pass step C.5)
 
 - **No-role user** `GET /users/{id}/role`: every current user (ids 1–4) holds

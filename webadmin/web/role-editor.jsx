@@ -8,15 +8,15 @@
  * Read-Only presets, grouped 2-column checkboxes from the fetched catalog,
  * the manageExtensions blast-radius tooltip) and Channel Restrictions
  * (All/Specific radios; live channels as "name (id)" checkboxes enabled only
- * for Specific; deleted-channel orphans listed with a per-row Purge checkbox,
- * default unchecked = keep the reference on Apply).
+ * for Specific). A stored channel id the channel list does not have is treated
+ * as absent: not shown, not sent back on Apply.
  *
  * Apply runs Swing's exact validation chain: name required; refusal to save
  * an existing role with no permission catalog (a silent wipe otherwise);
- * missing-base-permissions Yes/No warn; empty-whitelist flip Yes/No guard.
+ * missing-base-permissions Yes/No warn. "Specific Channels" with nothing ticked is
+ * legal (the role sees no channels); a line under the list says so.
  * Orphan permissions (grants not in the fetched catalog) render no checkbox
- * and are silently preserved on Apply, mirroring the keep-by-default policy
- * for deleted-channel references.
+ * and are silently preserved on Apply.
  *
  * The admin role (identified by its isAdmin flag, not its name) locks
  * everything except Description; Apply re-sends its stored permissions and
@@ -26,14 +26,12 @@
  */
 
 import {
-    groupPermissions, orphanPermissionsOf, orphanChannelIdsOf, missingBase,
+    groupPermissions, orphanPermissionsOf, missingBase, editorChannelIds, editorRestricted,
     READ_ONLY_PERMISSIONS, permissionWarning, READ_ONLY_TOOLTIP,
     TITLE_ADD_ROLE, TITLE_EDIT_ROLE, MSG_NAME_REQUIRED, TITLE_VALIDATION_ERROR,
     MSG_CATALOG_EMPTY_EDIT, TITLE_PERMISSIONS_UNAVAILABLE,
     missingBaseWarningText, TITLE_MISSING_BASE_PERMISSIONS,
-    MSG_EMPTY_WHITELIST_FLIP, TITLE_NO_CHANNEL_RESTRICTIONS,
-    ORPHAN_CHANNELS_TITLE, ORPHAN_CHANNELS_HINT,
-    orphanChannelRowLabel
+    MSG_NO_CHANNELS_TICKED
 } from './rbac-core.js';
 
 /* Own classes, NOT host Tailwind utilities: the host generates utilities from
@@ -81,7 +79,6 @@ const EDITOR_CSS = `
 .rbac-fieldset legend { font-size: 11px; font-weight: 600; padding: 0 4px; }
 .rbac-check { display: flex; align-items: center; gap: 6px; font-size: 12px; margin: 3px 0; cursor: pointer; }
 .rbac-check input { margin: 0; flex: none; }
-.rbac-orphan-label { font-family: monospace; font-size: 11px; }
 .rbac-channel-list {
     display: flex;
     flex-direction: column;
@@ -152,20 +149,19 @@ export function makeRoleEditor(platform) {
         const liveIds = React.useMemo(() => new Set(channels.map((c) => c.id)), [channels]);
         // Grants with no checkbox (not in the fetched catalog) — preserved on Apply.
         const orphanPerms = React.useMemo(() => orphanPermissionsOf(role, catalog || []), [role, catalog]);
-        const orphanChannels = React.useMemo(() => orphanChannelIdsOf(role, liveIds), [role, liveIds]);
 
         const [name, setName] = React.useState(role ? role.name : '');
         const [description, setDescription] = React.useState(role ? role.description : '');
         const [selected, setSelected] = React.useState(() => new Set(
             role ? [...role.permissions].filter((p) => catalog && catalog.has(p)) : []));
         const [mode, setMode] = React.useState(
-            role && role.channelIds.size > 0 ? 'specific' : 'all');
+            role && role.restricted ? 'specific' : 'all');
         const [checkedChannels, setCheckedChannels] = React.useState(() => new Set(
             role ? [...role.channelIds].filter((id) => liveIds.has(id)) : []));
-        const [purged, setPurged] = React.useState(() => new Set());
         const [tab, setTab] = React.useState('permissions');
 
         const channelsEnabled = mode === 'specific' && !isAdmin;
+        const noneTicked = mode === 'specific' && checkedChannels.size === 0;
 
         // Escape cancels (Swing dialog parity) — unless a host modal (confirm/
         // alert) is stacked on top, which owns the key.
@@ -209,21 +205,11 @@ export function makeRoleEditor(platform) {
                 }
             }
 
-            const selectedChannels = new Set();
-            if (mode === 'specific') {
-                for (const id of checkedChannels) selectedChannels.add(id);
-                // Keep references to deleted channels unless Purge was checked.
-                for (const id of orphanChannels) {
-                    if (!purged.has(id)) selectedChannels.add(id);
-                }
-                // Flip guard: "Specific Channels" with an empty set means
-                // unrestricted (all channels), not "no access".
-                if (selectedChannels.size === 0) {
-                    if (!await confirmYesNo(TITLE_NO_CHANNEL_RESTRICTIONS, MSG_EMPTY_WHITELIST_FLIP)) {
-                        return;
-                    }
-                }
-            }
+            // Specific Channels: the ticked channels plus the stored ones this editor's
+            // list does not show (kept unseen). All Channels: none.
+            const selectedChannels = mode === 'specific'
+                ? editorChannelIds(checkedChannels, role ? role.channelIds : [], liveIds)
+                : new Set();
 
             onApply({
                 id: role ? role.id : null,
@@ -232,7 +218,8 @@ export function makeRoleEditor(platform) {
                 // Admin role: permission/channel controls are locked, so re-send
                 // the stored values unchanged — only the description can differ.
                 permissions: isAdmin ? new Set(role.permissions) : selectedPerms,
-                channelIds: isAdmin ? new Set(role.channelIds) : selectedChannels
+                channelIds: isAdmin ? new Set(role.channelIds) : selectedChannels,
+                restricted: editorRestricted(role, mode)
             });
         }
 
@@ -302,20 +289,6 @@ export function makeRoleEditor(platform) {
                                         Specific Channels
                                     </label>
                                 </div>
-                                {orphanChannels.length > 0 ? (
-                                    <fieldset className="rbac-fieldset">
-                                        <legend>{ORPHAN_CHANNELS_TITLE}</legend>
-                                        <div className="hint">{ORPHAN_CHANNELS_HINT}</div>
-                                        {orphanChannels.map((id) => (
-                                            <label key={id} className="rbac-check">
-                                                <input type="checkbox" checked={purged.has(id)} disabled={!channelsEnabled}
-                                                    onChange={() => setPurged((s) => toggleIn(s, id))} />
-                                                Purge
-                                                <span className="rbac-orphan-label">{orphanChannelRowLabel(id)}</span>
-                                            </label>
-                                        ))}
-                                    </fieldset>
-                                ) : null}
                                 <div className="rbac-channel-list">
                                     {channels.map((channel) => (
                                         <label key={channel.id} className="rbac-check">
@@ -330,6 +303,7 @@ export function makeRoleEditor(platform) {
                                         <div className="hint">No channels</div>
                                     ) : null}
                                 </div>
+                                {noneTicked ? <div className="hint">{MSG_NO_CHANNELS_TICKED}</div> : null}
                             </div>
                         )}
                     </div>

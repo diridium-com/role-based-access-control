@@ -53,7 +53,7 @@ def add_user(w, key, role_key=None, uid=None):
 def seeding(r, w, db, dbname, early_users):
     """The tables, the schema version, and the admin role with every user that existed before the install."""
     log = w.engine.log()
-    for step in ("Applying RBAC schema v1", "Applying RBAC schema v2"):
+    for step in ("Applying RBAC schema v1", "Applying RBAC schema v2", "Applying RBAC schema v4"):
         r.check(f"mirth.log: {step}", step in log)
     tables = db.plugin_table_count(dbname)
     if tables is None:
@@ -61,7 +61,7 @@ def seeding(r, w, db, dbname, early_users):
     else:
         r.check("rbac's four tables exist", tables == 4, f"found {tables}")
         version = db.schema_version(dbname)
-        r.check("schema_version is 3 in CONFIGURATION", version == 3, f"found {version}")
+        r.check("schema_version is 4 in CONFIGURATION", version == 4, f"found {version}")
     admin_role = b.admin_role(w.api)
     r.check("exactly one role carries the admin flag", admin_role is not None, str(b.roles(w.api)))
     if admin_role is None:
@@ -108,8 +108,27 @@ def role_crud(r, w, known_issue=None):
     name_check("an update changes the name", got.get("name") == name + " 2", repr(got.get("name")))
     status, _ = b.delete_role(a, rid)
     r.check("a role can be deleted", status in (200, 204) and rid not in b.roles(a), f"HTTP {status}")
+
     status, _ = a.request("GET", f"{b.RBAC}/roles/{rid}")
     r.check("a deleted role is gone (404)", status == 404, f"HTTP {status}")
+
+    # The restricted flag: a role restricted to no channel is a state of its own, and a caller that sends channels
+    # without the flag (a release before schema v4) still gets a restricted role.
+    none = b.create_role(a, "e2e no channels", ["viewChannels"], restricted=True)
+    got = b.roles(a).get(none) or {}
+    r.check("a role restricted to no channel reads back restricted, with no channels",
+            got.get("restricted") is True and got.get("channelIds") == set(), str(got))
+    status, _ = b.put_role(a, none, b.role_xml("e2e no channels", ["viewChannels"], restricted=False))
+    got = b.roles(a).get(none) or {}
+    r.check("switching the role to every channel reads back unrestricted",
+            status in (200, 204) and got.get("restricted") is False, f"HTTP {status}: {got}")
+    legacy = b.role_xml("e2e no channels", ["viewChannels"], [chans["A"]])  # no flag, as before schema v4
+    status, _ = b.put_role(a, none, legacy)
+    got = b.roles(a).get(none) or {}
+    r.check("a role sent with channels and no flag is stored restricted",
+            status in (200, 204) and got.get("restricted") is True and got.get("channelIds") == {chans["A"]},
+            f"HTTP {status}: {got}")
+    b.delete_role(a, none)
 
 
 def unicode_role_name(r, api, where=""):

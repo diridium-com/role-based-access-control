@@ -190,9 +190,19 @@ class RoleTransferFormatTest {
     }
 
     @Test
+    void aRoleRestrictedToNoChannel_roundTrips() throws Exception {
+        ExportedRole none = new ExportedRole("None", "d", List.of("viewChannels"), true, List.of());
+        String text = RoleTransferFormat.write("1.3.0", "4.7.0", List.of(none));
+        assertTrue(text.contains("<channels restricted=\"true\"/>"), text);
+        ExportedRole back = RoleTransferFormat.parse(text).roles().get(0);
+        assertTrue(back.restricted());
+        assertTrue(back.channels().isEmpty());
+    }
+
+    @Test
     void channelRestrictions_mustBeConsistent() {
-        assertRefused(HEADER + LAB.replace("<channel id=\"c1\" name=\"Lab In\"/>", "") + "</rbacRoles>",
-                "restricted to channels but lists none");
+        // restricted="true" with no channels is a role that sees no channel at all.
+        assertAccepted(HEADER + LAB.replace("<channel id=\"c1\" name=\"Lab In\"/>", "") + "</rbacRoles>");
         assertRefused(HEADER + LAB.replace("restricted=\"true\"", "restricted=\"false\"") + "</rbacRoles>",
                 "sees every channel (restricted=\"false\") but also lists channels");
         assertRefused(HEADER + LAB.replace("restricted=\"true\"", "restricted=\"yes\"") + "</rbacRoles>",

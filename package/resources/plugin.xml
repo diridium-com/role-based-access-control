@@ -13,6 +13,7 @@
 
     <serverClasses>
         <string>com.diridium.rbac.RbacServicePlugin</string>
+        <string>com.diridium.rbac.RbacChannelPlugin</string>
     </serverClasses>
 
     <clientClasses>

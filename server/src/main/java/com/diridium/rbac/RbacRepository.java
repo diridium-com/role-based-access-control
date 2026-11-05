@@ -151,6 +151,7 @@ public class RbacRepository {
             params.put("name", role.getName());
             params.put("description", role.getDescription());
             params.put("isAdmin", role.isAdmin());
+            params.put("restricted", role.isRestricted());
             // useGeneratedKeys writes the assigned id back into params["id"]
             session.insert(stmt("insertRole"), params);
             Integer roleId = insertedRoleId(session, params, role.getName());
@@ -194,6 +195,7 @@ public class RbacRepository {
             params.put("id", roleId);
             params.put("name", role.getName());
             params.put("description", role.getDescription());
+            params.put("restricted", role.isRestricted());
             session.update(stmt("updateRole"), params);
 
             savePermissionsForRole(session, roleId, role.getPermissions());
@@ -413,6 +415,52 @@ public class RbacRepository {
     }
 
     /**
+     * Every channel restriction row, as (roleId, channelId) pairs in role order. Used by
+     * the startup sweep of restrictions to deleted channels.
+     */
+    public static List<Map<String, Object>> getAllRoleChannels() {
+        try {
+            return SqlConfig.getInstance().getSqlSessionManager().selectList(stmt("getAllRoleChannels"));
+        } catch (Exception e) {
+            log.error("Failed to list role channel restrictions", e);
+            throw new RbacRepositoryException(e);
+        }
+    }
+
+    /** The ids of the roles restricted to a channel, in id order. */
+    public static List<Integer> getRoleIdsForChannel(String channelId) {
+        try {
+            return SqlConfig.getInstance().getSqlSessionManager().selectList(stmt("getRoleIdsForChannel"), channelId);
+        } catch (Exception e) {
+            log.error("Failed to list the roles restricted to channel {}", channelId, e);
+            throw new RbacRepositoryException(e);
+        }
+    }
+
+    /** Removes every restriction row naming a channel, for every role. */
+    public static int deleteChannelIdFromRoles(String channelId) {
+        try {
+            return SqlConfig.getInstance().getSqlSessionManager().delete(stmt("deleteChannelIdFromRoles"), channelId);
+        } catch (Exception e) {
+            log.error("Failed to remove channel {} from the roles restricted to it", channelId, e);
+            throw new RbacRepositoryException(e);
+        }
+    }
+
+    /** Removes one channel restriction row. */
+    public static void deleteChannelIdForRole(int roleId, String channelId) {
+        try {
+            Map<String, Object> params = new HashMap<>();
+            params.put("roleId", roleId);
+            params.put("channelId", channelId);
+            SqlConfig.getInstance().getSqlSessionManager().delete(stmt("deleteChannelIdForRole"), params);
+        } catch (Exception e) {
+            log.error("Failed to remove channel {} from role {}", channelId, roleId, e);
+            throw new RbacRepositoryException(e);
+        }
+    }
+
+    /**
      * Removes a user's role assignment entirely. The admin-floor check lives
      * at the servlet boundary, not here.
      *
@@ -500,6 +548,7 @@ public class RbacRepository {
         role.setDescription((String) row.get("description"));
         role.setPermissions(getPermissionsForRole(role.getId()));
         role.setChannelIds(getChannelIdsForRole(role.getId()));
+        role.setRestricted(toBoolean(row.get("restricted")));
         role.setAdmin(toBoolean(row.get("isAdmin")));
         return role;
     }

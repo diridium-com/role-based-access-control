@@ -4,6 +4,8 @@
 package com.diridium.rbac;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -49,6 +51,7 @@ class RoleSerializationTest {
         original.setDescription("Read-only with channel limits");
         original.setPermissions(new HashSet<>(Arrays.asList("viewChannels", "viewMessages")));
         original.setChannelIds(new HashSet<>(Arrays.asList("ch-a", "ch-b")));
+        original.setRestricted(true);
         original.setAdmin(true);
 
         String xml = xstream.toXML(original);
@@ -61,6 +64,8 @@ class RoleSerializationTest {
         assertEquals(original.isAdmin(), restored.isAdmin());
         assertEquals(original.getPermissions(), restored.getPermissions());
         assertEquals(original.getChannelIds(), restored.getChannelIds());
+        assertEquals(original.isRestricted(), restored.isRestricted());
+        assertTrue(xml.contains("<restricted>"), "the field name is the element name, like isAdmin");
     }
 
     @Test
@@ -75,14 +80,30 @@ class RoleSerializationTest {
         row.setAction(RoleImportRow.Action.OVERWRITE);
         row.setReason("note");
         row.setDroppedPermissions(new ArrayList<>(Arrays.asList("Run Lab Reports")));
-        row.setUnmatchedChannels(new ArrayList<>(Arrays.asList("Gone (id-gone)")));
         row.setMatchedChannelCount(2);
         row.setChannels(RoleImportRow.Channels.KEPT);
-        row.setDescriptionChanged(true);
-        row.setAddedPermissions(new ArrayList<>(Arrays.asList("viewChannels")));
-        row.setRemovedPermissions(new ArrayList<>(Arrays.asList("viewMessages")));
-        row.setAddedChannels(new ArrayList<>(Arrays.asList("Lab In")));
-        row.setRemovedChannels(new ArrayList<>(Arrays.asList("ADT Out")));
+        row.setNoChannelFound(true);
+        row.setExistsHere(true);
+        row.setRestrictedNow(true);
+        row.setRestrictedAfter(true);
+        row.setDescriptionNow("old");
+        row.setDescriptionAfter("new");
+        row.setPermissionsNow(new ArrayList<>(Arrays.asList("viewMessages")));
+        row.setPermissionsAfter(new ArrayList<>(Arrays.asList("viewChannels")));
+        RoleImportChannel now = new RoleImportChannel();
+        now.setId("id-adt");
+        now.setName("ADT Out");
+        now.setMatch(RoleImportChannel.Match.BY_ID);
+        now.setUsed(true);
+        row.setChannelsNow(new ArrayList<>(Arrays.asList(now)));
+        RoleImportChannel after = new RoleImportChannel();
+        after.setId("id-lab");
+        after.setName("Lab In");
+        after.setFileId("id-elsewhere");
+        after.setFileName("Lab Results In");
+        after.setMatch(RoleImportChannel.Match.BY_NAME);
+        after.setUsed(false);
+        row.setChannelsAfter(new ArrayList<>(Arrays.asList(after)));
         RoleImportResult original = new RoleImportResult();
         original.setImportable(true);
         original.setFormatVersion("1");
@@ -112,14 +133,30 @@ class RoleSerializationTest {
         assertEquals(RoleImportRow.Action.OVERWRITE, back.getAction());
         assertEquals("note", back.getReason());
         assertEquals(row.getDroppedPermissions(), back.getDroppedPermissions());
-        assertEquals(row.getUnmatchedChannels(), back.getUnmatchedChannels());
         assertEquals(2, back.getMatchedChannelCount());
         assertEquals(RoleImportRow.Channels.KEPT, back.getChannels());
-        assertEquals(true, back.isDescriptionChanged());
-        assertEquals(row.getAddedPermissions(), back.getAddedPermissions());
-        assertEquals(row.getRemovedPermissions(), back.getRemovedPermissions());
-        assertEquals(row.getAddedChannels(), back.getAddedChannels());
-        assertEquals(row.getRemovedChannels(), back.getRemovedChannels());
+        assertEquals(true, back.isNoChannelFound());
+        assertEquals(true, back.isExistsHere());
+        assertEquals(true, back.isRestrictedNow());
+        assertEquals(true, back.isRestrictedAfter());
+        assertEquals("old", back.getDescriptionNow());
+        assertEquals("new", back.getDescriptionAfter());
+        assertEquals(row.getPermissionsNow(), back.getPermissionsNow());
+        assertEquals(row.getPermissionsAfter(), back.getPermissionsAfter());
+        RoleImportChannel nowBack = back.getChannelsNow().get(0);
+        assertEquals("id-adt", nowBack.getId());
+        assertEquals("ADT Out", nowBack.getName());
+        assertNull(nowBack.getFileName());
+        assertEquals(RoleImportChannel.Match.BY_ID, nowBack.getMatch());
+        assertEquals(true, nowBack.isUsed());
+        RoleImportChannel afterBack = back.getChannelsAfter().get(0);
+        assertEquals("id-lab", afterBack.getId());
+        assertEquals("Lab In", afterBack.getName());
+        assertEquals("id-elsewhere", afterBack.getFileId());
+        assertEquals("Lab Results In", afterBack.getFileName());
+        assertNull(nowBack.getFileId());
+        assertEquals(RoleImportChannel.Match.BY_NAME, afterBack.getMatch());
+        assertEquals(false, afterBack.isUsed());
         ChannelNameMatch matchBack = restored.getChannelNameMatches().get(0);
         assertEquals("Lab In", matchBack.getName());
         assertEquals("id-elsewhere", matchBack.getFileChannelId());

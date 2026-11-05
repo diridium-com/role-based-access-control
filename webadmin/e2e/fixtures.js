@@ -165,12 +165,14 @@ export const LIVE_TASK_PERMISSIONS = taskPermissionMap([
 ]);
 
 // Roles in the live capture shape: FQCN root (Role has no XStream alias),
-// channelIds:null for an unrestricted role, isAdmin a real JSON boolean.
+// channelIds:null and restricted:false for an unrestricted role, isAdmin and
+// restricted real JSON booleans.
 export const ADMIN_ROLE = {
     id: 1, name: 'Administrator',
     description: 'Full access to all operations and channels',
     permissions: { string: FULL_PERMISSIONS.filter((p) => !p.includes(' ')) },
     channelIds: null,
+    restricted: false,
     isAdmin: true
 };
 
@@ -179,6 +181,7 @@ export const READ_ONLY_ROLE = {
     description: 'View-only access',
     permissions: { string: READ_ONLY_PERMISSIONS },
     channelIds: null,
+    restricted: false,
     isAdmin: false
 };
 
@@ -203,7 +206,7 @@ export function rbacFixtures({
     };
 }
 
-/* ---- role export and import (verbatim from the wire probe, rbac 1.2.0 on OIE 4.7.0) ---- */
+/* ---- role export and import (the export file and the refusal are verbatim from the wire probe, rbac 1.2.0 on OIE 4.7.0) ---- */
 
 // GET /extensions/rbac/roles/_export: text/plain, the file as written.
 export const EXPORT_FILE = `<?xml version="1.0" encoding="UTF-8"?>
@@ -231,14 +234,165 @@ export const EXPORT_FILE = `<?xml version="1.0" encoding="UTF-8"?>
 </rbacRoles>
 `;
 
-// POST /extensions/rbac/roles/_import answers, as the engine sends them.
-export const IMPORT_PREVIEW_TWO_ROWS = JSON.parse(
-    '{"com.diridium.rbac.RoleImportResult":{"importable":true,"formatVersion":1,"sourceRbacVersion":"1.2.0","sourceEngineVersion":"4.7.0","applyChannels":true,"matchChannelsByName":false,"applied":false,"planToken":"5ba1268962581bdbd0ddb491d164bea2910cd8c2b77dfc0d71fe1e0346647395","rows":{"com.diridium.rbac.RoleImportRow":[{"index":0,"name":"probe lab","action":"CREATE","droppedPermissions":null,"unmatchedChannels":null,"matchedChannelCount":2,"channels":"FROM_FILE","descriptionChanged":false,"addedPermissions":null,"removedPermissions":null,"addedChannels":null,"removedChannels":null},{"index":1,"name":"probe everyone","action":"UNCHANGED","droppedPermissions":null,"unmatchedChannels":null,"matchedChannelCount":0,"channels":"FROM_FILE","descriptionChanged":false,"addedPermissions":null,"removedPermissions":null,"addedChannels":null,"removedChannels":null}]},"channelNameMatches":null}}');
-export const IMPORT_NAME_MATCH_OFF = JSON.parse(
-    '{"com.diridium.rbac.RoleImportResult":{"importable":true,"formatVersion":1,"sourceRbacVersion":"e2e","sourceEngineVersion":"e2e","applyChannels":true,"matchChannelsByName":false,"applied":false,"planToken":"43d8bc80c396901a0a702aa5d8f18dd57477abf2dea2de533a00c5ebfc897146","rows":{"com.diridium.rbac.RoleImportRow":{"index":0,"name":"probe moved one","action":"SKIP","reason":"None of its 1 channels exist on this engine, and a role with no channels sees every channel. Matching channels by name finds 1 of them.","droppedPermissions":null,"unmatchedChannels":{"string":"probe one (8163af3f-7ed2-4a0c-b326-34830263c504)"},"matchedChannelCount":0,"channels":"FROM_FILE","descriptionChanged":false,"addedPermissions":null,"removedPermissions":null,"addedChannels":null,"removedChannels":null}},"channelNameMatches":{"com.diridium.rbac.ChannelNameMatch":{"name":"probe one","fileChannelId":"8163af3f-7ed2-4a0c-b326-34830263c504","channelId":"4c468ff3-0cf7-4e8b-88e7-a7d8a3b538bf"}}}}');
-export const IMPORT_NAME_MATCH_ON = JSON.parse(
-    '{"com.diridium.rbac.RoleImportResult":{"importable":true,"formatVersion":1,"sourceRbacVersion":"e2e","sourceEngineVersion":"e2e","applyChannels":true,"matchChannelsByName":true,"applied":false,"planToken":"b7fdd89af2d6b418cb36fe1ebeb910f9a47b18458cf7b03832896537756eaf45","rows":{"com.diridium.rbac.RoleImportRow":{"index":0,"name":"probe moved one","action":"CREATE","droppedPermissions":null,"unmatchedChannels":null,"matchedChannelCount":1,"channels":"FROM_FILE","descriptionChanged":false,"addedPermissions":null,"removedPermissions":null,"addedChannels":null,"removedChannels":null}},"channelNameMatches":{"com.diridium.rbac.ChannelNameMatch":{"name":"probe one","fileChannelId":"8163af3f-7ed2-4a0c-b326-34830263c504","channelId":"4c468ff3-0cf7-4e8b-88e7-a7d8a3b538bf"}}}}');
-export const IMPORT_APPLIED = JSON.parse(
-    '{"com.diridium.rbac.RoleImportResult":{"importable":true,"formatVersion":1,"sourceRbacVersion":"1.2.0","sourceEngineVersion":"4.7.0","applyChannels":true,"matchChannelsByName":false,"applied":true,"planToken":"5ba1268962581bdbd0ddb491d164bea2910cd8c2b77dfc0d71fe1e0346647395","rows":{"com.diridium.rbac.RoleImportRow":{"index":0,"name":"probe lab","action":"CREATE","droppedPermissions":null,"unmatchedChannels":null,"matchedChannelCount":2,"channels":"FROM_FILE","descriptionChanged":false,"addedPermissions":null,"removedPermissions":null,"addedChannels":null,"removedChannels":null}},"channelNameMatches":null}}');
+// POST /extensions/rbac/roles/_import answers, built by hand in the shape a real
+// engine sends (captured in web/wire-parsing.test.mjs from wire-probe-3.log):
+// lists under their FQCN root, one element as a bare object or string, an empty
+// list as null, a null name or description left out.
+const RESULT = 'com.diridium.rbac.RoleImportResult';
+const wireList = (fqcn, items) => (items.length === 0 ? null : { [fqcn]: items.length === 1 ? items[0] : items });
+const wireStrings = (items) => (items.length === 0 ? null : { string: items.length === 1 ? items[0] : items });
+const wireChannels = (items) => wireList('com.diridium.rbac.RoleImportChannel', items);
+// A channel from the file, found by id: its id in the file is its id. A "now" entry overrides fileId and fileName with null.
+const channel = (id, name, over = {}) => ({ id, name, fileId: id, fileName: name, match: 'BY_ID', used: true, ...over });
+const nowChannel = (id, name, over = {}) => channel(id, name, { fileId: null, fileName: null, ...over });
+
+function wireRow(over) {
+    const row = {
+        index: 0, name: 'role', action: 'CREATE', droppedPermissions: [], matchedChannelCount: 0, channels: 'FROM_FILE',
+        noChannelFound: false, existsHere: false, restrictedNow: false, restrictedAfter: false, descriptionNow: null, descriptionAfter: '',
+        permissionsNow: [], permissionsAfter: [], channelsNow: [], channelsAfter: [], ...over
+    };
+    return {
+        ...row,
+        droppedPermissions: wireStrings(row.droppedPermissions),
+        permissionsNow: wireStrings(row.permissionsNow),
+        permissionsAfter: wireStrings(row.permissionsAfter),
+        channelsNow: wireChannels(row.channelsNow),
+        channelsAfter: wireChannels(row.channelsAfter)
+    };
+}
+
+function wireResult(rows, over = {}) {
+    return {
+        [RESULT]: {
+            importable: true, formatVersion: 1, sourceRbacVersion: '1.2.0', sourceEngineVersion: '4.7.0',
+            applyChannels: true, matchChannelsByName: false, applied: false, planToken: 'hand-written-token',
+            rows: wireList('com.diridium.rbac.RoleImportRow', rows),
+            channelNameMatches: null, ...over
+        }
+    };
+}
+
+const ONE = '4c468ff3-0cf7-4e8b-88e7-a7d8a3b538bf';
+const TWO = 'ee366a8b-755b-4f73-9f1b-abe1801cc121';
+const NEW_LAB = wireRow({
+    index: 0, name: 'probe lab', action: 'CREATE', matchedChannelCount: 2, restrictedAfter: true,
+    descriptionAfter: 'rbac e2e', permissionsAfter: ['viewChannels', 'viewDashboard'],
+    channelsAfter: [channel(ONE, 'probe one'), channel(TWO, 'probe two')]
+});
+export const IMPORT_PREVIEW_TWO_ROWS = wireResult([
+    NEW_LAB,
+    wireRow({
+        index: 1, name: 'probe everyone', action: 'UNCHANGED', existsHere: true,
+        descriptionNow: 'rbac e2e', descriptionAfter: 'rbac e2e',
+        permissionsNow: ['viewChannels'], permissionsAfter: ['viewChannels'],
+        reason: 'Identical to the role on this engine.'
+    })
+]);
+
+const MOVED = '8163af3f-7ed2-4a0c-b326-34830263c504';
+const NAME_MATCH = { name: 'probe one', fileChannelId: MOVED, channelId: ONE };
+// Notes as the server composes them (RoleImportPlanner.notes). A role whose only channel is found by name alone
+// has no channel found while matching by name is off: New, restricted to no channel, ticked like any New role.
+export const IMPORT_NAME_MATCH_OFF = wireResult([wireRow({
+    index: 0, name: 'probe moved one', action: 'CREATE', noChannelFound: true, restrictedAfter: true,
+    reason: 'The import restricts this role to 1 channel. None of those channels exist on this engine. If imported,'
+        + ' this role is restricted to no channels until an administrator sets channels for this role.'
+        + ' 1 of those channels matches a channel on this engine by name.',
+    descriptionAfter: 'moved', permissionsAfter: ['viewChannels'],
+    channelsAfter: [channel(ONE, 'probe one', { fileId: MOVED, match: 'BY_NAME', used: false })]
+})], { channelNameMatches: { 'com.diridium.rbac.ChannelNameMatch': NAME_MATCH } });
+export const IMPORT_NAME_MATCH_ON = wireResult([wireRow({
+    index: 0, name: 'probe moved one', action: 'CREATE', matchedChannelCount: 1, restrictedAfter: true,
+    reason: '1 of those channels matches a channel on this engine by name.',
+    descriptionAfter: 'moved', permissionsAfter: ['viewChannels'],
+    channelsAfter: [channel(ONE, 'probe one', { fileId: MOVED, match: 'BY_NAME' })]
+})], { matchChannelsByName: true, channelNameMatches: { 'com.diridium.rbac.ChannelNameMatch': NAME_MATCH } });
+
+// An Overwrite of the role "Lab": a renamed channel, a channel not on this engine, a dropped permission.
+const NOWHERE = 'bbb4ce36-25d9-4830-9644-7fcd5682f5fd';
+const LAB_OVERWRITE = wireRow({
+    index: 0, name: 'Lab', action: 'OVERWRITE', existsHere: true, matchedChannelCount: 2,
+    restrictedNow: true, restrictedAfter: true,
+    droppedPermissions: ['oldPermission'],
+    reason: 'Of the 3 channels in the import, 1 is not on this engine.'
+        + ' 1 permission in the import is not offered by this engine and is left out.',
+    descriptionNow: 'Lab staff', descriptionAfter: 'Lab team',
+    permissionsNow: ['viewAlerts', 'viewChannels'], permissionsAfter: ['viewChannels', 'viewDashboard'],
+    channelsNow: [nowChannel(ONE, 'probe one')],
+    channelsAfter: [channel(ONE, 'probe one renamed', { fileName: 'probe one' }), channel(TWO, 'probe two'),
+        channel(NOWHERE, 'probe nowhere', { match: 'NOT_FOUND', used: false })]
+});
+export const IMPORT_OVERWRITE_DETAILS = wireResult([LAB_OVERWRITE]);
+
+// Four roles: Lab (as above), one that goes from one channel to every channel and gains a permission, one that
+// goes from every channel to two, and a new one.
+export const IMPORT_SEVERAL_ROWS = wireResult([
+    LAB_OVERWRITE,
+    wireRow({
+        index: 1, name: 'Day', action: 'OVERWRITE', existsHere: true, matchedChannelCount: 0, restrictedNow: true,
+        reason: 'On this engine this role is restricted to 1 channel. The import removes the restriction, so after the'
+            + ' import this role will see every channel.',
+        descriptionNow: 'Day shift', descriptionAfter: 'Day team',
+        permissionsNow: ['viewChannels'], permissionsAfter: ['viewChannels', 'viewDashboard', 'viewAlerts'],
+        channelsNow: [nowChannel(ONE, 'probe one')], channelsAfter: []
+    }),
+    wireRow({
+        index: 2, name: 'Night', action: 'OVERWRITE', existsHere: true, matchedChannelCount: 2, restrictedAfter: true,
+        reason: 'On this engine this role sees every channel. The import restricts this role to 2 channels.',
+        descriptionNow: 'Night shift', descriptionAfter: 'Night team',
+        permissionsNow: ['viewChannels'], permissionsAfter: ['viewChannels'],
+        channelsNow: [], channelsAfter: [channel(ONE, 'probe one'), channel(TWO, 'probe two')]
+    }),
+    { ...NEW_LAB, index: 3, name: 'Fresh' }
+]);
+
+// An Overwrite of "Ward" showing the Match values: found by id, in the import but not on this engine (with and
+// without a name in the import), and a channel the role has that the import does not name.
+const GONE_NAMED = '0a1b2c3d-1111-4222-8333-444455556666';
+export const IMPORT_MATCH_VALUES = wireResult([wireRow({
+    index: 0, name: 'Ward', action: 'OVERWRITE', existsHere: true, matchedChannelCount: 1,
+    restrictedNow: true, restrictedAfter: true,
+    reason: 'Of the 3 channels in the import, 2 are not on this engine.',
+    descriptionNow: 'Ward staff', descriptionAfter: 'Ward team',
+    permissionsNow: ['viewChannels'], permissionsAfter: ['viewChannels'],
+    channelsNow: [nowChannel(ONE, 'probe one'), nowChannel('now-only-id', 'probe three')],
+    channelsAfter: [channel(ONE, 'probe one'),
+        channel(GONE_NAMED, null, { fileName: 'probe gone', match: 'NOT_FOUND', used: false }),
+        channel(NOWHERE, 'probe nowhere', { match: 'NOT_FOUND', used: false })]
+})]);
+
+// Roles restricted to no channel: one that stays so, one that goes to every channel, one that goes from every
+// channel to none, and a New role restricted to no channel.
+export const IMPORT_NONE_ROWS = wireResult([
+    wireRow({
+        index: 0, name: 'Quiet', action: 'OVERWRITE', existsHere: true, restrictedNow: true, restrictedAfter: true,
+        descriptionNow: 'Quiet', descriptionAfter: 'Quiet team',
+        permissionsNow: ['viewChannels'], permissionsAfter: ['viewChannels']
+    }),
+    wireRow({
+        index: 1, name: 'Reopen', action: 'OVERWRITE', existsHere: true, restrictedNow: true,
+        descriptionNow: 'Reopen', descriptionAfter: 'Reopen team',
+        permissionsNow: ['viewChannels'], permissionsAfter: ['viewChannels']
+    }),
+    wireRow({
+        index: 2, name: 'Close', action: 'OVERWRITE', existsHere: true, restrictedAfter: true,
+        descriptionNow: 'Close', descriptionAfter: 'Close team',
+        permissionsNow: ['viewChannels'], permissionsAfter: ['viewChannels']
+    }),
+    wireRow({ index: 3, name: 'Fresh none', action: 'CREATE', restrictedAfter: true, descriptionAfter: 'none',
+        permissionsAfter: ['viewChannels'] })
+]);
+
+// A New role whose import channels exist nowhere on this engine, with the apply box ticked: it is restricted to no channel.
+export const IMPORT_NO_CHANNEL_FOUND = wireResult([wireRow({
+    index: 0, name: 'probe lost', action: 'CREATE', noChannelFound: true, restrictedAfter: true,
+    reason: 'The import restricts this role to 1 channel. None of those channels exist on this engine. If imported,'
+        + ' this role is restricted to no channels until an administrator sets channels for this role.',
+    descriptionAfter: 'lost', permissionsAfter: ['viewChannels'],
+    channelsAfter: [channel(NOWHERE, 'probe nowhere', { match: 'NOT_FOUND', used: false })]
+}), { ...NEW_LAB, index: 1 }]);
+
+export const IMPORT_APPLIED = wireResult([NEW_LAB], { applied: true });
 export const IMPORT_REFUSED = JSON.parse(
     '{"com.diridium.rbac.RoleImportResult":{"importable":false,"refusal":"This file is format 2, written by rbac 9. This rbac reads format 1.","applyChannels":true,"matchChannelsByName":false,"applied":false,"rows":null,"channelNameMatches":null}}');

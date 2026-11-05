@@ -36,7 +36,7 @@ rbac can write roles to a file and read them back, on the same engine or another
 | `role/name` | yes | The role's name, at most 255 characters. |
 | `role/description` | no | At most 1024 characters. Missing means empty. |
 | `role/permissions` | yes | The role's permissions, one `permission` each, at most 255 characters, no repeats. May be empty. |
-| `role/channels/@restricted` | yes | `false`: the role sees every channel, and lists none. `true`: it sees only the channels listed, at least one. |
+| `role/channels/@restricted` | yes | `false`: the role sees every channel, and lists none. `true`: it sees only the channels listed; with none listed, it sees no channel. |
 | `channel/@id`, `channel/@name` | yes | A channel's id, and its name on the engine that wrote the file. The name is empty for a channel that had been deleted there. |
 
 The admin role is never in a file. Neither are user assignments: a role comes in with no users.
@@ -59,18 +59,21 @@ Comments and whitespace between elements are fine. A later rbac that adds to the
 An import is previewed first. The preview lists every role in the file with what would happen to it:
 
 - **CREATE**: no role with that name exists here.
-- **OVERWRITE**: one does, and the file's version differs. The existing role keeps its name and its users; its description, permissions and channels are replaced. The preview lists the permissions and channels it adds and removes, and says whether the description changes. A change from some channels to every channel, or the other way, is a note on the row instead.
+- **OVERWRITE**: one does, and the file's version differs. The existing role keeps its name and its users; its description, permissions and channels are replaced. A change from some channels to every channel, or the other way, is a note on the row.
 - **UNCHANGED**: one does, and it already matches.
-- **SKIP**: the role can't come in, and the preview says why.
+- **SKIP**: the role has the admin role's name, which an import never changes.
+
+Every row shows the role as it is here now, when one exists (description, permissions, channels), and as the import would leave it. Each of the file's channels says how it was found here: by its id, by its id under a different name (the file's name is shown beside it), by its name only, or not at all. A role is either unrestricted (every channel) or restricted to its list, which may be empty: a restricted role with no channel sees none.
 
 Then the user picks the roles to import (new roles start picked, overwrites don't), and the picked roles are written in one transaction: all of them, or none if anything fails. If any role the file names changed since the preview, the import is refused and has to be previewed again. Two new roles whose names this database holds as one, such as "Café" and "Cafe" on MySQL, both show as new in the preview; picking both is refused, with the reason, and writes neither.
 
 Along the way:
 
 - A role with the admin role's name is skipped. An import never changes the admin role.
+- Every row carries a `reason`: the notes the Administrators show (why the admin row is skipped, what the import does to the role's channels, how many of the import's channels and permissions this engine lacks), or nothing when there is nothing to say.
 - Permissions this engine doesn't offer are left out and listed. rbac stores any permission name it's given, and a stored grant for a disabled extension would take effect as soon as that extension is enabled.
-- **Channel restrictions applied** (the default): each channel is matched by its id. A channel whose id isn't here, but whose name exactly one channel here has, is a match by name. The preview always lists the matches by name, and the import uses them only when it matches channels by name, which is off unless chosen. Channels found neither way are listed. A restricted role none of whose channels are found is skipped, because rbac stores "every channel" as an empty list and the role would otherwise see everything. If some of its channels match by name, the reason says how many.
-- **Channel restrictions not applied**: an existing role keeps the channel restrictions it has, and a new role sees every channel. The preview marks those new roles. They have no users until someone assigns one, so set their channels first.
+- **Channel restrictions applied** (the default): each channel is matched by its id. A channel whose id isn't here, but whose name exactly one channel here has, is a match by name. The preview always marks the matches by name, and the import uses them only when it matches channels by name, which is off unless chosen. Channels found neither way are marked as not found. A restricted role none of whose channels are found is offered with `noChannelFound` set and a note: imported as it stands, it is restricted to no channel until an administrator sets its channels, so the row starts ticked like any new role. If some of its channels match by name, the note says how many.
+- **Channel restrictions not applied**: an existing role keeps the channel restrictions it has, and a new role is restricted to no channel until an administrator sets its channels. The preview says so on those rows.
 
 ## Role names
 
@@ -95,9 +98,10 @@ Any other user is refused (403) with "Exporting roles needs the admin role." or 
 
 ## REST
 
+- A role on the REST API (`/api/extensions/rbac/roles`) carries `restricted` since rbac 1.3.0 (schema version 4). A role sent without it but with `channelIds` is stored restricted, so older callers keep their meaning.
 - `GET /api/extensions/rbac/roles/_export?roleId=3&roleId=7` answers the file as `text/plain; charset=UTF-8`. With no `roleId`, every role but the admin role. An id that doesn't exist, the admin role's, or a `roleId` with no value is refused (400).
 - `POST /api/extensions/rbac/roles/_import` takes the file as a `text/plain` body and answers a `RoleImportResult`. Query parameters:
-  - `dryRun`: `true` (the default) previews. The answer has a row per role in the file and a `planToken`.
+  - `dryRun`: `true` (the default) previews. The answer has a row per role in the file and a `planToken`. A row (`RoleImportRow`) carries the role's `index` in the file, `name`, `action`, `reason`, `droppedPermissions`, `matchedChannelCount`, `channels` (`FROM_FILE`, `KEPT` or `NO_CHANNEL`) and `noChannelFound`, then the role here now, when `existsHere` is true (`restrictedNow`, `descriptionNow`, `permissionsNow`, `channelsNow`), and the role after the import (`restrictedAfter`, `descriptionAfter`, `permissionsAfter`, `channelsAfter`). Each channel (`RoleImportChannel`) has its `id` and `name` here (for a channel not found here, the file's; `name` is null for a channel deleted here), `fileId` and `fileName` (the file's values; null in a now list), `match` (`BY_ID`, `BY_NAME` or `NOT_FOUND`) and `used`, whether the role is restricted to it after the import. `restrictedNow` and `restrictedAfter` say whether the role sees only its listed channels (possibly none) or every channel; an empty channel list with the flag set means no channels.
   - `applyChannels`: `true` (the default) applies the file's channel restrictions.
   - `matchChannelsByName`: `true` also matches a channel whose id isn't on this engine by its name. The default is `false`. The answer's `channelNameMatches` lists every match by name either way, each with the channel's `name`, its id in the file (`fileChannelId`) and the id of the channel here (`channelId`). The plan token covers this setting, so preview again after changing it.
   - `pick` and `planToken`, for `dryRun=false`: the positions in the file (from 0) of the roles to write, and the preview's token. The answer has the rows written.

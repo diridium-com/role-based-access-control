@@ -3,8 +3,9 @@
 
 /*
  * The channel list fails to load (500): the panel says so, and Add and Edit
- * refuse to open the role editor, which would otherwise list every channel a
- * role is restricted to as deleted. A Refresh that loads the list lifts it.
+ * refuse to open the role editor. A stale or missing list would hide live
+ * channels from it, and the save would keep them unseen. A Refresh that loads
+ * the list lifts it.
  */
 
 import { test, expect } from '@playwright/test';

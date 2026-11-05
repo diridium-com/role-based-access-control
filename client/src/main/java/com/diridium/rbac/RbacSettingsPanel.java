@@ -83,7 +83,7 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
     public RbacSettingsPanel(String tabName) {
         super(tabName);
         this.parent = PlatformUI.MIRTH_FRAME;
-        this.transfer = new RoleTransferActions(parent, this::doRefresh);
+        this.transfer = new RoleTransferActions(parent, this::doRefresh, this::loadedChannelMap);
         initComponents();
         addTask("doExportRoles", "Export Roles", "Export roles to a file.", "", new ImageIcon(Frame.class.getResource("images/report_go.png")));
         addTask("doImportRoles", "Import Roles", "Import roles from a file.", "", new ImageIcon(Frame.class.getResource("images/report_disk.png")));
@@ -196,6 +196,11 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
         add(splitPane, BorderLayout.CENTER);
     }
 
+    /** @return the channel id to name map, or {@code null} when the last refresh did not load the channel list */
+    Map<String, String> loadedChannelMap() {
+        return channelListLoaded ? cachedChannelMap : null;
+    }
+
     /**
      * {@inheritDoc}
      * <p>Loads roles, users, permission catalog, and channel id-to-name
@@ -255,8 +260,9 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
                         if (extensionGroups != null) {
                             cachedExtensionGroups = extensionGroups;
                         }
-                        // A failed fetch keeps the old list, and the editor would show the
-                        // missing channels as deleted, so add and edit wait for a fresh one.
+                        // A failed fetch keeps the old list, which could hide live channels from
+                        // the editor (the save would keep them unseen), so add and edit wait for
+                        // a fresh one.
                         channelListLoaded = channelMap != null;
                         if (channelMap != null) {
                             cachedChannelMap = channelMap;
@@ -355,9 +361,9 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
 
     /**
      * Guards the role editor against opening when the last refresh did not fetch
-     * the channel list. The editor lists every restricted channel missing from
-     * the list as deleted, with a Purge checkbox, so a stale or empty list would
-     * show live channels as deleted.
+     * the channel list. A stale or empty list would hide live channels from the
+     * editor, and the save would keep them unseen, so add and edit wait for a
+     * fresh list.
      *
      * @return {@code true} (after warning the user) if the channel list is not loaded
      */
@@ -488,14 +494,16 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
         details.append("New role:     ").append(role.getName()).append("\n\n");
 
         Set<String> channelIds = role.getChannelIds();
-        if (channelIds == null || channelIds.isEmpty()) {
+        if (!role.isRestricted()) {
             details.append("Channel access: All channels\n\n");
+        } else if (channelIds == null || channelIds.isEmpty()) {
+            details.append("Channel access: No channels\n\n");
         } else {
             details.append("Channel access: restricted to ").append(channelIds.size()).append(" channel(s):\n");
             List<String> channelLabels = new ArrayList<>();
             for (String id : channelIds) {
                 String name = cachedChannelMap.get(id);
-                channelLabels.add(name != null ? "  " + name : "  " + id + " (deleted)");
+                channelLabels.add("  " + (name != null ? name : id));
             }
             channelLabels.sort(null);
             for (String label : channelLabels) {

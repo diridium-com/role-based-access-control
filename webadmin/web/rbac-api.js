@@ -67,7 +67,8 @@ export function mapEntries(map) {
 }
 
 /* Coerce a raw wire Role into a stable client shape (id:number|null, name/
-   description:string, permissions/channelIds:Set<string>, isAdmin:boolean). */
+   description:string, permissions/channelIds:Set<string>, restricted and
+   isAdmin:boolean). */
 export function normalizeRole(raw) {
     if (!raw || typeof raw !== 'object') return null;
     return {
@@ -76,6 +77,11 @@ export function normalizeRole(raw) {
         description: raw.description === undefined || raw.description === null ? '' : String(raw.description),
         permissions: stringSet(raw.permissions),
         channelIds: stringSet(raw.channelIds),
+        // A role sent without the flag but with channel ids reads as restricted
+        // (the server's rule, RoleService.impliedRestriction).
+        restricted: raw.restricted === undefined || raw.restricted === null
+            ? stringSet(raw.channelIds).size > 0
+            : raw.restricted === true || raw.restricted === 'true',
         // JSON gives a real boolean; the host's XML fallback parser gives 'true'/true.
         isAdmin: raw.isAdmin === true || raw.isAdmin === 'true'
     };
@@ -103,6 +109,22 @@ function beanList(v, fqcn) {
 
 const text = (v) => (v === undefined || v === null ? '' : String(v));
 
+const CHANNEL_FQCN = 'com.diridium.rbac.RoleImportChannel';
+
+// name, fileName and fileId stay null when the wire has none: the tables word a
+// channel differently when it has no name, or no name or id in the file.
+function normalizeImportChannel(raw) {
+    const orNull = (v) => (v === undefined || v === null ? null : String(v));
+    return {
+        id: text(raw.id),
+        name: orNull(raw.name),
+        fileId: orNull(raw.fileId),
+        fileName: orNull(raw.fileName),
+        match: text(raw.match),
+        used: raw.used === true || raw.used === 'true'
+    };
+}
+
 function normalizeImportRow(raw) {
     return {
         index: Number(raw.index),
@@ -110,14 +132,19 @@ function normalizeImportRow(raw) {
         action: text(raw.action),
         reason: text(raw.reason),
         droppedPermissions: stringList(raw.droppedPermissions),
-        unmatchedChannels: stringList(raw.unmatchedChannels),
         matchedChannelCount: Number(raw.matchedChannelCount) || 0,
         channels: text(raw.channels),
-        descriptionChanged: raw.descriptionChanged === true || raw.descriptionChanged === 'true',
-        addedPermissions: stringList(raw.addedPermissions),
-        removedPermissions: stringList(raw.removedPermissions),
-        addedChannels: stringList(raw.addedChannels),
-        removedChannels: stringList(raw.removedChannels)
+        // The captured wire fixtures predate this field: absent means false.
+        noChannelFound: raw.noChannelFound === true || raw.noChannelFound === 'true',
+        existsHere: raw.existsHere === true || raw.existsHere === 'true',
+        restrictedNow: raw.restrictedNow === true || raw.restrictedNow === 'true',
+        restrictedAfter: raw.restrictedAfter === true || raw.restrictedAfter === 'true',
+        descriptionNow: text(raw.descriptionNow),
+        descriptionAfter: text(raw.descriptionAfter),
+        permissionsNow: stringList(raw.permissionsNow),
+        permissionsAfter: stringList(raw.permissionsAfter),
+        channelsNow: beanList(raw.channelsNow, CHANNEL_FQCN).map(normalizeImportChannel),
+        channelsAfter: beanList(raw.channelsAfter, CHANNEL_FQCN).map(normalizeImportChannel)
     };
 }
 
@@ -174,6 +201,7 @@ export function roleXml(role, { includeId = false } = {}) {
     parts.push(`<description>${escapeXml(role.description ?? '')}</description>`);
     parts.push(stringsXml('permissions', role.permissions ?? []));
     parts.push(stringsXml('channelIds', role.channelIds ?? []));
+    parts.push(`<restricted>${role.restricted === true}</restricted>`);
     parts.push(`<isAdmin>${role.isAdmin === true}</isAdmin>`);
     return `<${ROLE_FQCN}>${parts.join('')}</${ROLE_FQCN}>`;
 }

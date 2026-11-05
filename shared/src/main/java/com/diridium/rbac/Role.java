@@ -12,8 +12,9 @@ import java.util.Set;
  *
  * <p>A role bundles three things: a set of permissions (string identifiers
  * matching the engine's {@code Permissions} constants and any registered
- * extension permissions), an optional set of channel ids that act as a
- * whitelist (empty meaning unrestricted), and a name/description for the UI.</p>
+ * extension permissions), a channel restriction ({@link #isRestricted()}: the role
+ * sees only the channels in {@link #getChannelIds()}, possibly none; unrestricted,
+ * it sees every channel), and a name/description for the UI.</p>
  *
  * <p>One role per installation may be flagged as the admin role via
  * {@link #isAdmin()}. The admin flag is set once at seed time and not
@@ -29,6 +30,16 @@ public class Role implements Serializable {
     private String description;
     private Set<String> permissions;
     private Set<String> channelIds;
+
+    /**
+     * Whether the role is restricted to {@link #getChannelIds()}. An unrestricted role
+     * sees every channel and lists none; a restricted role sees only the listed ones,
+     * and a restricted role with no channels sees none (the state a role is left in when
+     * every channel it was restricted to has been deleted). Stored in {@code rbac_role}
+     * since schema version 4; a role sent without it whose channel list is not empty is
+     * stored restricted, so older callers keep their meaning.
+     */
+    private boolean restricted;
 
     /**
      * Flagged true for the bootstrap admin role. Set once during seeding;
@@ -110,20 +121,29 @@ public class Role implements Serializable {
     }
 
     /**
-     * @return the set of channel ids this role is restricted to; an empty
-     *         set means no restriction (all channels accessible). May be set
-     *         to {@code null} via {@link #setChannelIds(Set)}.
+     * @return the channel ids this role is restricted to when {@link #isRestricted()};
+     *         empty for an unrestricted role, and for a restricted role that sees no
+     *         channel. May be set to {@code null} via {@link #setChannelIds(Set)}.
      */
     public Set<String> getChannelIds() {
         return channelIds;
     }
 
     /**
-     * @param channelIds the channel ids this role is restricted to; empty or
-     *                   {@code null} means no restriction
+     * @param channelIds the channel ids this role is restricted to; meaningful only
+     *                   with {@link #setRestricted(boolean)} true
      */
     public void setChannelIds(Set<String> channelIds) {
         this.channelIds = channelIds;
+    }
+
+    /** @return whether this role sees only {@link #getChannelIds()} (possibly none) rather than every channel */
+    public boolean isRestricted() {
+        return restricted;
+    }
+
+    public void setRestricted(boolean restricted) {
+        this.restricted = restricted;
     }
 
     /**
@@ -162,6 +182,7 @@ public class Role implements Serializable {
         copy.description = this.description;
         copy.permissions = this.permissions != null ? new HashSet<>(this.permissions) : new HashSet<>();
         copy.channelIds = this.channelIds != null ? new HashSet<>(this.channelIds) : new HashSet<>();
+        copy.restricted = this.restricted;
         copy.isAdmin = this.isAdmin;
         return copy;
     }

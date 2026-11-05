@@ -5,7 +5,7 @@
  * Golden-string tests for buildAssignmentPreview() — the web port must produce
  * the EXACT text Swing's RbacSettingsPanel.confirmAssignment() renders (label
  * padding to a common column, "All channels" vs "restricted to N channel(s):",
- * "<id> (deleted)" rows with ONE space, sorted-after-labeling channel order,
+ * an id without a name shown as the id, sorted-after-labeling channel order,
  * sorted permissions, and the explicit zero-permissions line).
  *
  * Run: npm test   (from webadmin/; node --test web/)
@@ -14,10 +14,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildAssignmentPreview } from './rbac-core.js';
+import { normalizeRole } from './rbac-api.js';
 
-test('restricted role with a deleted channel and no current role (the canonical case)', () => {
+test('restricted role with a nameless channel id and no current role (the canonical case)', () => {
     const role = {
         name: 'RO',
+        restricted: true,
         channelIds: ['id1', 'id2'],
         permissions: ['viewDashboard', 'viewChannels'],
     };
@@ -29,7 +31,7 @@ test('restricted role with a deleted channel and no current role (the canonical 
         + '\n'
         + 'Channel access: restricted to 2 channel(s):\n'
         + '  Alpha\n'
-        + '  id2 (deleted)\n'
+        + '  id2\n'
         + '\n'
         + 'Permissions (2):\n'
         + '  viewChannels\n'
@@ -50,6 +52,25 @@ test('unrestricted role with a current role', () => {
         + '  viewDashboard\n');
 });
 
+test('restricted role with no channels shows "No channels"', () => {
+    const role = { name: 'Nothing', restricted: true, channelIds: [], permissions: ['viewDashboard'] };
+    assert.equal(
+        buildAssignmentPreview('erin', null, role, new Map()),
+        'User:         erin\n'
+        + 'Current role: (none)\n'
+        + 'New role:     Nothing\n'
+        + '\n'
+        + 'Channel access: No channels\n'
+        + '\n'
+        + 'Permissions (1):\n'
+        + '  viewDashboard\n');
+});
+
+test('a role without the flag but with channel ids reads as restricted (the server\'s rule)', () => {
+    const role = normalizeRole({ name: 'Old', channelIds: { string: 'id1' }, permissions: null });
+    assert.ok(buildAssignmentPreview('f', null, role, {}).includes('Channel access: restricted to 1 channel(s):\n  id1\n'));
+});
+
 test('zero-permissions role shows the explicit could-log-in-but-do-nothing line', () => {
     const role = { name: 'Empty', channelIds: [], permissions: [] };
     assert.equal(
@@ -64,10 +85,10 @@ test('zero-permissions role shows the explicit could-log-in-but-do-nothing line'
         + '  (none — the user could log in but perform no actions)\n');
 });
 
-test('channel rows sort AFTER labeling, so deleted ids interleave with live names', () => {
-    // Live channel "zeta" labels to "  zeta"; deleted id "abc" labels to
-    // "  abc (deleted)" — sorted after labeling, the deleted row comes first.
-    const role = { name: 'Mix', channelIds: ['zzz', 'abc'], permissions: ['viewChannels'] };
+test('channel rows sort AFTER labeling, so nameless ids interleave with live names', () => {
+    // Live channel "zeta" labels to "  zeta"; the nameless id "abc" labels to
+    // "  abc", sorted after labeling, so the id row comes first.
+    const role = { name: 'Mix', restricted: true, channelIds: ['zzz', 'abc'], permissions: ['viewChannels'] };
     assert.equal(
         buildAssignmentPreview('dave', null, role, new Map([['zzz', 'zeta']])),
         'User:         dave\n'
@@ -75,7 +96,7 @@ test('channel rows sort AFTER labeling, so deleted ids interleave with live name
         + 'New role:     Mix\n'
         + '\n'
         + 'Channel access: restricted to 2 channel(s):\n'
-        + '  abc (deleted)\n'
+        + '  abc\n'
         + '  zeta\n'
         + '\n'
         + 'Permissions (1):\n'
@@ -84,10 +105,10 @@ test('channel rows sort AFTER labeling, so deleted ids interleave with live name
 
 test('Set inputs and Map lookups produce the same text as arrays and plain objects', () => {
     const asArrays = buildAssignmentPreview('bob', null,
-        { name: 'RO', channelIds: ['id1', 'id2'], permissions: ['viewDashboard', 'viewChannels'] },
+        { name: 'RO', restricted: true, channelIds: ['id1', 'id2'], permissions: ['viewDashboard', 'viewChannels'] },
         { id1: 'Alpha' });
     const asSets = buildAssignmentPreview('bob', null,
-        { name: 'RO', channelIds: new Set(['id1', 'id2']), permissions: new Set(['viewDashboard', 'viewChannels']) },
+        { name: 'RO', restricted: true, channelIds: new Set(['id1', 'id2']), permissions: new Set(['viewDashboard', 'viewChannels']) },
         new Map([['id1', 'Alpha']]));
     assert.equal(asSets, asArrays);
 });

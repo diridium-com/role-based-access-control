@@ -11,6 +11,12 @@ import java.util.List;
  * What an import would do, or did, with one role from a role export file.
  * One row per role in the file, in file order; {@link #getIndex()} is the
  * role's position, which the apply call uses to say which rows were ticked.
+ *
+ * <p>The "now" fields describe the role here that has the file role's name, when
+ * there is one ({@link #isExistsHere()}); the "after" fields describe the role as
+ * the import would leave it, from the file's content. An unrestricted role sees every
+ * channel and lists none; a restricted role sees only its list, and a restricted role
+ * with an empty list sees no channel.</p>
  */
 public class RoleImportRow implements Serializable {
 
@@ -27,8 +33,8 @@ public class RoleImportRow implements Serializable {
         FROM_FILE,
         /** Channel restrictions were not applied; the existing role keeps its own. */
         KEPT,
-        /** Channel restrictions were not applied; the new role sees every channel. */
-        EVERY_CHANNEL
+        /** Channel restrictions were not applied; the new role is restricted to no channel. */
+        NO_CHANNEL
     }
 
     private int index;
@@ -36,14 +42,18 @@ public class RoleImportRow implements Serializable {
     private Action action;
     private String reason;
     private List<String> droppedPermissions = new ArrayList<>();
-    private List<String> unmatchedChannels = new ArrayList<>();
     private int matchedChannelCount;
     private Channels channels;
-    private boolean descriptionChanged;
-    private List<String> addedPermissions = new ArrayList<>();
-    private List<String> removedPermissions = new ArrayList<>();
-    private List<String> addedChannels = new ArrayList<>();
-    private List<String> removedChannels = new ArrayList<>();
+    private boolean noChannelFound;
+    private boolean existsHere;
+    private boolean restrictedNow;
+    private boolean restrictedAfter;
+    private String descriptionNow;
+    private String descriptionAfter;
+    private List<String> permissionsNow = new ArrayList<>();
+    private List<String> permissionsAfter = new ArrayList<>();
+    private List<RoleImportChannel> channelsNow = new ArrayList<>();
+    private List<RoleImportChannel> channelsAfter = new ArrayList<>();
 
     /** @return the role's position in the file, from 0 */
     public int getIndex() {
@@ -71,7 +81,11 @@ public class RoleImportRow implements Serializable {
         this.action = action;
     }
 
-    /** @return why the row is skipped, or a note the user should read; {@code null} when there is none */
+    /**
+     * @return the notes the Administrators show for the row: why a row is skipped, what an
+     *         import does to the role's channels, which of the import's channels and
+     *         permissions this engine lacks. {@code null} when there is nothing to say.
+     */
     public String getReason() {
         return reason;
     }
@@ -87,15 +101,6 @@ public class RoleImportRow implements Serializable {
 
     public void setDroppedPermissions(List<String> droppedPermissions) {
         this.droppedPermissions = droppedPermissions;
-    }
-
-    /** @return channels in the file found neither by id nor by name, each as "name (id)" */
-    public List<String> getUnmatchedChannels() {
-        return unmatchedChannels;
-    }
-
-    public void setUnmatchedChannels(List<String> unmatchedChannels) {
-        this.unmatchedChannels = unmatchedChannels;
     }
 
     /** @return how many of the file's channels were found on this engine */
@@ -115,51 +120,108 @@ public class RoleImportRow implements Serializable {
         this.channels = channels;
     }
 
-    // What an OVERWRITE changes in the existing role. Empty, or false, on every other row.
-    // A change between every channel and some channels is a note in the reason instead.
-
-    /** @return whether an overwrite changes the role's description */
-    public boolean isDescriptionChanged() {
-        return descriptionChanged;
+    /**
+     * @return whether the import restricts this role to channels none of which was found on this
+     *         engine, so that importing the row as it stands restricts the role to no channel
+     *         until an administrator sets its channels.
+     */
+    public boolean isNoChannelFound() {
+        return noChannelFound;
     }
 
-    public void setDescriptionChanged(boolean descriptionChanged) {
-        this.descriptionChanged = descriptionChanged;
+    public void setNoChannelFound(boolean noChannelFound) {
+        this.noChannelFound = noChannelFound;
     }
 
-    /** @return permissions an overwrite gives the role, sorted */
-    public List<String> getAddedPermissions() {
-        return addedPermissions;
+    /** @return whether a role with the file role's name exists here; the "now" fields are empty when not */
+    public boolean isExistsHere() {
+        return existsHere;
     }
 
-    public void setAddedPermissions(List<String> addedPermissions) {
-        this.addedPermissions = addedPermissions;
+    public void setExistsHere(boolean existsHere) {
+        this.existsHere = existsHere;
     }
 
-    /** @return permissions an overwrite takes from the role, sorted */
-    public List<String> getRemovedPermissions() {
-        return removedPermissions;
+    /** @return whether the role here is restricted to {@link #getChannelsNow()}; false means every channel */
+    public boolean isRestrictedNow() {
+        return restrictedNow;
     }
 
-    public void setRemovedPermissions(List<String> removedPermissions) {
-        this.removedPermissions = removedPermissions;
+    public void setRestrictedNow(boolean restrictedNow) {
+        this.restrictedNow = restrictedNow;
     }
 
-    /** @return channels an overwrite adds to the role's restrictions, by name here (the id if it has none), sorted */
-    public List<String> getAddedChannels() {
-        return addedChannels;
+    /**
+     * @return whether the role is restricted after the import, to the used entries of
+     *         {@link #getChannelsAfter()}; false means every channel. Meaningless on a SKIP row.
+     */
+    public boolean isRestrictedAfter() {
+        return restrictedAfter;
     }
 
-    public void setAddedChannels(List<String> addedChannels) {
-        this.addedChannels = addedChannels;
+    public void setRestrictedAfter(boolean restrictedAfter) {
+        this.restrictedAfter = restrictedAfter;
     }
 
-    /** @return channels an overwrite takes out of the role's restrictions, by name here (the id if it has none), sorted */
-    public List<String> getRemovedChannels() {
-        return removedChannels;
+    /** @return the description of the role here, empty when it has none; {@code null} when there is no role here */
+    public String getDescriptionNow() {
+        return descriptionNow;
     }
 
-    public void setRemovedChannels(List<String> removedChannels) {
-        this.removedChannels = removedChannels;
+    public void setDescriptionNow(String descriptionNow) {
+        this.descriptionNow = descriptionNow;
+    }
+
+    /** @return the description the file gives the role */
+    public String getDescriptionAfter() {
+        return descriptionAfter;
+    }
+
+    public void setDescriptionAfter(String descriptionAfter) {
+        this.descriptionAfter = descriptionAfter;
+    }
+
+    /** @return the permissions of the role here, sorted; empty when there is no role here */
+    public List<String> getPermissionsNow() {
+        return permissionsNow;
+    }
+
+    public void setPermissionsNow(List<String> permissionsNow) {
+        this.permissionsNow = permissionsNow;
+    }
+
+    /** @return the file's permissions this engine offers, sorted (the rest are in {@link #getDroppedPermissions()}) */
+    public List<String> getPermissionsAfter() {
+        return permissionsAfter;
+    }
+
+    public void setPermissionsAfter(List<String> permissionsAfter) {
+        this.permissionsAfter = permissionsAfter;
+    }
+
+    /**
+     * @return the channels the role here is restricted to, by name, the deleted ones last;
+     *         empty when it sees every channel, sees no channel, or there is no role here
+     */
+    public List<RoleImportChannel> getChannelsNow() {
+        return channelsNow;
+    }
+
+    public void setChannelsNow(List<RoleImportChannel> channelsNow) {
+        this.channelsNow = channelsNow;
+    }
+
+    /**
+     * @return with channel restrictions applied, the file's channels in file order, each
+     *         with what was found for it here; without, the channels the role keeps
+     *         ({@link Channels#KEPT}). Empty when the role sees every channel, or no channel,
+     *         after the import.
+     */
+    public List<RoleImportChannel> getChannelsAfter() {
+        return channelsAfter;
+    }
+
+    public void setChannelsAfter(List<RoleImportChannel> channelsAfter) {
+        this.channelsAfter = channelsAfter;
     }
 }

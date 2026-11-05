@@ -28,9 +28,11 @@ import {
     MSG_NO_ROLES, deleteRoleConfirmText, TITLE_CONFIRM_DELETE,
     removeRoleConfirmText, TITLE_CONFIRM_REMOVE, assignRolePromptText,
     TITLE_ASSIGN_ROLE, buildAssignmentPreview, ASSIGN_PREVIEW_HEADER,
-    ASSIGN_PREVIEW_FOOTER, TITLE_CONFIRM_ASSIGNMENT,
-    TASK_EXPORT_ROLES, TASK_EXPORT_ROLES_TOOLTIP, TASK_IMPORT_ROLES, TASK_IMPORT_ROLES_TOOLTIP
+    ASSIGN_PREVIEW_FOOTER, TITLE_CONFIRM_ASSIGNMENT
 } from './rbac-core.js';
+import {
+    TASK_EXPORT_ROLES, TASK_EXPORT_ROLES_TOOLTIP, TASK_IMPORT_ROLES, TASK_IMPORT_ROLES_TOOLTIP
+} from './role-transfer-core.js';
 import { mapEntries } from './rbac-api.js';
 import { makeRoleEditor } from './role-editor.jsx';
 import { makeRoleTransfer } from './role-transfer.jsx';
@@ -101,6 +103,7 @@ export function registerRolesPanel(platform, api) {
 
         const rolesRef = React.useRef(roles); // the export task reads the latest list
         rolesRef.current = roles;
+        const channelMapRef = React.useRef(null); // and the channel names, null when not loaded
         const loadingRef = React.useRef(false);
         const pendingRef = React.useRef(false);
 
@@ -128,8 +131,9 @@ export function registerRolesPanel(platform, api) {
                 // Grouping is cosmetic — failure just leaves plugin permissions
                 // under "Other".
                 if (extGroupsRes.status === 'fulfilled') setExtGroups(extGroupsRes.value);
-                // A failed fetch keeps the old list, and the editor would show the
-                // missing channels as deleted, so Add/Edit wait for a fresh one.
+                // A failed fetch keeps the old list. A stale or missing list would hide
+                // live channels from the editor (the save keeps them, unseen), so
+                // Add/Edit wait for a fresh one.
                 if (channelsRes.status === 'fulfilled') {
                     setChannels(mapEntries(channelsRes.value).map(([id, name]) => ({ id, name })));
                     setChannelsLoaded(true);
@@ -174,7 +178,7 @@ export function registerRolesPanel(platform, api) {
             // for the admin role only; the controller hides them from anyone else.
             setTasks('Role-Based Access Control Tasks', [
                 ui.taskButton('Refresh', 'refresh', () => load(), { task: 'doRefresh', group: RBAC_GROUP }),
-                ui.taskButton(TASK_EXPORT_ROLES, 'export', () => setTransfer(startExport(rolesRef.current)),
+                ui.taskButton(TASK_EXPORT_ROLES, 'export', () => setTransfer(startExport(rolesRef.current, channelMapRef.current)),
                     { task: 'doExportRoles', group: RBAC_GROUP, title: TASK_EXPORT_ROLES_TOOLTIP }),
                 ui.taskButton(TASK_IMPORT_ROLES, 'import', async () => setTransfer(await startImport()),
                     { task: 'doImportRoles', group: RBAC_GROUP, title: TASK_IMPORT_ROLES_TOOLTIP })
@@ -184,6 +188,7 @@ export function registerRolesPanel(platform, api) {
         const canManage = platform.checkTask(RBAC_GROUP, 'doSave');
         const channelMap = React.useMemo(
             () => new Map(channels.map((c) => [c.id, c.name])), [channels]);
+        channelMapRef.current = channelsLoaded ? channelMap : null;
         const selectedRole = roles.find((r) => String(r.id) === String(selectedRoleId)) || null;
         const selectedUser = users.find((u) => String(u.id) === String(selectedUserId)) || null;
 

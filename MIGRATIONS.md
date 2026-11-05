@@ -35,6 +35,8 @@ pre-versioning install (see Backfill below).
 int current = detectAndAlignSchemaVersion();  // detect actual state, realign stored value
 if (current < 1) applyV1();                   // create the four tables
 if (current < 2) applyV2();                   // add is_admin column
+if (current < 3) applyV3();                   // SQL Server text columns to NVARCHAR
+if (current < 4) applyV4();                   // add restricted column, set for roles with channel rows
 writeSchemaVersion(LATEST_VERSION);
 ```
 
@@ -107,9 +109,16 @@ version. On upgrade, we detect the actual database state:
 if (readRawSchemaVersion() == null) {
     if (!rbac_role table exists)           writeSchemaVersion(0);   // fresh install
     else if (!is_admin column exists)      writeSchemaVersion(1);
-    else                                   writeSchemaVersion(2);
+    else if (sqlserver && VARCHAR columns) writeSchemaVersion(2);
+    else if (!restricted column exists)    writeSchemaVersion(3);
+    else                                   writeSchemaVersion(4);
 }
 ```
+
+The same detection runs on every start and realigns a stored version that
+describes a different schema (see `detectAndAlignSchemaVersion`). When the
+stored version is below 4 but the `restricted` column exists, the v4 backfill
+runs again; it is idempotent.
 
 Table and column existence checks query `DatabaseMetaData.getTables()`
 and `DatabaseMetaData.getColumns()` from the JDBC connection, **not**
@@ -169,3 +178,5 @@ These are the antipatterns we replaced in this rewrite. Don't:
 | --- | --- |
 | 1 | Initial tables: `rbac_role`, `rbac_role_permission`, `rbac_user_role`, `rbac_role_channel` |
 | 2 | Add `is_admin` boolean column to `rbac_role` (BOOLEAN on Derby/Postgres/MySQL, NUMBER(1) on Oracle, BIT on SQL Server) |
+| 3 | SQL Server only: `rbac_role.name`, `rbac_role.description` and `rbac_role_permission.permission` become `NVARCHAR` (the other databases' `VARCHAR` already holds Unicode). Outside SQL Server the step changes nothing, so a stored 2 and a detected 3 count as the same schema. |
+| 4 | Add `restricted` boolean column to `rbac_role` (same types as `is_admin`), set to true for every role that has `rbac_role_channel` rows. Before it an empty channel list meant "every channel", so a role whose channels had all been deleted could not be told from an unrestricted one; now a restricted role may have no channels, and the startup sweep removes restrictions to deleted channels without widening anything. |

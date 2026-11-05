@@ -39,6 +39,10 @@ import static com.diridium.rbac.RbacServletInterface.PLUGIN_NAME;
  *       and {@code rbac_role_permission.permission} become {@code NVARCHAR}. SQL Server's
  *       {@code VARCHAR} holds only the column's code page, so other characters were saved
  *       as {@code ?}; the other databases' {@code VARCHAR} already holds Unicode.</li>
+ *   <li><b>4</b> &mdash; Adds {@code restricted BOOLEAN/NUMBER(1)/BIT} to {@code rbac_role}, set
+ *       for every role that has channel rows. Before it, an empty channel list meant
+ *       "every channel", so a role whose channels were all deleted could not be told
+ *       from an unrestricted one; now a restricted role may have no channels.</li>
  * </ul>
  *
  * <h3>Backfill</h3>
@@ -53,12 +57,19 @@ import static com.diridium.rbac.RbacServletInterface.PLUGIN_NAME;
 public class RbacMigrator extends Migrator {
 
     /** Bump when adding a new {@code applyVN} step. */
-    static final int LATEST_VERSION = 3;
+    static final int LATEST_VERSION = 4;
 
     /** CONFIGURATION property key holding the applied schema version. Shared with
      *  {@code RbacServicePlugin}'s second-layer check so both agree on the key. */
     static final String VERSION_PROPERTY = "schema_version";
     private static final Logger log = LoggerFactory.getLogger(RbacMigrator.class);
+
+    /**
+     * Set when the stored version was below 4 while the restricted column already exists: the
+     * v4 ALTER went through on an earlier run but its backfill may not have, so the backfill
+     * runs again. It is idempotent: after v4 a role with channel rows is restricted by rule.
+     */
+    private boolean backfillRestricted;
 
     /**
      * {@inheritDoc}
@@ -85,6 +96,12 @@ public class RbacMigrator extends Migrator {
         if (current < 3) {
             applyV3();
         }
+        if (current < 4) {
+            applyV4();
+        } else if (backfillRestricted) {
+            log.info("RBAC schema v4 column found with a stored version below 4; running the backfill again");
+            backfillRestricted();
+        }
         writeSchemaVersion(LATEST_VERSION);
         log.info("RBAC schema at version {}", LATEST_VERSION);
     }
@@ -96,7 +113,8 @@ public class RbacMigrator extends Migrator {
      *
      * @return the detected current version (0 = fresh install, 1 = has
      *         tables but no is_admin column, 2 = has both, 3 = also has the
-     *         SQL Server NVARCHAR columns and their unique constraints)
+     *         SQL Server NVARCHAR columns and their unique constraints, 4 = also
+     *         has the restricted column)
      */
     private int detectAndAlignSchemaVersion() throws MigrationException {
         int detected = detectFromState();
@@ -107,6 +125,7 @@ public class RbacMigrator extends Migrator {
         } else if (!sameSchema(stored, detected)) {
             log.warn("RBAC schema stored version ({}) does not match actual state ({}); realigning",
                     stored, detected);
+            backfillRestricted = stored < 4 && detected >= 4;
             writeSchemaVersion(detected);
         }
         return detected;
@@ -115,10 +134,10 @@ public class RbacMigrator extends Migrator {
     /**
      * Whether two versions leave the same tables on this database. Outside SQL Server,
      * v3 changes nothing, so a v2 stored by an earlier release matches a detected v3;
-     * the run records 3 when it finishes.
+     * the run records 3 when it finishes. v4 changes every database.
      */
     private boolean sameSchema(int a, int b) {
-        return a == b || (!"sqlserver".equals(getDatabaseType()) && Math.min(a, b) >= 2);
+        return a == b || (!"sqlserver".equals(getDatabaseType()) && Math.min(a, b) == 2 && Math.max(a, b) == 3);
     }
 
     private int detectFromState() throws MigrationException {
@@ -149,7 +168,10 @@ public class RbacMigrator extends Migrator {
             if (!v3Complete()) {
                 return 2;
             }
-            return 3;
+            if (!columnExists("rbac_role", "restricted")) {
+                return 3;
+            }
+            return 4;
         } catch (MigrationException e) {
             throw e; // already descriptive — do not double-wrap
         } catch (Exception e) {
@@ -197,6 +219,39 @@ public class RbacMigrator extends Migrator {
             toNvarchar("rbac_role_permission", "permission", "NVARCHAR(255) NOT NULL", "uq_role_perm", "role_id, permission");
         } catch (Exception e) {
             throw new MigrationException("Failed to convert RBAC text columns to NVARCHAR", e);
+        }
+    }
+
+    /**
+     * Adds the {@code restricted} column to {@code rbac_role} and sets it for every role
+     * that has channel rows, which is what those rows meant before this version.
+     */
+    private void applyV4() throws MigrationException {
+        log.info("Applying RBAC schema v4 (add restricted column)");
+        String add = switch (getDatabaseType()) {
+            case "oracle" -> "ALTER TABLE rbac_role ADD restricted NUMBER(1) DEFAULT 0 NOT NULL";
+            case "sqlserver" -> "ALTER TABLE rbac_role ADD restricted BIT NOT NULL DEFAULT 0";
+            default -> "ALTER TABLE rbac_role ADD COLUMN restricted BOOLEAN NOT NULL DEFAULT FALSE";
+        };
+        try {
+            executeStatement(add);
+        } catch (Exception e) {
+            throw new MigrationException("Failed to add restricted column", e);
+        }
+        backfillRestricted();
+    }
+
+    /** Sets {@code restricted} for every role that has channel rows. Safe to run more than once. */
+    private void backfillRestricted() throws MigrationException {
+        String yes = switch (getDatabaseType()) {
+            case "oracle", "sqlserver" -> "1";
+            default -> "TRUE";
+        };
+        try {
+            executeStatement("UPDATE rbac_role SET restricted = " + yes
+                    + " WHERE id IN (SELECT DISTINCT role_id FROM rbac_role_channel)");
+        } catch (Exception e) {
+            throw new MigrationException("Failed to set the restricted column for roles with channel rows", e);
         }
     }
 

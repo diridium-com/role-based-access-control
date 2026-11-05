@@ -74,6 +74,7 @@ class RoleService {
     Role create(Role role) {
         validateInput(role);
         role.setAdmin(false);
+        impliedRestriction(role);
         if (repo.findRoleIdByName(role.getName()) != null) {
             throw conflict("A role named '" + role.getName() + "' already exists");
         }
@@ -81,6 +82,16 @@ class RoleService {
         cacheInvalidator.run();
         auditLog.role("Created", created.getName());
         return created;
+    }
+
+    /**
+     * A role sent without the restricted flag but with channels (a caller from before
+     * schema version 4) means what it always meant: restricted to those channels.
+     */
+    private static void impliedRestriction(Role role) {
+        if (!role.isRestricted() && role.getChannelIds() != null && !role.getChannelIds().isEmpty()) {
+            role.setRestricted(true);
+        }
     }
 
     /**
@@ -97,6 +108,7 @@ class RoleService {
      */
     void update(int roleId, Role role) {
         validateInput(role);
+        impliedRestriction(role);
         Role existing = repo.getRoleById(roleId);
         if (existing == null) {
             throw new MirthApiException(Status.NOT_FOUND);

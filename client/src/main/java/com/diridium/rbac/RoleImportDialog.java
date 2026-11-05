@@ -7,8 +7,6 @@ import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
-import java.awt.event.MouseEvent;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 
@@ -21,16 +19,21 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTable;
-import javax.swing.JTextArea;
+import javax.swing.ListSelectionModel;
+import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
-import javax.swing.table.AbstractTableModel;
 import javax.swing.table.TableCellRenderer;
+import javax.swing.table.TableRowSorter;
 
 import com.mirth.connect.client.core.ClientException;
 import com.mirth.connect.client.ui.Frame;
 
 /**
  * Modal dialog that previews a role export file and applies the roles the user ticks.
+ *
+ * <p>The roles are in a table on top, where the user ticks the ones to import and selects one
+ * to see below it, in two tables, what the import would do to that role's permissions and
+ * channels.</p>
  *
  * <p>Changing either channel tick box previews the file again, because the plan token
  * depends on both settings. A failed apply shows the server's message and previews again
@@ -47,17 +50,19 @@ public class RoleImportDialog extends JDialog {
                 boolean matchChannelsByName) throws ClientException;
     }
 
-    private static final String[] COLUMNS = {"", "Role", "Action", "Details"};
+    private static final int[] WIDTHS = {50, 130, 80, 150, 150, 90, 90, 330};
 
     private final Frame parent;
     private final Backend backend;
 
     private final JLabel fromLabel = new JLabel();
-    private final JCheckBox applyBox = new JCheckBox("Apply channel restrictions from the file", true);
+    private final JCheckBox applyBox = new JCheckBox("Apply channel restrictions from the import", true);
+    private boolean channelsApplied = true;
     private final JCheckBox matchBox = new JCheckBox("Also match channels by name when the id isn't found", false);
-    private final JTextArea nameNote = new JTextArea();
-    private final RowsModel model = new RowsModel();
+    private final JLabel nameHint = new JLabel();
+    private final RoleImportTableModel model = new RoleImportTableModel(() -> this.busy, this::updateControls);
     private final JTable table;
+    private final RoleDetailTables details = new RoleDetailTables(false);
     private final JButton importButton = new JButton("Import");
     private final JButton cancelButton = new JButton("Cancel");
 
@@ -80,33 +85,39 @@ public class RoleImportDialog extends JDialog {
             @Override
             public Component prepareRenderer(TableCellRenderer renderer, int row, int column) {
                 Component c = super.prepareRenderer(renderer, row, column);
-                if (column == 0) {
-                    c.setEnabled(!busy && model.tickable(row));
+                if (convertColumnIndexToModel(column) == 0) {
+                    c.setEnabled(!busy && model.tickable(convertRowIndexToModel(row)));
                 }
                 return c;
             }
-
-            @Override
-            public String getToolTipText(MouseEvent e) {
-                int row = rowAtPoint(e.getPoint());
-                return row >= 0 && columnAtPoint(e.getPoint()) == 3 ? (String) model.getValueAt(row, 3) : null;
-            }
         };
-        table.getColumnModel().getColumn(0).setMaxWidth(30);
-        table.getColumnModel().getColumn(1).setPreferredWidth(160);
-        table.getColumnModel().getColumn(2).setPreferredWidth(80);
-        table.getColumnModel().getColumn(3).setPreferredWidth(440);
+        for (int i = 0; i < WIDTHS.length; i++) {
+            table.getColumnModel().getColumn(i).setPreferredWidth(WIDTHS[i]);
+        }
+        table.getColumnModel().getColumn(0).setMaxWidth(50);
+        table.setAutoResizeMode(JTable.AUTO_RESIZE_ALL_COLUMNS);
+        WrappingCellRenderer.install(table, 1);
+        TableRowSorter<RoleImportTableModel> sorter = new TableRowSorter<>(model);
+        sorter.setComparator(5, RoleImportText.COUNT_ORDER);
+        sorter.setComparator(6, RoleImportText.COUNT_ORDER);
+        sorter.addRowSorterListener(e -> SwingUtilities.invokeLater(() -> WrappingCellRenderer.fitRowHeights(table)));
+        table.setRowSorter(sorter);
+        table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        table.getSelectionModel().addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting()) {
+                showSelected();
+            }
+        });
         JScrollPane scroll = new JScrollPane(table);
-        scroll.setPreferredSize(new Dimension(760, 260));
+        scroll.setPreferredSize(new Dimension(1260, 260));
 
         matchBox.setBorder(BorderFactory.createEmptyBorder(0, 24, 0, 0));
-        nameNote.setEditable(false);
-        nameNote.setOpaque(false);
-        nameNote.setBorder(BorderFactory.createEmptyBorder(4, 24, 0, 0));
+        nameHint.setBorder(BorderFactory.createEmptyBorder(4, 24, 0, 0));
+        nameHint.setVisible(false);
         JPanel top = new JPanel();
         top.setLayout(new BoxLayout(top, BoxLayout.Y_AXIS));
         top.setBorder(BorderFactory.createEmptyBorder(8, 8, 4, 8));
-        for (Component c : new Component[] {fromLabel, applyBox, matchBox, nameNote}) {
+        for (Component c : new Component[] {fromLabel, applyBox, matchBox, nameHint}) {
             ((javax.swing.JComponent) c).setAlignmentX(Component.LEFT_ALIGNMENT);
             top.add(c);
         }
@@ -120,11 +131,18 @@ public class RoleImportDialog extends JDialog {
         buttons.add(cancelButton);
 
         add(top, BorderLayout.NORTH);
-        add(scroll, BorderLayout.CENTER);
+        JPanel middle = new JPanel(new BorderLayout());
+        middle.setBorder(BorderFactory.createEmptyBorder(0, 8, 0, 8));
+        middle.add(scroll, BorderLayout.NORTH);
+        middle.add(details, BorderLayout.CENTER);
+        add(middle, BorderLayout.CENTER);
         add(buttons, BorderLayout.SOUTH);
 
         show(first);
+        setResizable(true);
         pack();
+        setMinimumSize(new Dimension(900, 600));
+        WrappingCellRenderer.fitRowHeights(table);
         setLocationRelativeTo(parent);
     }
 
@@ -135,14 +153,49 @@ public class RoleImportDialog extends JDialog {
 
     private void show(RoleImportResult result) {
         current = result;
+        channelsApplied = applyBox.isSelected();
         fromLabel.setText(RoleImportText.fromLine(result));
+        int keepIndex = selectedRoleIndex();
         model.setRows(result.getRows());
-        String note = RoleImportText.nameMatchNote(result.getChannelNameMatches(),
-                applyBox.isSelected(), matchBox.isSelected());
-        nameNote.setText(note == null ? "" : note);
-        nameNote.setVisible(note != null);
+        selectRole(keepIndex);
+        int count = result.getChannelNameMatches() == null ? 0 : result.getChannelNameMatches().size();
+        String hint = RoleImportText.nameMatchHint(count, applyBox.isSelected(), matchBox.isSelected());
+        nameHint.setText(hint == null ? "" : hint);
+        nameHint.setVisible(hint != null);
         updateControls();
-        pack();
+        WrappingCellRenderer.fitRowHeights(table);
+    }
+
+    private int selectedRoleIndex() {
+        int view = table.getSelectedRow();
+        return view < 0 ? -1 : model.rowAt(table.convertRowIndexToModel(view)).getIndex();
+    }
+
+    // Selects the row of the role at this file position, else the first row.
+    private void selectRole(int roleIndex) {
+        int select = model.getRowCount() > 0 ? 0 : -1;
+        for (int i = 0; i < model.getRowCount(); i++) {
+            if (model.rowAt(i).getIndex() == roleIndex) {
+                select = i;
+            }
+        }
+        if (select < 0) {
+            table.clearSelection();
+            showSelected();
+            return;
+        }
+        int view = table.convertRowIndexToView(select);
+        table.setRowSelectionInterval(view, view);
+        showSelected();
+    }
+
+    private void showSelected() {
+        int view = table.getSelectedRow();
+        if (view < 0) {
+            details.clear();
+        } else {
+            details.showImport(model.rowAt(table.convertRowIndexToModel(view)), channelsApplied);
+        }
     }
 
     private void updateControls() {
@@ -237,91 +290,6 @@ public class RoleImportDialog extends JDialog {
             RoleTransferActions.report(parent, this, (ClientException) e.getCause());
         } else {
             parent.alertThrowable(this, e.getCause() != null ? e.getCause() : e);
-        }
-    }
-
-    /** One row per role in the file: tick, role, action, details. */
-    private class RowsModel extends AbstractTableModel {
-        private List<RoleImportRow> rows = new ArrayList<>();
-        private boolean[] ticked = new boolean[0];
-
-        void setRows(List<RoleImportRow> newRows) {
-            List<RoleImportRow> next = newRows == null ? new ArrayList<>() : new ArrayList<>(newRows);
-            ticked = RoleImportText.keepTicks(rows, ticked, next);
-            rows = next;
-            fireTableDataChanged();
-        }
-
-        boolean tickable(int row) {
-            return RoleImportText.tickable(rows.get(row).getAction());
-        }
-
-        boolean anyTicked() {
-            for (boolean t : ticked) {
-                if (t) {
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        List<Integer> pickedIndexes() {
-            List<Integer> picked = new ArrayList<>();
-            for (int i = 0; i < ticked.length; i++) {
-                if (ticked[i]) {
-                    picked.add(rows.get(i).getIndex());
-                }
-            }
-            return picked;
-        }
-
-        @Override
-        public int getRowCount() {
-            return rows.size();
-        }
-
-        @Override
-        public int getColumnCount() {
-            return COLUMNS.length;
-        }
-
-        @Override
-        public String getColumnName(int column) {
-            return COLUMNS[column];
-        }
-
-        @Override
-        public Class<?> getColumnClass(int column) {
-            return column == 0 ? Boolean.class : String.class;
-        }
-
-        @Override
-        public boolean isCellEditable(int row, int column) {
-            return column == 0 && !busy && tickable(row);
-        }
-
-        @Override
-        public Object getValueAt(int row, int column) {
-            RoleImportRow r = rows.get(row);
-            switch (column) {
-                case 0:
-                    return ticked[row];
-                case 1:
-                    return r.getName();
-                case 2:
-                    return RoleImportText.actionLabel(r.getAction());
-                default:
-                    return RoleImportText.details(r);
-            }
-        }
-
-        @Override
-        public void setValueAt(Object value, int row, int column) {
-            if (column == 0 && tickable(row)) {
-                ticked[row] = Boolean.TRUE.equals(value);
-                fireTableCellUpdated(row, column);
-                updateControls();
-            }
         }
     }
 }

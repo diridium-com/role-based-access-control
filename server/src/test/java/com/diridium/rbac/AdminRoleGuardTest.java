@@ -95,6 +95,16 @@ class AdminRoleGuardTest {
     }
 
     @Test
+    void validateRoleUpdate_adminRoleRestrictedToNoChannel_throws() {
+        when(repo.getAdminRoleId()).thenReturn(ADMIN_ROLE_ID);
+        Role role = roleWithPerms(requiredPerms.toArray(new String[0]));
+        role.setRestricted(true);
+        MirthApiException e = assertThrows(MirthApiException.class,
+                () -> guard.validateRoleUpdate(ADMIN_ROLE_ID, role));
+        assertTrue(entityText(e).contains("channel restrictions"));
+    }
+
+    @Test
     void validateRoleUpdate_adminRoleWithChannelRestrictions_throws() {
         when(repo.getAdminRoleId()).thenReturn(ADMIN_ROLE_ID);
         Role role = roleWithPerms(requiredPerms.toArray(new String[0]));

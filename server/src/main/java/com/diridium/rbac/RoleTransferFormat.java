@@ -290,9 +290,7 @@ final class RoleTransferFormat {
             throw new Refusal("The role '" + name + "' sees every channel (restricted=\"false\") but also lists"
                     + " channels.");
         }
-        if (restricted && channels.isEmpty()) {
-            throw new Refusal("The role '" + name + "' is restricted to channels but lists none.");
-        }
+        // restricted="true" with no channels is a role that sees no channel at all.
         return new ExportedRole(name, description, permissions, restricted, channels);
     }
 

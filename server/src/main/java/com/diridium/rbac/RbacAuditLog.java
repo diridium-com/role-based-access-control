@@ -121,8 +121,10 @@ class RbacAuditLog {
         String channels;
         if (!write.writeChannels()) {
             channels = "unchanged";
-        } else if (role.getChannelIds().isEmpty()) {
+        } else if (!role.isRestricted()) {
             channels = "every channel";
+        } else if (role.getChannelIds().isEmpty()) {
+            channels = "no channels";
         } else {
             List<String> named = new ArrayList<>();
             for (String id : role.getChannelIds()) {

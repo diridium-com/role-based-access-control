@@ -14,16 +14,17 @@
         <result property="name" column="name" javaType="String" />
         <result property="description" column="description" javaType="String" />
         <result property="isAdmin" column="is_admin" />
+        <result property="restricted" column="restricted" />
     </resultMap>
 
     <!-- ========== Role CRUD ========== -->
 
     <select id="getAllRoles" resultMap="roleResult">
-        SELECT id, name, description, is_admin FROM rbac_role ORDER BY id
+        SELECT id, name, description, is_admin, restricted FROM rbac_role ORDER BY id
     </select>
 
     <select id="getRoleById" parameterType="int" resultMap="roleResult">
-        SELECT id, name, description, is_admin FROM rbac_role WHERE id = #{value}
+        SELECT id, name, description, is_admin, restricted FROM rbac_role WHERE id = #{value}
     </select>
 
     <!-- No keyColumn: passing keyColumn="id" makes MyBatis request a generated-keys column
@@ -34,7 +35,8 @@
         first/only auto-generated column. Oracle returns a ROWID instead, which is handled
         by a fallback function. -->
     <insert id="insertRole" parameterType="map" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO rbac_role (name, description, is_admin) VALUES (#{name}, #{description}, #{isAdmin})
+        INSERT INTO rbac_role (name, description, is_admin, restricted)
+        VALUES (#{name}, #{description}, #{isAdmin}, #{restricted})
     </insert>
 
     <select id="getRoleIdByName" parameterType="String" resultType="Integer">
@@ -42,7 +44,7 @@
     </select>
 
     <update id="updateRole" parameterType="map">
-        UPDATE rbac_role SET name = #{name}, description = #{description} WHERE id = #{id}
+        UPDATE rbac_role SET name = #{name}, description = #{description}, restricted = #{restricted} WHERE id = #{id}
     </update>
 
     <delete id="deleteRole" parameterType="int">
@@ -96,6 +98,25 @@
     <insert id="insertChannelId" parameterType="map">
         INSERT INTO rbac_role_channel (role_id, channel_id) VALUES (#{roleId}, #{channelId})
     </insert>
+
+    <!-- Startup sweep of restrictions to channels deleted while RBAC was not loaded: every row,
+         then one delete per dead row, so no NOT IN list is needed. -->
+    <select id="getAllRoleChannels" resultType="map">
+        SELECT role_id AS roleId, channel_id AS channelId FROM rbac_role_channel ORDER BY role_id
+    </select>
+
+    <delete id="deleteChannelIdForRole" parameterType="map">
+        DELETE FROM rbac_role_channel WHERE role_id = #{roleId} AND channel_id = #{channelId}
+    </delete>
+
+    <!-- When the engine deletes a channel (RbacChannelPlugin.remove): the roles restricted to it, then the rows. -->
+    <select id="getRoleIdsForChannel" parameterType="String" resultType="Integer">
+        SELECT role_id FROM rbac_role_channel WHERE channel_id = #{value} ORDER BY role_id
+    </select>
+
+    <delete id="deleteChannelIdFromRoles" parameterType="String">
+        DELETE FROM rbac_role_channel WHERE channel_id = #{value}
+    </delete>
 
     <!-- ========== User-Role Assignment ========== -->
 

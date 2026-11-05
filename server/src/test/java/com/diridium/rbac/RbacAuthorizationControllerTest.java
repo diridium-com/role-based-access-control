@@ -29,12 +29,15 @@ import com.mirth.connect.client.core.api.MirthApiException;
 import com.mirth.connect.model.ExtensionPermission;
 import com.mirth.connect.model.PluginMetaData;
 import com.mirth.connect.model.ServerEvent;
+import com.mirth.connect.model.User;
+import com.mirth.connect.client.core.ControllerException;
 import com.mirth.connect.server.controllers.ChannelAuthorizer;
 import com.mirth.connect.server.controllers.ChannelController;
 import com.mirth.connect.server.controllers.ConfigurationController;
 import com.mirth.connect.server.controllers.ControllerFactory;
 import com.mirth.connect.server.controllers.EventController;
 import com.mirth.connect.server.controllers.ExtensionController;
+import com.mirth.connect.server.controllers.UserController;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -650,6 +653,17 @@ class RbacAuthorizationControllerTest {
         assertFalse(controller.doesUserHaveChannelRestrictions(2, null));
     }
 
+    @Test
+    void restrictedRoleWithNoChannels_isRestricted_andSeesNone() throws Exception {
+        givenUserHasRole(2, 5, Set.of(), Set.of());
+        Role none = repo.getRoleById(5);
+        none.setRestricted(true);
+        assertTrue(controller.doesUserHaveChannelRestrictions(2, null), "restricted to no channel");
+        ChannelAuthorizer authz = controller.getChannelAuthorizer(2, null);
+        assertNotNull(authz);
+        assertFalse(authz.isChannelAuthorized("ch1"));
+    }
+
     // ========== getChannelAuthorizer ==========
 
     @Test
@@ -767,9 +781,86 @@ class RbacAuthorizationControllerTest {
         role.setPermissions(new HashSet<>(perms));
         if (channelIds != null) {
             role.setChannelIds(new HashSet<>(channelIds));
+            role.setRestricted(!channelIds.isEmpty());
         }
         role.setAdmin(isAdmin);
         when(repo.getRoleById(roleId)).thenReturn(role);
+    }
+
+    // ========== a deleted user's assignment (DeletedUserCleanup) ==========
+
+    private UserController givenEngineUser(int userId, String username) {
+        UserController userController = mock(UserController.class);
+        User user = new User();
+        user.setId(userId);
+        user.setUsername(username);
+        try {
+            when(userController.getUser(userId, null)).thenReturn(user);
+        } catch (ControllerException e) {
+            throw new AssertionError(e);
+        }
+        when(factory.createUserController()).thenReturn(userController);
+        return userController;
+    }
+
+    @Test
+    void allowedRemoveUser_removesTheAssignmentOnTheNextRequestOnceTheUserIsGone() throws Exception {
+        givenUserHasRole(2, 5, Set.of(), null, true);
+        when(repo.getAdminRoleId()).thenReturn(5);
+        when(repo.getUserRoleId(9)).thenReturn(6); // the target holds a non-admin role
+        UserController userController = givenEngineUser(9, "jsmith");
+        Role held = new Role();
+        held.setId(6);
+        held.setName("Pharmacy");
+        when(repo.getUserRole(9)).thenReturn(held);
+        Map<String, Object> params = new HashMap<>();
+        params.put("userId", 9);
+
+        assertTrue(controller.isUserAuthorized(2, op("removeUser"), params, "127.0.0.1", false));
+        verify(repo, times(0)).removeUserRole(9);
+
+        // The next request while the engine still has the user: nothing yet.
+        assertTrue(controller.isUserAuthorized(2, op("getChannel"), null, "127.0.0.1", false));
+        verify(repo, times(0)).removeUserRole(9);
+
+        // The engine has deleted the user: the next request removes the row.
+        when(userController.getUser(9, null)).thenReturn(null);
+        assertTrue(controller.isUserAuthorized(2, op("getChannel"), null, "127.0.0.1", false));
+        verify(repo, times(1)).removeUserRole(9);
+
+        assertTrue(controller.isUserAuthorized(2, op("getChannel"), null, "127.0.0.1", false));
+        verify(repo, times(1)).removeUserRole(9);
+    }
+
+    @Test
+    void refusedRemoveUser_leavesTheAssignmentAlone() throws Exception {
+        // The last-admin guard refuses the delete, so no cleanup is pending.
+        givenUserHasRole(2, 5, Set.of(), null, true);
+        UserController userController = givenEngineUser(2, "admin");
+        when(repo.getAdminRoleId()).thenReturn(5);
+        when(repo.countUsersByRoleId(5)).thenReturn(1);
+        Map<String, Object> params = new HashMap<>();
+        params.put("userId", 2);
+        assertThrows(MirthApiException.class,
+                () -> controller.isUserAuthorized(2, op("removeUser"), params, "127.0.0.1", false));
+
+        when(userController.getUser(2, null)).thenReturn(null);
+        assertTrue(controller.isUserAuthorized(2, op("getChannel"), null, "127.0.0.1", false));
+        verify(repo, times(0)).removeUserRole(2);
+    }
+
+    @Test
+    void removeUserWithoutAnEngineUserController_stillAuthorizes() throws Exception {
+        // The engine's user controller is not reachable (as in most of these tests): the
+        // decision is unaffected and the cleanup falls back to the startup sweep.
+        givenUserHasRole(2, 5, Set.of(), null, true);
+        when(repo.getAdminRoleId()).thenReturn(5);
+        when(repo.getUserRoleId(9)).thenReturn(6);
+        Map<String, Object> params = new HashMap<>();
+        params.put("userId", 9);
+        assertTrue(controller.isUserAuthorized(2, op("removeUser"), params, "127.0.0.1", false));
+        assertTrue(controller.isUserAuthorized(2, op("getChannel"), null, "127.0.0.1", false));
+        verify(repo, times(0)).removeUserRole(9);
     }
 
     private static ExtensionPermission extPerm(String displayName, String... operationNames) {

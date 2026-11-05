@@ -60,6 +60,8 @@ import com.mirth.connect.client.ui.Frame;
  */
 public class RoleEditorDialog extends JDialog {
 
+    static final String NO_CHANNELS_LINE = "This role sees no channels until some are ticked.";
+
     private Role result = null;
     private final Role existingRole;
 
@@ -68,15 +70,12 @@ public class RoleEditorDialog extends JDialog {
     private final Map<String, JCheckBox> permissionCheckboxes = new LinkedHashMap<>();
     private JRadioButton allChannelsRadio;
     private JRadioButton specificChannelsRadio;
+    private JLabel noChannelsLabel;
     private final Map<String, JCheckBox> channelCheckboxes = new LinkedHashMap<>();
-    // channelId -> "Purge" checkbox, for channels this role references that no
-    // longer exist. Default unchecked: the reference is kept (and re-persisted
-    // on save) unless the admin positively checks Purge.
-    private final Map<String, JCheckBox> orphanPurgeCheckboxes = new LinkedHashMap<>();
     // Granted permissions that are not in the fetched catalog (e.g. an extension
     // was temporarily uninstalled). No checkbox is rendered for them; they are
     // preserved by default on save so an unrelated edit doesn't silently revoke
-    // them, mirroring the keep-by-default policy for deleted-channel references.
+    // them.
     private final Set<String> orphanPermissions = new HashSet<>();
     // True when the dialog was opened with no permission catalog. A save in this
     // state on an existing role would persist an empty permission set (a silent
@@ -318,50 +317,13 @@ public class RoleEditorDialog extends JDialog {
         JPanel channelCheckboxPanel = new JPanel();
         channelCheckboxPanel.setLayout(new BoxLayout(channelCheckboxPanel, BoxLayout.Y_AXIS));
 
-        // Channels this role references that no longer exist (deleted since the
-        // restriction was set). Listed at the top, read-only, with a per-row Purge
-        // checkbox so the admin can deliberately drop a reference, while keeping it
-        // by default (the same channel id returns if the channel is re-imported from
-        // export). All children use LEFT_ALIGNMENT so the BoxLayout lines them up
-        // flush-left with the live channel checkboxes below.
-        Set<String> liveChannelIds = channelIdsAndNames != null ? channelIdsAndNames.keySet() : new HashSet<>();
-        List<String> orphanChannelIds = new ArrayList<>();
-        if (existingRole != null && existingRole.getChannelIds() != null) {
-            for (String channelId : existingRole.getChannelIds()) {
-                if (!liveChannelIds.contains(channelId)) {
-                    orphanChannelIds.add(channelId);
-                }
-            }
-        }
-        if (!orphanChannelIds.isEmpty()) {
-            JPanel orphanPanel = new JPanel();
-            orphanPanel.setLayout(new BoxLayout(orphanPanel, BoxLayout.Y_AXIS));
-            orphanPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
-            orphanPanel.setBorder(BorderFactory.createTitledBorder(
-                    BorderFactory.createEtchedBorder(), "Deleted channels (no longer exist)",
-                    TitledBorder.DEFAULT_JUSTIFICATION, TitledBorder.DEFAULT_POSITION));
-            JLabel orphanHint = new JLabel("Still referenced by this role. Check Purge to remove a reference on Apply.");
-            orphanHint.setAlignmentX(Component.LEFT_ALIGNMENT);
-            orphanPanel.add(orphanHint);
-            for (String channelId : orphanChannelIds) {
-                JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
-                row.setAlignmentX(Component.LEFT_ALIGNMENT);
-                JCheckBox purge = new JCheckBox("Purge");
-                purge.setEnabled(false);
-                orphanPurgeCheckboxes.put(channelId, purge);
-                row.add(purge);
-                row.add(new JLabel(channelId + "  (deleted)"));
-                orphanPanel.add(row);
-            }
-            channelCheckboxPanel.add(orphanPanel);
-        }
-
         if (channelIdsAndNames != null) {
             for (Map.Entry<String, String> entry : channelIdsAndNames.entrySet()) {
                 String channelId = entry.getKey();
                 String channelName = entry.getValue();
                 String displayLabel = channelName + " (" + channelId + ")";
                 JCheckBox cb = new JCheckBox(displayLabel);
+                cb.putClientProperty("html.disable", Boolean.TRUE);
                 cb.setAlignmentX(Component.LEFT_ALIGNMENT);
                 channelCheckboxes.put(channelId, cb);
                 cb.setEnabled(false);
@@ -372,9 +334,17 @@ public class RoleEditorDialog extends JDialog {
         JScrollPane channelScroll = new JScrollPane(channelCheckboxPanel);
         channelsPanel.add(channelScroll, BorderLayout.CENTER);
 
+        noChannelsLabel = new JLabel(NO_CHANNELS_LINE);
+        noChannelsLabel.setBorder(BorderFactory.createEmptyBorder(4, 6, 4, 6));
+        noChannelsLabel.setVisible(false);
+        channelsPanel.add(noChannelsLabel, BorderLayout.SOUTH);
+
         // Enable/disable channel checkboxes based on radio selection
         allChannelsRadio.addActionListener(e -> setChannelCheckboxesEnabled(false));
         specificChannelsRadio.addActionListener(e -> setChannelCheckboxesEnabled(true));
+        for (JCheckBox cb : channelCheckboxes.values()) {
+            cb.addActionListener(e -> updateNoChannelsLine());
+        }
 
         tabbedPane.addTab("Channel Restrictions", channelsPanel);
         add(tabbedPane, BorderLayout.CENTER);
@@ -428,16 +398,19 @@ public class RoleEditorDialog extends JDialog {
         }
 
         // Channel restrictions
-        if (role.getChannelIds() != null && !role.getChannelIds().isEmpty()) {
+        if (role.isRestricted()) {
             specificChannelsRadio.setSelected(true);
             setChannelCheckboxesEnabled(true);
-            for (String channelId : role.getChannelIds()) {
-                JCheckBox cb = channelCheckboxes.get(channelId);
-                if (cb != null) {
-                    cb.setSelected(true);
+            if (role.getChannelIds() != null) {
+                for (String channelId : role.getChannelIds()) {
+                    JCheckBox cb = channelCheckboxes.get(channelId);
+                    if (cb != null) {
+                        cb.setSelected(true);
+                    }
                 }
             }
         }
+        updateNoChannelsLine();
     }
 
     /**
@@ -476,9 +449,19 @@ public class RoleEditorDialog extends JDialog {
         for (JCheckBox cb : channelCheckboxes.values()) {
             cb.setEnabled(enabled);
         }
-        for (JCheckBox cb : orphanPurgeCheckboxes.values()) {
-            cb.setEnabled(enabled);
+        updateNoChannelsLine();
+    }
+
+    /**
+     * Shows the line under the channel list while "Specific Channels" is selected and no
+     * channel is ticked.
+     */
+    private void updateNoChannelsLine() {
+        boolean any = false;
+        for (JCheckBox cb : channelCheckboxes.values()) {
+            any |= cb.isSelected();
         }
+        noChannelsLabel.setVisible(specificChannelsRadio.isSelected() && !any);
     }
 
     private void save() {
@@ -506,8 +489,8 @@ public class RoleEditorDialog extends JDialog {
                 selectedPerms.add(entry.getKey());
             }
         }
-        // Preserve grants that have no checkbox (catalog gaps), matching the
-        // keep-by-default policy used for deleted-channel references.
+        // Preserve grants that have no checkbox (catalog gaps), so an unrelated edit
+        // doesn't silently revoke them.
         selectedPerms.addAll(orphanPermissions);
 
         // Warn if base permissions are missing
@@ -524,31 +507,15 @@ public class RoleEditorDialog extends JDialog {
         }
 
         // Collect channel restrictions
-        Set<String> selectedChannels = new HashSet<>();
-        if (specificChannelsRadio.isSelected()) {
-            for (Map.Entry<String, JCheckBox> entry : channelCheckboxes.entrySet()) {
-                if (entry.getValue().isSelected()) {
-                    selectedChannels.add(entry.getKey());
-                }
-            }
-            // Keep references to deleted channels unless the admin checked Purge.
-            for (Map.Entry<String, JCheckBox> entry : orphanPurgeCheckboxes.entrySet()) {
-                if (!entry.getValue().isSelected()) {
-                    selectedChannels.add(entry.getKey());
-                }
-            }
-            // Flip guard: "Specific Channels" with an empty set means unrestricted
-            // (all channels), not "no access". Make that explicit before saving.
-            if (selectedChannels.isEmpty()) {
-                int choice = JOptionPane.showConfirmDialog(this,
-                        "This role will no longer be restricted to specific channels.\n"
-                                + "Users with this role will be able to access ALL channels.\n\nContinue?",
-                        "No Channel Restrictions", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
-                if (choice != JOptionPane.YES_OPTION) {
-                    return;
-                }
+        Set<String> ticked = new HashSet<>();
+        for (Map.Entry<String, JCheckBox> entry : channelCheckboxes.entrySet()) {
+            if (entry.getValue().isSelected()) {
+                ticked.add(entry.getKey());
             }
         }
+        // Stored ids the engine did not list for this user are kept unseen.
+        Set<String> selectedChannels = RoleChannelSelection.savedChannelIds(specificChannelsRadio.isSelected(),
+                ticked, existingRole != null ? existingRole.getChannelIds() : null, channelCheckboxes.keySet());
 
         // All validation/confirmation passed — build the result only now, so an
         // earlier cancel can't leave a stale non-null result for getResult().
@@ -558,6 +525,7 @@ public class RoleEditorDialog extends JDialog {
         }
         built.setName(name);
         built.setDescription(descriptionField.getText().trim());
+        built.setRestricted(RoleChannelSelection.savedRestricted(existingRole, specificChannelsRadio.isSelected()));
         if (existingRole != null && existingRole.isAdmin()) {
             // Admin role: permission and channel controls are locked, so re-send the
             // stored values unchanged. Only the description (or name) can differ, and the

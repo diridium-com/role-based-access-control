@@ -3,7 +3,7 @@
 
 /*
  * Framework-agnostic core for the RBAC web UI: the permission grouping, presets,
- * orphan-reference helpers, the assignment-preview text builder, and every dialog
+ * orphan-permission helpers, the assignment-preview text builder, and every dialog
  * string — all ported 1:1 from the Swing client's RoleEditorDialog /
  * RbacSettingsPanel so the web administrator shows byte-identical texts.
  *
@@ -125,13 +125,6 @@ export function orphanPermissionsOf(role, catalog) {
     return toArray(role && role.permissions).filter((perm) => !all.has(perm)).sort();
 }
 
-// Channels this role references that no longer exist (deleted since the
-// restriction was set). Order follows the role's channel-id order, as in Swing.
-export function orphanChannelIdsOf(role, liveChannelIds) {
-    const live = toSet(liveChannelIds);
-    return toArray(role && role.channelIds).filter((id) => !live.has(id));
-}
-
 // Base permissions absent from the selection, in declaration order. (Swing
 // shows a HashSet's iteration order in the warning; we are deterministic.)
 export function missingBase(selected) {
@@ -139,12 +132,33 @@ export function missingBase(selected) {
     return BASE_PERMISSIONS.filter((perm) => !sel.has(perm));
 }
 
+/* ---- channels saved by the role editor ------------------------------------- */
+
+// The channel ids a "Specific Channels" save sends: the ticked ones plus every
+// stored id the editor's channel list does not contain. The engine redacts the
+// list by the editing user's own restriction, so those channels are kept unseen
+// rather than dropped. With "All Channels" the caller sends no ids.
+export function editorChannelIds(ticked, storedIds, liveIds) {
+    const saved = new Set(ticked);
+    for (const id of storedIds) {
+        if (!liveIds.has(id)) saved.add(id);
+    }
+    return saved;
+}
+
+// The restricted flag a save sends: the admin role keeps its stored flag, any
+// other role is restricted exactly when Specific Channels is selected. role is
+// the stored role or null for a new one; mode is 'all' or 'specific'.
+export function editorRestricted(role, mode) {
+    return role && role.isAdmin ? role.restricted : mode === 'specific';
+}
+
 /* ---- assignment preview (RbacSettingsPanel.confirmAssignment, 1:1) ---------- */
 
 // Builds the exact details text Swing shows in the Confirm Role Assignment
 // dialog: User/Current role/New role header (labels padded to a common column),
 // channel scope ("All channels" vs "restricted to N channel(s):" with sorted
-// labels, deleted channels as "<id> (deleted)"), then the sorted permission
+// labels, an id without a name as the id), then the sorted permission
 // list — or the explicit "(none — …)" line for an empty role.
 export function buildAssignmentPreview(username, currentRoleName, role, channelIdToName) {
     let details = '';
@@ -153,13 +167,15 @@ export function buildAssignmentPreview(username, currentRoleName, role, channelI
     details += 'New role:     ' + role.name + '\n\n';
 
     const channelIds = toArray(role.channelIds);
-    if (channelIds.length === 0) {
+    if (!role.restricted) {
         details += 'Channel access: All channels\n\n';
+    } else if (channelIds.length === 0) {
+        details += 'Channel access: No channels\n\n';
     } else {
         details += 'Channel access: restricted to ' + channelIds.length + ' channel(s):\n';
         const channelLabels = channelIds.map((id) => {
             const name = lookupName(channelIdToName, id);
-            return name != null ? '  ' + name : '  ' + id + ' (deleted)';
+            return '  ' + (name != null ? name : id);
         });
         channelLabels.sort();
         for (const label of channelLabels) {
@@ -232,25 +248,9 @@ export function missingBaseWarningText(missing) {
 }
 export const TITLE_MISSING_BASE_PERMISSIONS = 'Missing Base Permissions';
 
-// RoleEditorDialog.save() — flip guard when "Specific Channels" is selected
-// with an empty set (Yes/No, title "No Channel Restrictions").
-export const MSG_EMPTY_WHITELIST_FLIP =
-    'This role will no longer be restricted to specific channels.\n'
-    + 'Users with this role will be able to access ALL channels.\n\nContinue?';
-export const TITLE_NO_CHANNEL_RESTRICTIONS = 'No Channel Restrictions';
-
-// RoleEditorDialog — Channel Restrictions tab strings. Live channels render as
-// "<name> (<id>)"; deleted-channel rows use TWO spaces before "(deleted)"
-// (unlike the single space in the assignment preview).
-export const ORPHAN_CHANNELS_TITLE = 'Deleted channels (no longer exist)';
-export const ORPHAN_CHANNELS_HINT =
-    'Still referenced by this role. Check Purge to remove a reference on Apply.';
-export function channelDisplayLabel(name, id) {
-    return name + ' (' + id + ')';
-}
-export function orphanChannelRowLabel(id) {
-    return id + '  (deleted)';
-}
+// RoleEditorDialog, the line under the channel list while "Specific Channels"
+// is selected and nothing is ticked.
+export const MSG_NO_CHANNELS_TICKED = 'This role sees no channels until some are ticked.';
 
 // RbacSettingsPanel — italic notice above the tables.
 export const IMMEDIATE_NOTICE =
@@ -309,101 +309,3 @@ export const TITLE_ASSIGN_ROLE = 'Assign Role';
 export const ASSIGN_PREVIEW_HEADER = 'Review the access this role grants before assigning:';
 export const ASSIGN_PREVIEW_FOOTER = 'This assignment takes effect immediately.';
 export const TITLE_CONFIRM_ASSIGNMENT = 'Confirm Role Assignment';
-
-/* ---- role export and import (strings and logic match the Swing client) ------ */
-
-// Settings panel tasks.
-export const TASK_EXPORT_ROLES = 'Export Roles';
-export const TASK_EXPORT_ROLES_TOOLTIP = 'Export roles to a file.';
-export const TASK_IMPORT_ROLES = 'Import Roles';
-export const TASK_IMPORT_ROLES_TOOLTIP = 'Import roles from a file.';
-
-// Export dialog.
-export const TITLE_EXPORT_ROLES = 'Export Roles';
-export const EXPORT_PROMPT = 'Pick the roles to export. The admin role is never exported.';
-export const MSG_NO_ROLES_TO_EXPORT = 'There are no roles to export. The admin role is never exported.';
-export const EXPORT_FILE_NAME = 'rbac-roles.xml';
-export function exportedText(count) {
-    return 'Exported ' + count + ' role(s).';
-}
-
-// Import dialog.
-export const TITLE_IMPORT_ROLES = 'Import Roles';
-export const IMPORT_APPLY_CHANNELS = 'Apply channel restrictions from the file';
-export const IMPORT_MATCH_BY_NAME = "Also match channels by name when the id isn't found";
-export const IMPORT_COLUMNS = ['', 'Role', 'Action', 'Details'];
-export const NAME_MATCH_HEADING = 'Channels in the file that match a channel here only by name:';
-export const NAME_MATCH_HINT = 'Tick "Also match channels by name" to use them.';
-export function importRefusedText(refusal) {
-    return "This file can't be imported: " + refusal;
-}
-export function importSourceText(sourceRbacVersion, sourceEngineVersion) {
-    return 'From rbac ' + sourceRbacVersion + ' on OIE ' + sourceEngineVersion + '.';
-}
-export function importedText(count) {
-    return 'Imported ' + count + ' role(s).';
-}
-
-const ACTION_LABELS = { CREATE: 'New', OVERWRITE: 'Overwrite', UNCHANGED: 'Unchanged', SKIP: 'Skipped' };
-
-// The Action column text for a row's action.
-export function actionLabel(action) {
-    return Object.hasOwn(ACTION_LABELS, action) ? ACTION_LABELS[action] : String(action);
-}
-
-// Only New and Overwrite rows can be picked.
-export function canTick(row) {
-    return row.action === 'CREATE' || row.action === 'OVERWRITE';
-}
-
-// New starts ticked, Overwrite starts unticked.
-export function defaultTick(row) {
-    return row.action === 'CREATE';
-}
-
-// Ticks for a fresh preview of the same file. A row keeps the user's choice if
-// it was shown before with the same name and action; any other row starts at
-// its default. Returns a Set of row index values.
-export function mergeTicks(previousRows, previousTicks, rows) {
-    const next = new Set();
-    for (const row of rows) {
-        if (!canTick(row)) continue;
-        const before = previousRows.find((p) => p.index === row.index);
-        const same = before && before.name === row.name && before.action === row.action;
-        if (same ? previousTicks.has(row.index) : defaultTick(row)) next.add(row.index);
-    }
-    return next;
-}
-
-// The ticked rows' index values, in ascending order, for the pick parameter.
-export function pickedIndexes(rows, ticks) {
-    return rows.filter((row) => canTick(row) && ticks.has(row.index)).map((row) => row.index).sort((a, b) => a - b);
-}
-
-// The Details column text: the parts that apply, in this order, joined with "; ".
-export function detailsText(row) {
-    const parts = [];
-    if (row.reason) parts.push(row.reason);
-    if (row.addedPermissions.length) parts.push('Adds permissions: ' + row.addedPermissions.join(', '));
-    if (row.removedPermissions.length) parts.push('Removes permissions: ' + row.removedPermissions.join(', '));
-    if (row.addedChannels.length) parts.push('Adds channels: ' + row.addedChannels.join(', '));
-    if (row.removedChannels.length) parts.push('Removes channels: ' + row.removedChannels.join(', '));
-    if (row.descriptionChanged) parts.push('Changes the description');
-    if (row.channels === 'KEPT') parts.push('Keeps its channels here');
-    if (row.droppedPermissions.length) parts.push('Left out, not on this engine: ' + row.droppedPermissions.join(', '));
-    if (row.unmatchedChannels.length) parts.push('Channels not found: ' + row.unmatchedChannels.join(', '));
-    if (row.action === 'UNCHANGED' && parts.length === 0) parts.push('Same as the role here');
-    return parts.join('; ');
-}
-
-// The list of channels that match only by name: shown while channel restrictions
-// are applied and there are some. The hint is added while name matching is off.
-// Returns null when nothing is shown.
-export function nameMatchSection(applyChannels, matchChannelsByName, channelNameMatches) {
-    if (!applyChannels || channelNameMatches.length === 0) return null;
-    return {
-        heading: NAME_MATCH_HEADING,
-        names: channelNameMatches.map((m) => m.name),
-        hint: matchChannelsByName ? null : NAME_MATCH_HINT
-    };
-}
