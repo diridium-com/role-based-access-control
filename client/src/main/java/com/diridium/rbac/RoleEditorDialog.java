@@ -72,14 +72,10 @@ public class RoleEditorDialog extends JDialog {
     private JRadioButton specificChannelsRadio;
     private JLabel noChannelsLabel;
     private final Map<String, JCheckBox> channelCheckboxes = new LinkedHashMap<>();
-    // channelId -> "Purge" checkbox, for channels this role references that no
-    // longer exist. Default unchecked: the reference is kept (and re-persisted
-    // on save) unless the admin positively checks Purge.
-    private final Map<String, JCheckBox> orphanPurgeCheckboxes = new LinkedHashMap<>();
     // Granted permissions that are not in the fetched catalog (e.g. an extension
     // was temporarily uninstalled). No checkbox is rendered for them; they are
     // preserved by default on save so an unrelated edit doesn't silently revoke
-    // them, mirroring the keep-by-default policy for deleted-channel references.
+    // them.
     private final Set<String> orphanPermissions = new HashSet<>();
     // True when the dialog was opened with no permission catalog. A save in this
     // state on an existing role would persist an empty permission set (a silent
@@ -321,44 +317,6 @@ public class RoleEditorDialog extends JDialog {
         JPanel channelCheckboxPanel = new JPanel();
         channelCheckboxPanel.setLayout(new BoxLayout(channelCheckboxPanel, BoxLayout.Y_AXIS));
 
-        // Channels this role references that no longer exist (deleted since the
-        // restriction was set). Listed at the top, read-only, with a per-row Purge
-        // checkbox so the admin can deliberately drop a reference, while keeping it
-        // by default (the same channel id returns if the channel is re-imported from
-        // export). All children use LEFT_ALIGNMENT so the BoxLayout lines them up
-        // flush-left with the live channel checkboxes below.
-        Set<String> liveChannelIds = channelIdsAndNames != null ? channelIdsAndNames.keySet() : new HashSet<>();
-        List<String> orphanChannelIds = new ArrayList<>();
-        if (existingRole != null && existingRole.getChannelIds() != null) {
-            for (String channelId : existingRole.getChannelIds()) {
-                if (!liveChannelIds.contains(channelId)) {
-                    orphanChannelIds.add(channelId);
-                }
-            }
-        }
-        if (!orphanChannelIds.isEmpty()) {
-            JPanel orphanPanel = new JPanel();
-            orphanPanel.setLayout(new BoxLayout(orphanPanel, BoxLayout.Y_AXIS));
-            orphanPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
-            orphanPanel.setBorder(BorderFactory.createTitledBorder(
-                    BorderFactory.createEtchedBorder(), "Deleted channels (no longer exist)",
-                    TitledBorder.DEFAULT_JUSTIFICATION, TitledBorder.DEFAULT_POSITION));
-            JLabel orphanHint = new JLabel("Still referenced by this role. Check Purge to remove a reference on Apply.");
-            orphanHint.setAlignmentX(Component.LEFT_ALIGNMENT);
-            orphanPanel.add(orphanHint);
-            for (String channelId : orphanChannelIds) {
-                JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
-                row.setAlignmentX(Component.LEFT_ALIGNMENT);
-                JCheckBox purge = new JCheckBox("Purge");
-                purge.setEnabled(false);
-                orphanPurgeCheckboxes.put(channelId, purge);
-                row.add(purge);
-                row.add(new JLabel(channelId + "  (deleted)"));
-                orphanPanel.add(row);
-            }
-            channelCheckboxPanel.add(orphanPanel);
-        }
-
         if (channelIdsAndNames != null) {
             for (Map.Entry<String, String> entry : channelIdsAndNames.entrySet()) {
                 String channelId = entry.getKey();
@@ -384,9 +342,6 @@ public class RoleEditorDialog extends JDialog {
         allChannelsRadio.addActionListener(e -> setChannelCheckboxesEnabled(false));
         specificChannelsRadio.addActionListener(e -> setChannelCheckboxesEnabled(true));
         for (JCheckBox cb : channelCheckboxes.values()) {
-            cb.addActionListener(e -> updateNoChannelsLine());
-        }
-        for (JCheckBox cb : orphanPurgeCheckboxes.values()) {
             cb.addActionListener(e -> updateNoChannelsLine());
         }
 
@@ -493,23 +448,17 @@ public class RoleEditorDialog extends JDialog {
         for (JCheckBox cb : channelCheckboxes.values()) {
             cb.setEnabled(enabled);
         }
-        for (JCheckBox cb : orphanPurgeCheckboxes.values()) {
-            cb.setEnabled(enabled);
-        }
         updateNoChannelsLine();
     }
 
     /**
      * Shows the line under the channel list while "Specific Channels" is selected and no
-     * channel is ticked. A deleted channel counts as ticked unless its Purge box is.
+     * channel is ticked.
      */
     private void updateNoChannelsLine() {
         boolean any = false;
         for (JCheckBox cb : channelCheckboxes.values()) {
             any |= cb.isSelected();
-        }
-        for (JCheckBox purge : orphanPurgeCheckboxes.values()) {
-            any |= !purge.isSelected();
         }
         noChannelsLabel.setVisible(specificChannelsRadio.isSelected() && !any);
     }
@@ -539,8 +488,8 @@ public class RoleEditorDialog extends JDialog {
                 selectedPerms.add(entry.getKey());
             }
         }
-        // Preserve grants that have no checkbox (catalog gaps), matching the
-        // keep-by-default policy used for deleted-channel references.
+        // Preserve grants that have no checkbox (catalog gaps), so an unrelated edit
+        // doesn't silently revoke them.
         selectedPerms.addAll(orphanPermissions);
 
         // Warn if base permissions are missing
@@ -561,12 +510,6 @@ public class RoleEditorDialog extends JDialog {
         if (specificChannelsRadio.isSelected()) {
             for (Map.Entry<String, JCheckBox> entry : channelCheckboxes.entrySet()) {
                 if (entry.getValue().isSelected()) {
-                    selectedChannels.add(entry.getKey());
-                }
-            }
-            // Keep references to deleted channels unless the admin checked Purge.
-            for (Map.Entry<String, JCheckBox> entry : orphanPurgeCheckboxes.entrySet()) {
-                if (!entry.getValue().isSelected()) {
                     selectedChannels.add(entry.getKey());
                 }
             }

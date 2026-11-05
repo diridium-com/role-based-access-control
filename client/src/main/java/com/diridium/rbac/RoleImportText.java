@@ -19,8 +19,6 @@ final class RoleImportText {
     static final String YES = "yes";
     static final String EVERY = "every";
     static final String NONE = "none";
-    static final String NO_LONGER_EXISTS = "(no longer exists)";
-    static final String CHANNEL_LIST_NOT_LOADED = "(channel list not loaded)";
 
     private RoleImportText() {
     }

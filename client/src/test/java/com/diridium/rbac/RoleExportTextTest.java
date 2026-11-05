@@ -51,7 +51,7 @@ class RoleExportTextTest {
     }
 
     @Test
-    void channelRows_nameOrder_deletedAndNotLoaded() {
+    void channelRows_nameOrder_unknownIdShowsAsId() {
         Role role = new Role();
         role.setChannelIds(new HashSet<>(Arrays.asList("c", "b", "a", "z")));
         Map<String, String> map = new HashMap<>();
@@ -59,13 +59,13 @@ class RoleExportTextTest {
         map.put("b", "Alpha");
         map.put("c", "Mike");
         List<String[]> rows = RoleExportText.channelRows(role, map);
-        assertEquals(Arrays.asList("(no longer exists)", "z"), Arrays.asList(rows.get(0)));
-        assertEquals(Arrays.asList("Alpha", "b"), Arrays.asList(rows.get(1)));
-        assertEquals(Arrays.asList("Mike", "c"), Arrays.asList(rows.get(2)));
+        assertEquals(Arrays.asList("Alpha", "b"), Arrays.asList(rows.get(0)));
+        assertEquals(Arrays.asList("Mike", "c"), Arrays.asList(rows.get(1)));
+        assertEquals(Arrays.asList("z", "z"), Arrays.asList(rows.get(2)), "an id the map lacks shows as the id");
         assertEquals(Arrays.asList("Zulu", "a"), Arrays.asList(rows.get(3)));
         List<String[]> unloaded = RoleExportText.channelRows(role, null);
         assertEquals(4, unloaded.size());
-        assertEquals(Arrays.asList("(channel list not loaded)", "a"), Arrays.asList(unloaded.get(0)));
+        assertEquals(Arrays.asList("a", "a"), Arrays.asList(unloaded.get(0)));
         assertEquals(0, RoleExportText.channelRows(new Role(), map).size());
     }
 }

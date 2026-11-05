@@ -502,7 +502,7 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
             List<String> channelLabels = new ArrayList<>();
             for (String id : channelIds) {
                 String name = cachedChannelMap.get(id);
-                channelLabels.add(name != null ? "  " + name : "  " + id + " (deleted)");
+                channelLabels.add("  " + (name != null ? name : id));
             }
             channelLabels.sort(null);
             for (String label : channelLabels) {

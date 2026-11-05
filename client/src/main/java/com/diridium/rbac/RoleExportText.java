@@ -55,16 +55,14 @@ final class RoleExportText {
     }
 
     /**
-     * A role's channels as Channel and Id, in name order. An id the map lacks reads
-     * "(no longer exists)"; with no map at all, "(channel list not loaded)".
+     * A role's channels as Channel and Id, in name order. An id the map lacks shows as the id.
      */
     static List<String[]> channelRows(Role role, Map<String, String> channelMap) {
         List<String[]> rows = new ArrayList<>();
         if (role.getChannelIds() != null) {
             for (String id : role.getChannelIds()) {
-                String name = channelMap == null ? RoleImportText.CHANNEL_LIST_NOT_LOADED
-                        : channelMap.containsKey(id) ? channelMap.get(id) : RoleImportText.NO_LONGER_EXISTS;
-                rows.add(new String[] {RoleImportText.text(name), id});
+                String name = channelMap == null ? null : channelMap.get(id);
+                rows.add(new String[] {name != null ? name : id, id});
             }
         }
         rows.sort((a, b) -> {

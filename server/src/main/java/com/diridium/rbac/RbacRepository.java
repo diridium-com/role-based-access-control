@@ -427,6 +427,26 @@ public class RbacRepository {
         }
     }
 
+    /** The ids of the roles restricted to a channel, in id order. */
+    public static List<Integer> getRoleIdsForChannel(String channelId) {
+        try {
+            return SqlConfig.getInstance().getSqlSessionManager().selectList(stmt("getRoleIdsForChannel"), channelId);
+        } catch (Exception e) {
+            log.error("Failed to list the roles restricted to channel {}", channelId, e);
+            throw new RbacRepositoryException(e);
+        }
+    }
+
+    /** Removes every restriction row naming a channel, for every role. */
+    public static int deleteChannelIdFromRoles(String channelId) {
+        try {
+            return SqlConfig.getInstance().getSqlSessionManager().delete(stmt("deleteChannelIdFromRoles"), channelId);
+        } catch (Exception e) {
+            log.error("Failed to remove channel {} from the roles restricted to it", channelId, e);
+            throw new RbacRepositoryException(e);
+        }
+    }
+
     /** Removes one channel restriction row. */
     public static void deleteChannelIdForRole(int roleId, String channelId) {
         try {

@@ -171,8 +171,8 @@ def fresh(r, engine, db, dbname, new_zip, **_):
     if rows is not None:
         r.check("before the restart, the deleted user's rbac_user_role row is still there", rows == 1, f"found {rows}")
 
-    # Deleting a channel leaves the restriction rows that name it; the sweep at the next start removes them and
-    # leaves each role restricted, to no channel if none is left.
+    # Deleting a channel: the engine tells rbac (RbacChannelPlugin.remove), which removes the restriction rows that
+    # name it at that moment and leaves each role restricted, to no channel if none is left.
     gone = b.new_id()
     ok, detail = b.create_channel(api, gone, "rbac e2e gone")
     r.check("create channel gone", ok, detail)
@@ -180,11 +180,31 @@ def fresh(r, engine, db, dbname, new_zip, **_):
     sweep_only = b.create_role(api, "e2e sweep gone only", ["viewChannels"], [gone])
     w.roles["sweep-only"] = sweep_only
     k.add_user(w, "sweep-only", "sweep-only")
+    log_len = len(engine.log())
     status, _ = api.request("DELETE", f"/channels/{gone}")
     r.check("a channel a role is restricted to can be deleted", status in (200, 204), f"HTTP {status} {api.reason}")
-    r.check("before the restart, the roles still list the deleted channel",
-            b.roles(api)[sweep_both]["channelIds"] == {w.channels["A"], gone}
-            and b.roles(api)[sweep_only]["channelIds"] == {gone}, str(b.roles(api)))
+    trimmed = b.roles(api)
+    r.check("on the delete, the role that keeps another channel loses only the deleted one, and stays restricted",
+            trimmed[sweep_both]["channelIds"] == {w.channels["A"]} and trimmed[sweep_both]["restricted"] is True,
+            str(trimmed.get(sweep_both)))
+    r.check("on the delete, the role whose only channel it was is restricted to no channel",
+            trimmed[sweep_only]["channelIds"] == set() and trimmed[sweep_only]["restricted"] is True,
+            str(trimmed.get(sweep_only)))
+    deleted_log = engine.log()[log_len:]
+    r.check("mirth.log: the delete names each role it trimmed",
+            "found deleted channel 'rbac e2e gone' in role 'e2e sweep A and gone', removing stale data." in deleted_log
+            and "found deleted channel 'rbac e2e gone' in role 'e2e sweep gone only', removing stale data. Role"
+                " 'e2e sweep gone only' now has no channels." in deleted_log, deleted_log[-1500:])
+    status, ids = b.channel_ids(w.users["sweep-only"])
+    r.check("a user whose role is restricted to no channel sees no channel, without a restart",
+            status == 200 and ids == set(), f"HTTP {status}: {ids}")
+    status, text = b.export_roles(api)
+    plan = b.parse_import(b.import_roles(api, text)[1]) if status == 200 else {"rows": {}}
+    r.check("a same-engine export and import finds every role unchanged",
+            status == 200 and plan["rows"] and all(row["action"] == "UNCHANGED" for row in plan["rows"].values()),
+            str({n: row["action"] for n, row in plan["rows"].items()}))
+    # A row left by a channel deleted while rbac was not loaded: planted by SQL, swept at the next start.
+    planted = db.plant_role_channel(dbname, sweep_only, gone)
 
     before_roles = b.roles(api)
     # Earlier checks deleted channels too (A2 in the channel-limited bulk remove), so the sweep also trims those
@@ -196,21 +216,20 @@ def fresh(r, engine, db, dbname, new_zip, **_):
     api = engine.restart()
     after = engine.log()[log_len:]
     now_roles = b.roles(api)
-    r.check("after a restart, the sweep removed the deleted channel from the role that keeps another",
-            now_roles[sweep_both]["channelIds"] == {w.channels["A"]} and now_roles[sweep_both]["restricted"] is True,
-            str(now_roles.get(sweep_both)))
-    r.check("after a restart, the role whose only channel was deleted is restricted to no channel",
-            now_roles[sweep_only]["channelIds"] == set() and now_roles[sweep_only]["restricted"] is True,
-            str(now_roles.get(sweep_only)))
-    r.check("mirth.log: the sweep names each role it trimmed",
-            "removed 1 restriction(s) to deleted channels from role 'e2e sweep A and gone'" in after
-            and "removed 1 restriction(s) to deleted channels from role 'e2e sweep gone only', which is now restricted"
-                " to no channels" in after
-            and "removed 1 restriction(s) to deleted channels from role 'e2e channels A and A2 only'" in after,
-            after[-1500:])
+    if planted:
+        r.check("after a restart, the sweep removed the planted row and left the role restricted to no channel",
+                now_roles[sweep_only]["channelIds"] == set() and now_roles[sweep_only]["restricted"] is True,
+                str(now_roles.get(sweep_only)))
+        r.check("mirth.log: the sweep names the role it trimmed",
+                "RBAC maintenance: removed 1 reference to a deleted channel from role 'e2e sweep gone only'. Role"
+                " 'e2e sweep gone only' now has no channels." in after, after[-1500:])
+    else:
+        r.note("startup sweep", "not exercised on Derby: a stale row can't be planted in the embedded database")
+        r.check("after a restart, nothing was left for the sweep", "RBAC maintenance" not in after,
+                after[-1500:])
     status, ids = b.channel_ids(login(engine, "rbac-e2e-sweep-only"))
-    r.check("a user whose role is restricted to no channel sees no channel", status == 200 and ids == set(),
-            f"HTTP {status}: {ids}")
+    r.check("after a restart, a user whose role is restricted to no channel still sees no channel",
+            status == 200 and ids == set(), f"HTTP {status}: {ids}")
     before_roles = {rid: role for rid, role in expected_roles.items() if rid not in (sweep_both, sweep_only)}
     r.check("after a restart, the deleted user's role assignment is gone", b.user_role(api, orphan) is None)
     rows = db.user_role_rows(dbname, orphan)

@@ -109,6 +109,15 @@
         DELETE FROM rbac_role_channel WHERE role_id = #{roleId} AND channel_id = #{channelId}
     </delete>
 
+    <!-- When the engine deletes a channel (RbacChannelPlugin.remove): the roles restricted to it, then the rows. -->
+    <select id="getRoleIdsForChannel" parameterType="String" resultType="Integer">
+        SELECT role_id FROM rbac_role_channel WHERE channel_id = #{value} ORDER BY role_id
+    </select>
+
+    <delete id="deleteChannelIdFromRoles" parameterType="String">
+        DELETE FROM rbac_role_channel WHERE channel_id = #{value}
+    </delete>
+
     <!-- ========== User-Role Assignment ========== -->
 
     <select id="getUserRoleId" parameterType="int" resultType="Integer">

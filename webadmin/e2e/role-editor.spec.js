@@ -16,6 +16,9 @@ import { rbacFixtures, ADMIN_ROLE, READ_ONLY_ROLE } from './fixtures.js';
 const NO_CHANNELS = 'This role sees no channels until some are ticked.';
 const NONE_ROLE = { ...READ_ONLY_ROLE, id: 5, name: 'Sees None', restricted: true, channelIds: null };
 const SOME_ROLE = { ...READ_ONLY_ROLE, id: 6, name: 'Sees Some', restricted: true, channelIds: { string: 'c-started' } };
+const UNKNOWN_ID_ROLE = {
+    ...READ_ONLY_ROLE, id: 7, name: 'Sees Unknown', restricted: true, channelIds: { string: ['c-started', 'c-not-here'] }
+};
 
 // Records the role writes: [method, body].
 function watchWrites(page) {
@@ -31,7 +34,7 @@ function watchWrites(page) {
 
 async function openPanel(page) {
     await mockEngineWithRbac(page, {
-        ...rbacFixtures({ roles: [ADMIN_ROLE, READ_ONLY_ROLE, NONE_ROLE, SOME_ROLE] }),
+        ...rbacFixtures({ roles: [ADMIN_ROLE, READ_ONLY_ROLE, NONE_ROLE, SOME_ROLE, UNKNOWN_ID_ROLE] }),
         'POST /extensions/rbac/roles': { 'com.diridium.rbac.Role': NONE_ROLE },
         'PUT /extensions/rbac/roles/*': { 'com.diridium.rbac.Role': NONE_ROLE }
     });
@@ -127,6 +130,19 @@ test.describe('role editor: the restricted flag', () => {
         const editor = await addRole(page, 'Some');
         await specific(editor).check();
         await editor.getByLabel('Demo Started').check();
+        await editor.getByRole('button', { name: 'Apply' }).click();
+        await expect.poll(() => writes.length).toBe(1);
+        expect(writes[0][1]).toContain('<channelIds><string>c-started</string></channelIds><restricted>true</restricted>');
+    });
+
+    test('a stored channel id the engine does not have is not shown and is not sent back', async ({ page }) => {
+        const writes = watchWrites(page);
+        await openPanel(page);
+        const editor = await editRole(page, 'Sees Unknown');
+        await expect(specific(editor)).toBeChecked();
+        await expect(editor.locator('.rbac-channel-list input[type=checkbox]:checked')).toHaveCount(1);
+        await expect(editor.getByText('c-not-here')).toHaveCount(0);
+        await expect(editor.getByText('Purge')).toHaveCount(0);
         await editor.getByRole('button', { name: 'Apply' }).click();
         await expect.poll(() => writes.length).toBe(1);
         expect(writes[0][1]).toContain('<channelIds><string>c-started</string></channelIds><restricted>true</restricted>');

@@ -3,7 +3,7 @@
 
 /*
  * Framework-agnostic core for the RBAC web UI: the permission grouping, presets,
- * orphan-reference helpers, the assignment-preview text builder, and every dialog
+ * orphan-permission helpers, the assignment-preview text builder, and every dialog
  * string — all ported 1:1 from the Swing client's RoleEditorDialog /
  * RbacSettingsPanel so the web administrator shows byte-identical texts.
  *
@@ -125,13 +125,6 @@ export function orphanPermissionsOf(role, catalog) {
     return toArray(role && role.permissions).filter((perm) => !all.has(perm)).sort();
 }
 
-// Channels this role references that no longer exist (deleted since the
-// restriction was set). Order follows the role's channel-id order, as in Swing.
-export function orphanChannelIdsOf(role, liveChannelIds) {
-    const live = toSet(liveChannelIds);
-    return toArray(role && role.channelIds).filter((id) => !live.has(id));
-}
-
 // Base permissions absent from the selection, in declaration order. (Swing
 // shows a HashSet's iteration order in the warning; we are deterministic.)
 export function missingBase(selected) {
@@ -144,7 +137,7 @@ export function missingBase(selected) {
 // Builds the exact details text Swing shows in the Confirm Role Assignment
 // dialog: User/Current role/New role header (labels padded to a common column),
 // channel scope ("All channels" vs "restricted to N channel(s):" with sorted
-// labels, deleted channels as "<id> (deleted)"), then the sorted permission
+// labels, an id without a name as the id), then the sorted permission
 // list — or the explicit "(none — …)" line for an empty role.
 export function buildAssignmentPreview(username, currentRoleName, role, channelIdToName) {
     let details = '';
@@ -161,7 +154,7 @@ export function buildAssignmentPreview(username, currentRoleName, role, channelI
         details += 'Channel access: restricted to ' + channelIds.length + ' channel(s):\n';
         const channelLabels = channelIds.map((id) => {
             const name = lookupName(channelIdToName, id);
-            return name != null ? '  ' + name : '  ' + id + ' (deleted)';
+            return '  ' + (name != null ? name : id);
         });
         channelLabels.sort();
         for (const label of channelLabels) {
@@ -237,19 +230,6 @@ export const TITLE_MISSING_BASE_PERMISSIONS = 'Missing Base Permissions';
 // RoleEditorDialog, the line under the channel list while "Specific Channels"
 // is selected and nothing is ticked.
 export const MSG_NO_CHANNELS_TICKED = 'This role sees no channels until some are ticked.';
-
-// RoleEditorDialog — Channel Restrictions tab strings. Live channels render as
-// "<name> (<id>)"; deleted-channel rows use TWO spaces before "(deleted)"
-// (unlike the single space in the assignment preview).
-export const ORPHAN_CHANNELS_TITLE = 'Deleted channels (no longer exist)';
-export const ORPHAN_CHANNELS_HINT =
-    'Still referenced by this role. Check Purge to remove a reference on Apply.';
-export function channelDisplayLabel(name, id) {
-    return name + ' (' + id + ')';
-}
-export function orphanChannelRowLabel(id) {
-    return id + '  (deleted)';
-}
 
 // RbacSettingsPanel — italic notice above the tables.
 export const IMMEDIATE_NOTICE =
@@ -356,8 +336,6 @@ export const EXPORT_CHANNEL_ID_COLUMNS = [1];
 const EVERY = 'every';
 const NONE = 'none';
 const YES = 'yes';
-const NO_LONGER_EXISTS = '(no longer exists)';
-const DELETED = 'deleted on this engine';
 const NOT_IN_IMPORT = 'not in the import';
 export const EXPORT_EVERY_CHANNEL = 'This role sees every channel.';
 export const EXPORT_NO_CHANNEL = 'This role sees no channels.';
@@ -514,10 +492,9 @@ export function permissionRows(row) {
 
 // One row per channel: the import's channels in the import's order, then the
 // role's other channels on this engine. An import channel that is also one the
-// role has on this engine (same id) is one row. A channel the role has that
-// no longer exists on this engine reads "deleted on this engine", whether or not
-// the import names it; one that exists but is not in the import reads "not in
-// the import". A row is [Channel, Id on this engine, Currently, After import,
+// role has on this engine (same id) is one row. A channel the role has that is
+// not in the import reads "not in the import". A name-less channel shows its
+// id in the Channel column. A row is [Channel, Id on this engine, Currently, After import,
 // Match, Name in import, Id in import].
 export function channelRows(row) {
     const nowIds = new Set(row.channelsNow.map((c) => c.id));
@@ -525,17 +502,15 @@ export function channelRows(row) {
     const rows = row.channelsAfter.map((c) => {
         const fromImport = c.fileId !== null;
         const missing = fromImport && c.match === 'NOT_FOUND';
-        const isNow = nowIds.has(c.id);
+        const isNow = !missing && nowIds.has(c.id);
         if (isNow) joined.add(c.id);
-        const name = c.name !== null ? c.name : (c.fileName !== null ? c.fileName : NO_LONGER_EXISTS);
-        const match = missing && isNow ? DELETED : foundText(c);
-        return [name, missing && !isNow ? '' : c.id, isNow ? YES : '', c.used || !fromImport ? YES : '',
-            match, c.fileName === null ? '' : c.fileName, c.fileId === null ? '' : c.fileId];
+        const name = c.name !== null ? c.name : (c.fileName !== null ? c.fileName : c.id);
+        return [name, missing ? '' : c.id, isNow ? YES : '', c.used || !fromImport ? YES : '',
+            foundText(c), c.fileName === null ? '' : c.fileName, c.fileId === null ? '' : c.fileId];
     });
     for (const c of row.channelsNow) {
         if (!joined.has(c.id)) {
-            rows.push([c.name !== null ? c.name : NO_LONGER_EXISTS, c.id, YES, '',
-                c.name !== null ? NOT_IN_IMPORT : DELETED, '', '']);
+            rows.push([c.name !== null ? c.name : c.id, c.id, YES, '', NOT_IN_IMPORT, '', '']);
         }
     }
     return rows;
@@ -550,9 +525,9 @@ export function exportPermissionRows(role) {
 }
 export function exportChannelRows(role, channelMap) {
     const ids = [...role.channelIds];
-    if (!channelMap) return ids.sort().map((id) => ['(channel list not loaded)', id]);
+    if (!channelMap) return ids.sort().map((id) => [id, id]);
     const known = ids.filter((id) => channelMap.has(id)).map((id) => [channelMap.get(id), id]);
-    const unknown = ids.filter((id) => !channelMap.has(id)).sort().map((id) => [NO_LONGER_EXISTS, id]);
+    const unknown = ids.filter((id) => !channelMap.has(id)).sort().map((id) => [id, id]);
     return [...known.sort((a, b) => (a[0] > b[0] ? 1 : a[0] < b[0] ? -1 : 0)), ...unknown];
 }
 

@@ -234,9 +234,7 @@ test('permission rows: the union by name, the left-out ones noted', () => {
 test('channel rows: the import in its order, the joined channel once, a renamed one, by name, not on this engine, then the rest', () => {
     const rows = channelRows(row({
         existsHere: true,
-        channelsNow: [nowChan({ id: 'id-1', name: 'One renamed' }), nowChan({ id: 'id-9', name: 'Nine' }),
-            nowChan({ id: 'gone', name: null, match: 'NOT_FOUND' }),
-            nowChan({ id: 'id-5', name: null, match: 'NOT_FOUND' })],
+        channelsNow: [nowChan({ id: 'id-1', name: 'One renamed' }), nowChan({ id: 'id-9', name: 'Nine' })],
         channelsAfter: [
             chan({ id: 'id-1', name: 'One renamed', fileName: 'One' }),
             chan({ id: 'id-2', name: 'Two', fileId: 'file-2', fileName: 'Two', match: 'BY_NAME', used: false }),
@@ -249,20 +247,19 @@ test('channel rows: the import in its order, the joined channel once, a renamed 
         ['One renamed', 'id-1', 'yes', 'yes', 'by id, renamed on this engine', 'One', 'id-1'],
         ['Two', 'id-2', '', '', 'by name, not used', 'Two', 'file-2'],
         ['Three', '', '', '', 'not on this engine', 'Three', 'id-3'],
-        ['(no longer exists)', '', '', '', 'not on this engine', '', 'id-4'],
-        ['Five', 'id-5', 'yes', '', 'deleted on this engine', 'Five', 'id-5'],
-        ['Nine', 'id-9', 'yes', '', 'not in the import', '', ''],
-        ['(no longer exists)', 'gone', 'yes', '', 'deleted on this engine', '', '']
+        ['id-4', '', '', '', 'not on this engine', '', 'id-4'],
+        ['Five', '', '', '', 'not on this engine', 'Five', 'id-5'],
+        ['Nine', 'id-9', 'yes', '', 'not in the import', '', '']
     ]);
     const byName = channelRows(row({ channelsAfter: [chan({ id: 'id-2', name: 'Two', fileId: 'file-2', fileName: 'Two', match: 'BY_NAME', used: true })] }));
     assert.deepEqual(byName, [['Two', 'id-2', '', 'yes', 'by name', 'Two', 'file-2']], 'by name, used');
 });
 
-test('channel rows: the Channel column is the name here, else the name in the import, else "(no longer exists)"', () => {
+test('channel rows: the Channel column is the name here, else the name in the import, else the id', () => {
     const name = (over) => channelRows(row({ channelsAfter: [chan(over)] }))[0][0];
     assert.equal(name({ name: 'Here', fileName: 'There' }), 'Here');
     assert.equal(name({ name: null, fileName: 'There', match: 'NOT_FOUND', used: false }), 'There');
-    assert.equal(name({ name: null, fileName: null, match: 'NOT_FOUND', used: false }), '(no longer exists)');
+    assert.equal(name({ id: 'the-id', name: null, fileName: null, match: 'NOT_FOUND', used: false }), 'the-id');
 });
 
 test('channel rows: a role with no channel found lists the import channels, none used', () => {
@@ -273,10 +270,10 @@ test('channel rows: a role with no channel found lists the import channels, none
 });
 
 test('channel rows: a kept channel list is one row each, now and after, with nothing from a file', () => {
-    const kept = [nowChan({ id: 'id-1', name: 'One' }), nowChan({ id: 'gone', name: null, match: 'NOT_FOUND' })];
+    const kept = [nowChan({ id: 'id-1', name: 'One' }), nowChan({ id: 'id-2', name: 'Two' })];
     assert.deepEqual(channelRows(row({ existsHere: true, channels: 'KEPT', channelsNow: kept, channelsAfter: kept })), [
         ['One', 'id-1', 'yes', 'yes', '', '', ''],
-        ['(no longer exists)', 'gone', 'yes', 'yes', '', '', '']
+        ['Two', 'id-2', 'yes', 'yes', '', '', '']
     ]);
     assert.deepEqual(channelRows(row({ action: 'SKIP' })), [], 'nothing looked up: no rows');
 });
@@ -292,15 +289,15 @@ test('sortRows: ascending, descending, by index, name or function; stable; a cop
     assert.deepEqual(rows.map((r) => r[0]), ['b', 'a', 'c'], 'the input is untouched');
 });
 
-test('Export rows: permissions sorted; channels by name with unknown ids last; list not loaded; counts', () => {
+test('Export rows: permissions sorted; channels by name with unknown ids last, shown as the id; list not loaded; counts', () => {
     assert.deepEqual(exportPermissionRows({ permissions: new Set(['viewDashboard', 'viewAlerts']) }),
         [['viewAlerts'], ['viewDashboard']]);
     const map = new Map([['id-b', 'Beta'], ['id-a', 'Alpha']]);
     assert.deepEqual(exportChannelRows({ restricted: true, channelIds: new Set() }, map), []);
     assert.deepEqual(exportChannelRows({ restricted: true, channelIds: new Set(['id-b', 'zzz', 'id-a']) }, map),
-        [['Alpha', 'id-a'], ['Beta', 'id-b'], ['(no longer exists)', 'zzz']], 'a map with a missing id');
+        [['Alpha', 'id-a'], ['Beta', 'id-b'], ['zzz', 'zzz']], 'a map with a missing id');
     assert.deepEqual(exportChannelRows({ channelIds: new Set(['id-b', 'id-a']) }, null),
-        [['(channel list not loaded)', 'id-a'], ['(channel list not loaded)', 'id-b']], 'a null map');
+        [['id-a', 'id-a'], ['id-b', 'id-b']], 'a null map');
     assert.equal(exportPermissionsCount({ permissions: new Set(['a', 'b']) }), 2);
     assert.equal(exportChannelsCount({ restricted: false, channelIds: new Set() }), 'every');
     assert.equal(exportChannelsCount({ restricted: true, channelIds: new Set() }), 'none');

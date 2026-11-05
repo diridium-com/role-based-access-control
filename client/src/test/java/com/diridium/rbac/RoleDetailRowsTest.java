@@ -77,14 +77,13 @@ class RoleDetailRowsTest {
     }
 
     @Test
-    void channelRows_importOrder_thenNotInImport_thenDeletedLast() {
+    void channelRows_importOrder_thenNotInImport() {
         RoleImportRow r = row(RoleImportRow.Action.OVERWRITE);
         r.setExistsHere(true);
         r.setChannelsNow(Arrays.asList(
                 ch("id-lab", "Lab", null, null, RoleImportChannel.Match.BY_ID, true),
                 ch("id-gone", null, null, null, RoleImportChannel.Match.NOT_FOUND, true),
-                ch("id-own", "Own", null, null, RoleImportChannel.Match.BY_ID, true),
-                ch("file-d", null, null, null, RoleImportChannel.Match.NOT_FOUND, true)));
+                ch("id-own", "Own", null, null, RoleImportChannel.Match.BY_ID, true)));
         r.setChannelsAfter(Arrays.asList(
                 ch("id-lab", "Lab", "Lab", "id-lab", RoleImportChannel.Match.BY_ID, true),
                 ch("id-ren", "Renamed here", "Old name", "id-ren", RoleImportChannel.Match.BY_ID, true),
@@ -102,13 +101,13 @@ class RoleDetailRowsTest {
         assertEquals(Arrays.asList("Beta", "id-n1", "", "yes", "by name", "Beta", "file-n1"), cols(rows.get(2)));
         assertEquals(Arrays.asList("Gamma", "id-n2", "", "", "by name, not used", "Gamma", "file-n2"), cols(rows.get(3)));
         assertEquals(Arrays.asList("Missing", "", "", "", "not on this engine", "Missing", "file-x"), cols(rows.get(4)));
-        assertEquals(Arrays.asList("(no longer exists)", "", "", "", "not on this engine", "", "file-y"),
-                cols(rows.get(5)), "no name anywhere");
-        assertEquals(Arrays.asList("Dropped", "file-d", "yes", "", "deleted on this engine", "Dropped", "file-d"),
-                cols(rows.get(6)), "restricted to it here, gone, and the import names it: one row, id shown");
-        assertEquals(Arrays.asList("Own", "id-own", "yes", "", "not in the import", "", ""), cols(rows.get(7)));
-        assertEquals(Arrays.asList("(no longer exists)", "id-gone", "yes", "", "deleted on this engine", "", ""),
-                cols(rows.get(8)), "deleted and not in the import");
+        assertEquals(Arrays.asList("file-y", "", "", "", "not on this engine", "", "file-y"),
+                cols(rows.get(5)), "no name anywhere: the id");
+        assertEquals(Arrays.asList("Dropped", "", "", "", "not on this engine", "Dropped", "file-d"),
+                cols(rows.get(6)), "not on this engine: never joined with a current entry");
+        assertEquals(Arrays.asList("id-gone", "id-gone", "yes", "", "not in the import", "", ""),
+                cols(rows.get(7)), "a current entry with no name shows its id");
+        assertEquals(Arrays.asList("Own", "id-own", "yes", "", "not in the import", "", ""), cols(rows.get(8)));
     }
 
     @Test

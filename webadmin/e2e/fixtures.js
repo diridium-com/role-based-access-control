@@ -309,7 +309,7 @@ export const IMPORT_NAME_MATCH_ON = wireResult([wireRow({
     channelsAfter: [channel(ONE, 'probe one', { fileId: MOVED, match: 'BY_NAME' })]
 })], { matchChannelsByName: true, channelNameMatches: { 'com.diridium.rbac.ChannelNameMatch': NAME_MATCH } });
 
-// An Overwrite of the role "Lab": a renamed channel, a deleted one in the Now list, a dropped permission.
+// An Overwrite of the role "Lab": a renamed channel, a channel not on this engine, a dropped permission.
 const NOWHERE = 'bbb4ce36-25d9-4830-9644-7fcd5682f5fd';
 const LAB_OVERWRITE = wireRow({
     index: 0, name: 'Lab', action: 'OVERWRITE', existsHere: true, matchedChannelCount: 2,
@@ -319,7 +319,7 @@ const LAB_OVERWRITE = wireRow({
         + ' 1 permission in the import is not offered by this engine and is left out.',
     descriptionNow: 'Lab staff', descriptionAfter: 'Lab team',
     permissionsNow: ['viewAlerts', 'viewChannels'], permissionsAfter: ['viewChannels', 'viewDashboard'],
-    channelsNow: [nowChannel(ONE, 'probe one'), nowChannel('gone-id', null, { match: 'NOT_FOUND' })],
+    channelsNow: [nowChannel(ONE, 'probe one')],
     channelsAfter: [channel(ONE, 'probe one renamed', { fileName: 'probe one' }), channel(TWO, 'probe two'),
         channel(NOWHERE, 'probe nowhere', { match: 'NOT_FOUND', used: false })]
 });
@@ -347,9 +347,8 @@ export const IMPORT_SEVERAL_ROWS = wireResult([
     { ...NEW_LAB, index: 3, name: 'Fresh' }
 ]);
 
-// An Overwrite of "Ward" showing every Match value: found by id, deleted on this engine but named in the import,
-// in the import but not on this engine, a channel the role has that the import does not name, and a deleted one
-// the import does not name.
+// An Overwrite of "Ward" showing the Match values: found by id, in the import but not on this engine (with and
+// without a name in the import), and a channel the role has that the import does not name.
 const GONE_NAMED = '0a1b2c3d-1111-4222-8333-444455556666';
 export const IMPORT_MATCH_VALUES = wireResult([wireRow({
     index: 0, name: 'Ward', action: 'OVERWRITE', existsHere: true, matchedChannelCount: 1,
@@ -357,8 +356,7 @@ export const IMPORT_MATCH_VALUES = wireResult([wireRow({
     reason: 'Of the 3 channels in the import, 2 are not on this engine.',
     descriptionNow: 'Ward staff', descriptionAfter: 'Ward team',
     permissionsNow: ['viewChannels'], permissionsAfter: ['viewChannels'],
-    channelsNow: [nowChannel(ONE, 'probe one'), nowChannel('now-only-id', 'probe three'),
-        nowChannel('gone-id', null, { match: 'NOT_FOUND' }), nowChannel(GONE_NAMED, null, { match: 'NOT_FOUND' })],
+    channelsNow: [nowChannel(ONE, 'probe one'), nowChannel('now-only-id', 'probe three')],
     channelsAfter: [channel(ONE, 'probe one'),
         channel(GONE_NAMED, null, { fileName: 'probe gone', match: 'NOT_FOUND', used: false }),
         channel(NOWHERE, 'probe nowhere', { match: 'NOT_FOUND', used: false })]

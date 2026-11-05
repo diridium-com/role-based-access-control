@@ -17,11 +17,12 @@ import com.mirth.connect.model.Channel;
 import com.mirth.connect.server.controllers.ChannelController;
 
 /**
- * Startup sweep of channel restrictions to channels the engine no longer has. The engine
- * deletes a channel without telling RBAC, so the role's restriction row stays behind: the
- * role editors show it as a deleted channel, and an export carries it with no name. The
- * sweep removes such rows and leaves the role restricted, so a role whose channels were all
- * deleted is restricted to no channel rather than widened to every channel.
+ * Startup sweep of channel restrictions to channels the engine no longer has. While RBAC is
+ * loaded, {@link RbacChannelPlugin} removes such rows inside the engine's channel delete; this
+ * sweep covers channels deleted while it was not (the plugin disabled, or not yet installed).
+ * It removes the rows and leaves the role restricted, so a role whose channels were all
+ * deleted is restricted to no channel rather than widened to every channel, and logs one
+ * line per role it trimmed.
  *
  * <p>Non-fatal, like the sweep of deleted users' assignments: if the engine's channel list
  * cannot be read, nothing is removed, because an unreadable list must not pass for an
@@ -78,10 +79,12 @@ final class DeletedChannelSweep {
             Map<Integer, String> roleNames = names.get();
             int total = 0;
             for (Map.Entry<Integer, Integer> entry : removedByRole.entrySet()) {
-                total += entry.getValue();
+                int count = entry.getValue();
+                total += count;
                 String name = roleNames.getOrDefault(entry.getKey(), "id " + entry.getKey());
-                log.info("RBAC: removed {} restriction(s) to deleted channels from role '{}'{}", entry.getValue(), name,
-                        leftByRole.containsKey(entry.getKey()) ? "" : ", which is now restricted to no channels");
+                String what = count == 1 ? "1 reference to a deleted channel" : count + " references to deleted channels";
+                log.info("RBAC maintenance: removed {} from role '{}'.{}", what, name,
+                        leftByRole.containsKey(entry.getKey()) ? "" : " Role '" + name + "' now has no channels.");
             }
             return total;
         } catch (Exception e) {
