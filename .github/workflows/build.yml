@@ -23,6 +23,11 @@ on:
 permissions:
   contents: read
 
+# -C makes every Maven run, the engine-jar install script's included, fail on a
+# checksum mismatch instead of only warning.
+env:
+  MAVEN_ARGS: -C
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -126,7 +131,7 @@ jobs:
   browser:
     runs-on: ubuntu-latest
     env:
-      OIE_WEB_CLIENT_REF: 6bb86ee73619702f6ab7d089223ef370ab91942d # v1.1.0
+      OIE_WEB_CLIENT_REF: 932f3bb69ec9accece660db4f4c4f617beff1466 # v1.3.0
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

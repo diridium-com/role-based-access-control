@@ -23,7 +23,7 @@ Then:
 mvn clean install    # 'mvn package' at the root also works (verified on a fresh repo; the release workflow uses it) — install additionally puts the jars in ~/.m2
 ```
 The packaging step downloads Node.js v24.21.0 (frontend-maven-plugin), installs the web UI's dependencies with `npm ci`, builds `webadmin/web/plugin.js` (gitignored), and runs the web UI's unit tests in the test phase, so the first build needs network access beyond Maven Central.
-Output: `package/target/rbac-1.2.0.zip`
+Output: `package/target/rbac-1.3.0.zip`
 
 ## Architecture
 
