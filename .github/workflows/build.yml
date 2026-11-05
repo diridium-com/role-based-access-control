@@ -141,10 +141,12 @@ jobs:
           ref: ${{ env.OIE_WEB_CLIENT_REF }}
           path: oie-web-client
 
+      # Web client 1.3.0's server refuses to start on a Node below 24.22.1 (24.x),
+      # naming CVE-2026-111497.
       - name: Set up Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '24.21.0'
+          node-version: '24.22.1'
 
       - name: Build the web client
         working-directory: oie-web-client
