@@ -456,9 +456,9 @@ public class RbacAuthorizationController extends AuthorizationController {
      * @param userId    caller's engine user id
      * @param operation the operation being invoked (ignored here; signature
      *                  required by the parent class)
-     * @return {@code true} if the user's role limits them to a channel subset
-     *         or the user has no role at all; {@code false} for admins and
-     *         for users whose role has an empty channel-id set
+     * @return {@code true} if the user's role is restricted (to some channels, or to
+     *         none) or the user has no role at all; {@code false} for admins and for
+     *         users whose role sees every channel
      * @throws ControllerException for unexpected internal failures
      */
     @Override

@@ -31,8 +31,11 @@ git tag vX.Y.Z && git push origin vX.Y.Z
 Check out the tag on the machine with the YubiKey. If its local Maven repository does not have the engine jars for this `mc.version` yet, run `./scripts/install-engine-jars.sh` first. The `signing` profile also needs `yubikey-pkcs11.cfg` and `certchain.pem` in the repo root; both are gitignored. From the repo root:
 
 ```bash
-mvn clean package -Psigning -Dsigning.storepass=<yubikey-pin>
+read -rs -p "YubiKey PIN: " PIN; echo
+mvn clean package -Psigning -Dsigning.storepass="$PIN"
 ```
+
+Read the PIN into a variable first; typed into the command, it lands in the shell history. (On the dev VM, `sign-release` does exactly this.)
 
 The signed zip is `package/target/rbac-X.Y.Z.zip`. Run the commands below and in step 4 from `package/target/`.
 

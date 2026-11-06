@@ -19,7 +19,7 @@ import javax.swing.table.TableColumn;
  * A table cell renderer for multi-line text: line breaks in the value start new lines and
  * long lines wrap at the column width. A {@link JTable} does not size rows to such cells
  * by itself, so {@link #fitRowHeights} sets each row to its tallest cell. Used by the roles
- * table of the role import dialog, whose cells list one permission or channel per line.
+ * table of the role import dialog, whose Notes cell can run to several sentences.
  */
 class WrappingCellRenderer extends JTextArea implements TableCellRenderer {
 

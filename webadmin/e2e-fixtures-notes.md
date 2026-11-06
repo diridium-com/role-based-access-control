@@ -53,8 +53,8 @@ Single Role root key is the FQCN:
 ## The `restricted` field (added with the restricted flag, 2026-11-04)
 
 `Role` carries `restricted` (boolean). The captures above predate it, so none shows it;
-a server that predates it sends none, and the web normalizer reads that as false (every
-channel). On the wire it is a real JSON boolean (`"restricted":true`) and arrives as
+a server that predates it sends none, and the web normalizer reads that as restricted
+when there are channel ids and every channel when there are none (the server's rule). On the wire it is a real JSON boolean (`"restricted":true`) and arrives as
 'true'/'false' from the host's XML fallback. False: the role sees every channel and lists
 none. True: the role sees only `channelIds`, and a restricted role with no ids sees NO
 channel (`"channelIds":null,"restricted":true`). The web client writes

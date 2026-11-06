@@ -213,9 +213,10 @@ public class RoleImportRow implements Serializable {
 
     /**
      * @return with channel restrictions applied, the file's channels in file order, each
-     *         with what was found for it here; without, the channels the role keeps
-     *         ({@link Channels#KEPT}). Empty when the role sees every channel, or no channel,
-     *         after the import.
+     *         with what was found for it here (the role is restricted to the entries whose
+     *         {@code used} is true, so a list with no used entry means no channel); without,
+     *         the channels the role keeps ({@link Channels#KEPT}). Empty when the file lists
+     *         none, or when channels are not applied for a new role.
      */
     public List<RoleImportChannel> getChannelsAfter() {
         return channelsAfter;

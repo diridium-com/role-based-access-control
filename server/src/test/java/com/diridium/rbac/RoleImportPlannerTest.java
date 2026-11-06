@@ -392,7 +392,7 @@ class RoleImportPlannerTest {
     }
 
     @Test
-    void channelsNotApplied_aNewRestrictedRoleSeesEveryChannel_andSaysSo() throws Exception {
+    void channelsNotApplied_aNewRestrictedRole_isRestrictedToNoChannel_andSaysSo() throws Exception {
         Plan plan = plan(false, fileRole("Lab", List.of(), true, new Channel("id-gone", "Gone")));
         RoleImportRow row = plan.rows().get(0);
         assertEquals(Action.CREATE, row.getAction(), "not skipped: the user chose not to apply channels");
@@ -402,7 +402,7 @@ class RoleImportPlannerTest {
                 row.getReason());
         assertTrue(plan.writes().get(0).role().isRestricted());
         assertEquals(Set.of(), plan.writes().get(0).role().getChannelIds());
-        assertTrue(row.getChannelsAfter().isEmpty(), "every channel: the file's channels aren't looked up");
+        assertTrue(row.getChannelsAfter().isEmpty(), "no channel: the file's channels aren't looked up");
     }
 
     @Test

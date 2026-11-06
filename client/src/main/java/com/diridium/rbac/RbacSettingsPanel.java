@@ -51,7 +51,8 @@ import com.mirth.connect.model.User;
  * side does the actual permission and admin-floor checks.</p>
  *
  * <p>Refresh state is guarded by an {@link AtomicBoolean} so rapid clicks
- * on the panel don't queue overlapping background loads.</p>
+ * on the panel don't run overlapping background loads: a refresh asked for
+ * during one is run once after it.</p>
  */
 public class RbacSettingsPanel extends AbstractSettingsPanel {
 
@@ -206,8 +207,8 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
      * <p>Loads roles, users, permission catalog, and channel id-to-name
      * map from the server on a {@link SwingWorker} background thread; the
      * EDT-bound {@code done} hook then repopulates both tables and surfaces
-     * any error. Concurrent refresh calls are dropped via the
-     * {@code refreshing} guard.</p>
+     * any error. A refresh asked for while one runs is noted in
+     * {@code refreshPending} and run once afterwards.</p>
      */
     @Override
     public void doRefresh() {

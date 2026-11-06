@@ -235,7 +235,7 @@ export const EXPORT_FILE = `<?xml version="1.0" encoding="UTF-8"?>
 `;
 
 // POST /extensions/rbac/roles/_import answers, built by hand in the shape a real
-// engine sends (captured in web/wire-parsing.test.mjs from wire-probe-3.log):
+// engine sends (the captures in web/wire-parsing.test.mjs):
 // lists under their FQCN root, one element as a bare object or string, an empty
 // list as null, a null name or description left out.
 const RESULT = 'com.diridium.rbac.RoleImportResult';
