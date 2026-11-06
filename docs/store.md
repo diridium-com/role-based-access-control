@@ -26,8 +26,8 @@ the caller's role.
 ## Before you install
 
 - **A user with no role is denied everything.** Install seeds an admin role and
-  assigns it to the initial admin user. Give every other user a role before
-  they need to log in.
+  assigns it to every user the engine has at that moment. Give every user created
+  later a role before they need to log in.
 - **`manageExtensions` is admin-equivalent.** A holder can disable RBAC, and
   after the next restart the engine reverts to allowing everything.
 - **Manage Roles is for delegating user management.** On its own it gives no

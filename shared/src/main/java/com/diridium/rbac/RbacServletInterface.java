@@ -39,7 +39,8 @@ import io.swagger.v3.oas.annotations.tags.Tag;
  * {@code RbacServicePlugin}. The engine applies the gate before our servlet
  * implementation method runs; admins (users assigned to a role flagged
  * {@code is_admin=true}) bypass the gate via {@code RbacAuthorizationController}.
- * Export and import are for the admin role only, which the servlet checks.</p>
+ * Export and import are for the admin role only: {@code RbacAuthorizationController}
+ * refuses them to anyone else (audited as a failure), and the service checks again.</p>
  */
 @Path("/extensions/rbac")
 @Tag(name = "Role-Based Access Control")
@@ -166,7 +167,8 @@ public interface RbacServletInterface extends BaseServletInterface {
      * @param pick          for an apply, the positions in the file (from 0) of the roles to write
      * @param planToken     for an apply, the token from the preview
      * @return the preview, or the outcome of the apply
-     * @throws ClientException 400 for a refused file or a bad pick, 403 for a user
+     * @throws ClientException 400 for a refused file (on an apply; a preview answers the
+     *                         refusal in the result) or a bad pick, 403 for a user
      *                         without the admin role, 409 if the roles changed since
      *                         the preview
      */

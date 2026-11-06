@@ -70,7 +70,7 @@ What it covers, and what it leaves out, is in [docs/design-notes.md](docs/design
 
 ## Install
 
-Install the zip through the Administrator's Extensions view and restart OIE. On first startup the plugin creates its four `rbac_*` tables and seeds an admin role assigned to the initial admin user.
+Install the zip through the Administrator's Extensions view and restart OIE. On first startup the plugin creates its four `rbac_*` tables and seeds an admin role assigned to every user the engine has at that moment (under the stock controller they were all admins). Users created later have no role until one is assigned.
 
 ## Export and import roles
 

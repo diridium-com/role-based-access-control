@@ -252,7 +252,7 @@ test('roleXml escapes markup in text fields', () => {
     assert.ok(xml.includes('<string>p&amp;q</string>'));
 });
 
-/* ---- role import: verbatim captures (wire-probe-7.log, 2026-11-04, this branch's server on OIE 4.7.0, Derby) ---- */
+/* ---- role import: verbatim captures (2026-11-04, a 1.3.0 pre-release server on OIE 4.7.0 with Derby, read off the wire with the browser's network log) ---- */
 
 // preview, two rows (one new with two channels, one unchanged)
 const WIRE_IMPORT_PREVIEW_TWO_ROWS =
@@ -270,7 +270,7 @@ const WIRE_IMPORT_NAME_MATCH_OFF =
 const WIRE_IMPORT_NAME_MATCH_ONE_ON =
     '{"com.diridium.rbac.RoleImportResult":{"importable":true,"formatVersion":1,"sourceRbacVersion":"e2e","sourceEngineVersion":"e2e","applyChannels":true,"matchChannelsByName":true,"applied":false,"planToken":"8c2b8358d32d92a53f328c56a5b292cd8f438a1d7c5de20f8c2144944fa4e1fb","rows":{"com.diridium.rbac.RoleImportRow":{"index":0,"name":"probe moved one","action":"CREATE","droppedPermissions":null,"matchedChannelCount":1,"channels":"FROM_FILE","noChannelFound":false,"existsHere":false,"restrictedNow":false,"restrictedAfter":true,"descriptionAfter":"rbac e2e","permissionsNow":null,"permissionsAfter":{"string":"viewChannels"},"channelsNow":null,"channelsAfter":{"com.diridium.rbac.RoleImportChannel":{"id":"b033ec2d-6258-4b0f-b829-0854d8ffc975","name":"probe one","fileId":"0cf2fccd-0d1c-480c-9f40-ea3aa9780bd1","fileName":"probe one","match":"BY_NAME","used":true}}}},"channelNameMatches":{"com.diridium.rbac.ChannelNameMatch":{"name":"probe one","fileChannelId":"0cf2fccd-0d1c-480c-9f40-ea3aa9780bd1","channelId":"b033ec2d-6258-4b0f-b829-0854d8ffc975"}}}}';
 
-// preview, two matches by name, matching on (wire-probe-2.log, 2026-11-02, before the row's now and after
+// preview, two matches by name, matching on (captured 2026-11-02, before the row's now and after
 // fields existed: used only for channelNameMatches)
 const WIRE_IMPORT_NAME_MATCH_TWO_ON =
     '{"com.diridium.rbac.RoleImportResult":{"importable":true,"formatVersion":1,"sourceRbacVersion":"e2e","sourceEngineVersion":"e2e","applyChannels":true,"matchChannelsByName":true,"applied":false,"planToken":"8983436faf4e3d69112384f89dc779805862880e6cf032c82eacd4406cd6eeae","rows":{"com.diridium.rbac.RoleImportRow":{"index":0,"name":"probe moved two","action":"CREATE","droppedPermissions":null,"unmatchedChannels":null,"matchedChannelCount":2,"channels":"FROM_FILE","descriptionChanged":false,"addedPermissions":null,"removedPermissions":null,"addedChannels":null,"removedChannels":null}},"channelNameMatches":{"com.diridium.rbac.ChannelNameMatch":[{"name":"probe one","fileChannelId":"e0472e0d-bf15-436c-931b-679d9fa2954c","channelId":"4c468ff3-0cf7-4e8b-88e7-a7d8a3b538bf"},{"name":"probe two","fileChannelId":"4d20b4dd-0fc5-4989-9131-c3555229abba","channelId":"ee366a8b-755b-4f73-9f1b-abe1801cc121"}]}}}';
@@ -284,7 +284,7 @@ const WIRE_IMPORT_NOT_FOUND_AND_DROPPED =
 const WIRE_IMPORT_CHANNELS_NOT_APPLIED =
     '{"com.diridium.rbac.RoleImportResult":{"importable":true,"formatVersion":1,"sourceRbacVersion":"e2e","sourceEngineVersion":"e2e","applyChannels":false,"matchChannelsByName":false,"applied":false,"planToken":"f28ab0ccc4070b8fea2b8ca0aeca1c944b2bf760efe406d8ebe3400d80595956","rows":{"com.diridium.rbac.RoleImportRow":[{"index":0,"name":"probe lab","action":"OVERWRITE","reason":"This role keeps the channels currently set on this engine.","droppedPermissions":null,"matchedChannelCount":0,"channels":"KEPT","noChannelFound":false,"existsHere":true,"restrictedNow":true,"restrictedAfter":true,"descriptionNow":"rbac e2e","descriptionAfter":"rbac e2e","permissionsNow":{"string":["viewAlerts","viewChannels"]},"permissionsAfter":{"string":"viewChannels"},"channelsNow":{"com.diridium.rbac.RoleImportChannel":{"id":"d3e1ce7e-7b3b-49b6-926e-0a3e083079b9","name":"probe two renamed","match":"BY_ID","used":true}},"channelsAfter":{"com.diridium.rbac.RoleImportChannel":{"id":"d3e1ce7e-7b3b-49b6-926e-0a3e083079b9","name":"probe two renamed","match":"BY_ID","used":true}}},{"index":1,"name":"probe fresh","action":"CREATE","reason":"The import restricts this role to 1 channel. Restrictions are not applied, so this role is restricted to no channels on this engine until an administrator sets channels for this role.","droppedPermissions":null,"matchedChannelCount":0,"channels":"NO_CHANNEL","noChannelFound":false,"existsHere":false,"restrictedNow":false,"restrictedAfter":true,"descriptionAfter":"rbac e2e","permissionsNow":null,"permissionsAfter":{"string":"viewChannels"},"channelsNow":null,"channelsAfter":null}]},"channelNameMatches":null}}';
 
-// preview, refused file (wire-probe-2.log; the shape has no rows)
+// preview, refused file (captured 2026-11-02; the shape has no rows)
 const WIRE_IMPORT_REFUSED =
     '{"com.diridium.rbac.RoleImportResult":{"importable":false,"refusal":"This file is format 2, written by rbac 9. This rbac reads format 1.","applyChannels":true,"matchChannelsByName":false,"applied":false,"rows":null,"channelNameMatches":null}}';
 

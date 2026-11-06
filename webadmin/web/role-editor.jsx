@@ -8,8 +8,9 @@
  * Read-Only presets, grouped 2-column checkboxes from the fetched catalog,
  * the manageExtensions blast-radius tooltip) and Channel Restrictions
  * (All/Specific radios; live channels as "name (id)" checkboxes enabled only
- * for Specific). A stored channel id the channel list does not have is treated
- * as absent: not shown, not sent back on Apply.
+ * for Specific). A stored channel id the channel list does not have is not
+ * shown, and is kept on an Apply with Specific Channels (editorChannelIds;
+ * docs/design-notes.md, 2026-11-05).
  *
  * Apply runs Swing's exact validation chain: name required; refusal to save
  * an existing role with no permission catalog (a silent wipe otherwise);

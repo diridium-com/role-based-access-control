@@ -207,7 +207,8 @@ public class RbacServicePlugin implements ServicePlugin {
      * {@code /roles} REST calls), and claiming them collided with Data Pruner too.</p>
      *
      * <p>{@code exportRoles} falls under VIEW and {@code importRoles} under MANAGE, so
-     * both are registered; the servlet also requires the admin role for them.</p>
+     * both are registered; {@code RbacAuthorizationController} refuses them to anyone
+     * without the admin role, and the service checks again.</p>
      *
      * @return two-element array — view permission first, then manage permission
      */
