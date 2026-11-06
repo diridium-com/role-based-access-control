@@ -15,7 +15,8 @@ import org.junit.jupiter.api.Test;
 
 /**
  * The startup sweep of channel restrictions to channels the engine no longer has, against
- * in-memory rows: which rows go, which stay, and that an unreadable channel list removes nothing.
+ * in-memory rows: which rows go, which stay, and that an unreadable or empty channel list removes
+ * nothing.
  */
 class DeletedChannelSweepTest {
 
@@ -72,20 +73,32 @@ class DeletedChannelSweepTest {
     }
 
     @Test
-    void anEmptyEngine_removesEveryRow_sinceEveryChannelIsGone() {
+    void anEmptyChannelList_withRowsPresent_removesNothing() {
+        // The engine's channel cache answers empty after a failed database read instead of
+        // throwing, so an empty list must not pass for "every channel is gone".
         List<Map<String, Object>> rows = List.of(row(5, "id-lab"));
 
         int removed = DeletedChannelSweep.run(() -> Set.of(), () -> rows,
                 (roleId, channelId) -> deleted.add(channelId), () -> Map.of(5, "Lab"));
 
-        assertEquals(1, removed);
+        assertEquals(0, removed, "an empty list must not pass for every channel being gone");
+        assertTrue(deleted.isEmpty());
+    }
+
+    @Test
+    void anEmptyChannelList_withNoRows_isNothingToDo() {
+        int removed = DeletedChannelSweep.run(() -> Set.of(), List::of,
+                (roleId, channelId) -> deleted.add(channelId), () -> Map.of());
+
+        assertEquals(0, removed);
+        assertTrue(deleted.isEmpty());
     }
 
     @Test
     void aFailingDelete_isNonFatal() {
         List<Map<String, Object>> rows = List.of(row(5, "id-gone"));
 
-        int removed = DeletedChannelSweep.run(() -> Set.of(), () -> rows,
+        int removed = DeletedChannelSweep.run(() -> Set.of("id-lab"), () -> rows,
                 (roleId, channelId) -> { throw new IllegalStateException("db unreachable"); }, () -> Map.of());
 
         assertEquals(0, removed);

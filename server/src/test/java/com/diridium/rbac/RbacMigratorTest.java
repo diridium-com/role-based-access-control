@@ -177,6 +177,7 @@ class RbacMigratorTest {
 
     @Test
     void v4State_fullyMigrated_runsNoDdl() throws Exception {
+        when(configController.getProperty(PLUGIN_NAME, VERSION_PROP)).thenReturn("4");
         givenBaseTablesExist();
         givenColumnExists("rbac_role", "is_admin");
         givenColumnExists("rbac_role", "restricted");
@@ -272,8 +273,25 @@ class RbacMigratorTest {
         assertEquals(List.of(
                 "UPDATE rbac_role SET restricted = TRUE WHERE id IN (SELECT DISTINCT role_id FROM rbac_role_channel)"),
                 migrator.statements);
-        // Realigned to the detected 4 first, then recorded as 4 at the end of the run.
-        verify(configController, times(2)).saveProperty(PLUGIN_NAME, VERSION_PROP, "4");
+        // Recorded as 4 once, after the backfill; never realigned to 4 before it.
+        verify(configController, times(1)).saveProperty(eq(PLUGIN_NAME), eq(VERSION_PROP), anyString());
+        verify(configController).saveProperty(PLUGIN_NAME, VERSION_PROP, "4");
+    }
+
+    @Test
+    void v3StoredWithTheRestrictedColumn_aFailingBackfill_leavesTheStoredVersionAlone() throws Exception {
+        // If 4 were recorded before the backfill, a backfill that fails would never run again and a
+        // role with channel rows but restricted = false would see every channel.
+        when(configController.getProperty(PLUGIN_NAME, VERSION_PROP)).thenReturn("3");
+        givenBaseTablesExist();
+        givenColumnExists("rbac_role", "is_admin");
+        givenColumnExists("rbac_role", "restricted");
+        migrator.statementFailure = new SQLException("disk on fire");
+
+        MigrationException e = assertThrows(MigrationException.class, () -> migrator.migrate());
+
+        assertTrue(e.getMessage().contains("restricted"), e.getMessage());
+        verify(configController, never()).saveProperty(eq(PLUGIN_NAME), eq(VERSION_PROP), anyString());
     }
 
     @Test
@@ -308,7 +326,9 @@ class RbacMigratorTest {
     }
 
     @Test
-    void storedVersionNotAnInteger_isTreatedAsUnset() throws Exception {
+    void storedVersionNotAnInteger_isTreatedAsUnset_andTheV4BackfillRunsAgain() throws Exception {
+        // No usable stored version over a v4 schema: nothing says the backfill ran, so it runs
+        // again (idempotent) and 4 is recorded once, afterwards.
         when(configController.getProperty(PLUGIN_NAME, VERSION_PROP)).thenReturn("banana");
         givenBaseTablesExist();
         givenColumnExists("rbac_role", "is_admin");
@@ -317,14 +337,18 @@ class RbacMigratorTest {
         migrator.migrate();
 
         assertTrue(migrator.scripts.isEmpty());
-        assertTrue(migrator.statements.isEmpty());
-        verify(configController, atLeastOnce()).saveProperty(PLUGIN_NAME, VERSION_PROP, "4");
+        assertEquals(List.of(
+                "UPDATE rbac_role SET restricted = TRUE WHERE id IN (SELECT DISTINCT role_id FROM rbac_role_channel)"),
+                migrator.statements);
+        verify(configController, times(1)).saveProperty(eq(PLUGIN_NAME), eq(VERSION_PROP), anyString());
+        verify(configController).saveProperty(PLUGIN_NAME, VERSION_PROP, "4");
     }
 
     @Test
     void uppercaseIdentifiers_derbyStyle_areDetected() throws Exception {
         // Derby/Oracle normalise unquoted identifiers to uppercase; metadata
         // only answers for the uppercase candidates.
+        when(configController.getProperty(PLUGIN_NAME, VERSION_PROP)).thenReturn("4");
         givenBaseTablesExistUpper();
         givenColumnExists("RBAC_ROLE", "IS_ADMIN");
         givenColumnExists("RBAC_ROLE", "RESTRICTED");

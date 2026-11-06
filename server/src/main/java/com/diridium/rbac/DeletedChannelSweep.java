@@ -19,14 +19,18 @@ import com.mirth.connect.server.controllers.ChannelController;
 /**
  * Startup sweep of channel restrictions to channels the engine no longer has. While RBAC is
  * loaded, {@link RbacChannelPlugin} removes such rows inside the engine's channel delete; this
- * sweep covers channels deleted while it was not (the plugin disabled, or not yet installed).
+ * sweep covers channels deleted while it was not (the plugin disabled, or a release before 1.3.0).
  * It removes the rows and leaves the role restricted, so a role whose channels were all
  * deleted is restricted to no channel rather than widened to every channel, and logs one
  * line per role it trimmed.
  *
  * <p>Non-fatal, like the sweep of deleted users' assignments: if the engine's channel list
  * cannot be read, nothing is removed, because an unreadable list must not pass for an
- * empty one.</p>
+ * empty one. An empty list while restriction rows exist is treated the same way: the engine's
+ * channel cache answers from whatever it holds and only logs a failed database read, so an
+ * empty list at startup can mean a read that failed, and deleting every restriction on it
+ * would be irreversible. A list with some channels missing after a partial failure is not
+ * caught; that case is accepted (design-notes.md, 2026-11-06).</p>
  */
 final class DeletedChannelSweep {
 
@@ -42,7 +46,8 @@ final class DeletedChannelSweep {
     }
 
     /**
-     * @param channelIds the engine's channel ids; a thrown exception skips the sweep
+     * @param channelIds the engine's channel ids; a thrown exception skips the sweep, and so does
+     *                   an empty set while rows exist
      * @param rows       every (roleId, channelId) restriction row
      * @param delete     removes one row
      * @param names      role id to name, for the log
@@ -59,9 +64,15 @@ final class DeletedChannelSweep {
             return 0;
         }
         try {
+            List<Map<String, Object>> restrictionRows = rows.get();
+            if (live.isEmpty() && !restrictionRows.isEmpty()) {
+                log.warn("RBAC: sweep of restrictions to deleted channels skipped, the engine reported no channels"
+                        + " while {} restriction row(s) exist (non-fatal)", restrictionRows.size());
+                return 0;
+            }
             Map<Integer, Integer> removedByRole = new LinkedHashMap<>();
             Map<Integer, Integer> leftByRole = new LinkedHashMap<>();
-            for (Map<String, Object> row : rows.get()) {
+            for (Map<String, Object> row : restrictionRows) {
                 // The map's keys are the column labels as the driver returns them: ROLEID on Derby and
                 // Oracle, roleid on PostgreSQL, roleId on MySQL and SQL Server.
                 int roleId = ((Number) column(row, "roleId")).intValue();

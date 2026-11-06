@@ -65,9 +65,11 @@ public class RbacMigrator extends Migrator {
     private static final Logger log = LoggerFactory.getLogger(RbacMigrator.class);
 
     /**
-     * Set when the stored version was below 4 while the restricted column already exists: the
-     * v4 ALTER went through on an earlier run but its backfill may not have, so the backfill
-     * runs again. It is idempotent: after v4 a role with channel rows is restricted by rule.
+     * Set when the stored version was below 4, or missing, while the restricted column already
+     * exists: the v4 ALTER went through on an earlier run but its backfill may not have, so the
+     * backfill runs again. It is idempotent: after v4 a role with channel rows is restricted by
+     * rule. The stored version is not touched until the backfill has run, so a backfill that
+     * fails is tried again on the next start instead of being recorded as done.
      */
     private boolean backfillRestricted;
 
@@ -119,13 +121,18 @@ public class RbacMigrator extends Migrator {
     private int detectAndAlignSchemaVersion() throws MigrationException {
         int detected = detectFromState();
         Integer stored = readSchemaVersionOrNull();
-        if (stored == null) {
+        backfillRestricted = detected >= 4 && (stored == null || stored < 4);
+        if (backfillRestricted) {
+            // Recording 4 now would skip the backfill for good if it fails below: migrate()
+            // records 4 after it has run.
+            log.warn("RBAC schema has the v4 column with a stored version of {}; the v4 backfill runs again"
+                    + " and the version is recorded afterwards", stored);
+        } else if (stored == null) {
             log.info("RBAC schema state detected as version {} (no stored version)", detected);
             writeSchemaVersion(detected);
         } else if (!sameSchema(stored, detected)) {
             log.warn("RBAC schema stored version ({}) does not match actual state ({}); realigning",
                     stored, detected);
-            backfillRestricted = stored < 4 && detected >= 4;
             writeSchemaVersion(detected);
         }
         return detected;
