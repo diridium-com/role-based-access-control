@@ -3,11 +3,16 @@
 
 package com.mirth.connect.plugins.auth.client;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Proxy;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -338,19 +343,19 @@ class SecureAuthorizationControllerTest {
     }
 
     @Test
-    void loadAdminFlag_getUserRoleFails_falseAndNoException() {
+    void loadAdminFlag_getUserRoleFails_unknownAndNoException() {
         RbacServletInterface rbac = (RbacServletInterface) Proxy.newProxyInstance(
                 getClass().getClassLoader(), new Class<?>[] {RbacServletInterface.class},
                 (proxy, method, args) -> {
                     throw new ClientException("Method failed: HTTP/1.1 404 Not Found");
                 });
-        assertFalse(new SecureAuthorizationController().loadAdminFlag(
+        assertNull(new SecureAuthorizationController().loadAdminFlag(
                 Set.of(RbacServletInterface.PERMISSION_VIEW), rbac, () -> 1));
     }
 
     @Test
-    void loadAdminFlag_currentUserLookupFails_false() {
-        assertFalse(new SecureAuthorizationController().loadAdminFlag(
+    void loadAdminFlag_currentUserLookupFails_unknown() {
+        assertNull(new SecureAuthorizationController().loadAdminFlag(
                 Set.of(RbacServletInterface.PERMISSION_VIEW),
                 rbacReturning(new Role(), new AtomicInteger()),
                 () -> {
@@ -358,7 +363,91 @@ class SecureAuthorizationControllerTest {
                 }));
     }
 
+    @Test
+    void failedAdminLookup_isRetriedByTheNextAdminOnlyCheckTask_atMostOncePerInterval() throws Exception {
+        AtomicInteger lookups = new AtomicInteger();
+        Role admin = new Role();
+        admin.setAdmin(true);
+        SecureAuthorizationController c = new SecureAuthorizationController();
+        c.servlet = () -> rbac(method -> {
+            switch (method) {
+                case "getMyPermissions":
+                    return Set.of(RbacServletInterface.PERMISSION_VIEW);
+                case "getExtensionTaskPermissions":
+                    return Map.of();
+                case "getUserRole":
+                    if (lookups.incrementAndGet() <= 2) {
+                        throw new ClientException("Method failed: HTTP/1.1 502 Bad Gateway");
+                    }
+                    return admin;
+                default:
+                    throw new UnsupportedOperationException(method);
+            }
+        });
+        c.currentUserId = () -> 1;
+        c.initialize();
+        assertEquals(1, lookups.get());
+        assertTrue(c.checkTask(RBAC_GROUP, TaskConstants.SETTINGS_REFRESH), "the permissions still loaded");
+        assertFalse(c.checkTask(RBAC_GROUP, "doExportRoles"), "unknown answers false");
+        assertEquals(1, lookups.get(), "no retry inside the interval");
+
+        setField(c, "lastAdminAttemptMs", 0L);
+        assertTrue(c.checkTask(RBAC_GROUP, TaskConstants.SETTINGS_REFRESH));
+        assertEquals(1, lookups.get(), "only an admin-only task retries");
+        assertFalse(c.checkTask(RBAC_GROUP, "doImportRoles"), "the retry failed too");
+        assertEquals(2, lookups.get());
+        assertFalse(c.checkTask(RBAC_GROUP, "doImportRoles"));
+        assertEquals(2, lookups.get(), "and waits another interval");
+
+        setField(c, "lastAdminAttemptMs", 0L);
+        assertTrue(c.checkTask(RBAC_GROUP, "doImportRoles"), "the retry succeeded");
+        assertEquals(3, lookups.get());
+        setField(c, "lastAdminAttemptMs", 0L);
+        assertTrue(c.checkTask(RBAC_GROUP, "doExportRoles"));
+        assertEquals(3, lookups.get(), "known now: no more lookups");
+    }
+
+    @Test
+    void loadPermissions_publishesThePermissionsAfterTheMapsAndTheAdminFlag() throws Exception {
+        Role admin = new Role();
+        admin.setAdmin(true);
+        SecureAuthorizationController c = new SecureAuthorizationController();
+        List<Boolean> answeredDuringTheLookup = new ArrayList<>();
+        c.servlet = () -> rbac(method -> {
+            switch (method) {
+                case "getMyPermissions":
+                    return Set.of(RbacServletInterface.PERMISSION_VIEW, "viewChannels");
+                case "getExtensionTaskPermissions":
+                    return Map.of("settings_Foo Plugin/doRefresh", "viewServerSettings");
+                case "getUserRole":
+                    answeredDuringTheLookup.add(c.checkTask("group", TaskConstants.VIEW_CHANNEL));
+                    return admin;
+                default:
+                    throw new UnsupportedOperationException(method);
+            }
+        });
+        c.currentUserId = () -> 1;
+        c.initialize();
+        assertEquals(List.of(false), answeredDuringTheLookup,
+                "while the admin lookup runs nothing is published yet, so checkTask still fails closed");
+        assertTrue(c.checkTask("group", TaskConstants.VIEW_CHANNEL));
+        assertTrue(c.checkTask(RBAC_GROUP, "doExportRoles"));
+        assertFalse(c.checkTask("settings_Foo Plugin", "doRefresh"), "the extension map was merged");
+    }
+
     // ========== Helpers ==========
+
+    /** Answers a call by the method's name; a stand-in for the RBAC servlet. */
+    @FunctionalInterface
+    private interface Answer {
+        Object answer(String method) throws Exception;
+    }
+
+    private RbacServletInterface rbac(Answer answer) {
+        return (RbacServletInterface) Proxy.newProxyInstance(
+                getClass().getClassLoader(), new Class<?>[] {RbacServletInterface.class},
+                (proxy, method, args) -> answer.answer(method.getName()));
+    }
 
     private RbacServletInterface rbacReturning(Role role, AtomicInteger askedFor) {
         return (RbacServletInterface) Proxy.newProxyInstance(

@@ -31,6 +31,8 @@ final class RoleDetailRows {
             + "New roles are restricted to no channels until an administrator sets channels for them.";
     static final String NOT_ON_ENGINE = "not offered by this engine, left out";
     static final String NOT_IN_IMPORT = "not in the import";
+    static final String NO_LONGER_EXISTS = "(no longer exists)";
+    static final String DELETED_HERE = "deleted on this engine";
 
     private RoleDetailRows() {
     }
@@ -58,7 +60,9 @@ final class RoleDetailRows {
      * One row per channel: the import's channels in file order (or, for a role that keeps
      * its channels, the kept ones), then the role's other channels on this engine.
      * A channel in both is one row, joined on its id, except a channel the import has that is
-     * not on this engine. Columns: CHANNEL_COLUMNS.
+     * not on this engine. When that channel's id is one the role is restricted to here and the
+     * channel was deleted on this engine, the two are one "deleted on this engine" row.
+     * Columns: CHANNEL_COLUMNS.
      */
     static List<String[]> channelRows(RoleImportRow row) {
         boolean kept = row.getChannels() == RoleImportRow.Channels.KEPT;
@@ -70,6 +74,13 @@ final class RoleDetailRows {
         Set<String> listed = new HashSet<>();
         for (RoleImportChannel e : RoleImportText.list(row.getChannelsAfter())) {
             boolean missing = !kept && e.getMatch() == RoleImportChannel.Match.NOT_FOUND;
+            RoleImportChannel deleted = missing ? nowById.get(e.getId()) : null;
+            if (deleted != null && deleted.getName() == null) {
+                rows.add(new String[] {NO_LONGER_EXISTS, RoleImportText.text(e.getId()), RoleImportText.YES, "",
+                        DELETED_HERE, RoleImportText.text(e.getFileName()), RoleImportText.text(e.getFileId())});
+                listed.add(e.getId());
+                continue;
+            }
             RoleImportChannel now = missing ? null : nowById.get(e.getId());
             String match = kept ? "" : matchText(e);
             rows.add(new String[] {channelName(e.getName(), e.getFileName(), e.getId()),
@@ -92,7 +103,12 @@ final class RoleDetailRows {
         if (name != null) {
             return name;
         }
-        return nameInImport != null ? nameInImport : RoleImportText.text(id);
+        return !isEmpty(nameInImport) ? nameInImport : RoleImportText.text(id);
+    }
+
+    // The exporter writes "" for a channel its engine lacked; the web client receives it as null.
+    private static boolean isEmpty(String value) {
+        return value == null || value.isEmpty();
     }
 
     /** The Match column for a channel in the import, from how it was looked up on this engine. */
@@ -102,7 +118,8 @@ final class RoleDetailRows {
         }
         switch (entry.getMatch()) {
             case BY_ID:
-                return Objects.equals(entry.getName(), entry.getFileName()) ? "by id" : "by id, renamed on this engine";
+                return isEmpty(entry.getFileName()) || Objects.equals(entry.getName(), entry.getFileName())
+                        ? "by id" : "by id, renamed on this engine";
             case BY_NAME:
                 return entry.isUsed() ? "by name" : "by name, not used";
             default:

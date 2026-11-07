@@ -3,6 +3,7 @@
 
 package com.diridium.rbac;
 
+import java.nio.file.FileSystemException;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
@@ -105,6 +106,21 @@ final class RoleImportText {
         return (count == 1 ? "1 channel in the import matches a channel on this engine by name only."
                 : count + " channels in the import match a channel on this engine by name only.")
                 + " Tick the box above to use them.";
+    }
+
+    /** The hint for a preview, from the settings that preview was made with. */
+    static String nameMatchHint(RoleImportResult result) {
+        int count = result.getChannelNameMatches() == null ? 0 : result.getChannelNameMatches().size();
+        return nameMatchHint(count, result.isApplyChannels(), result.isMatchChannelsByName());
+    }
+
+    /**
+     * Whether the import dialog previews again after a failed apply: only when the server
+     * answered with a message (a 400, 409 or 403). Anything else, such as a lost connection,
+     * would fail the preview too.
+     */
+    static boolean previewAgainAfter(Throwable applyFailure) {
+        return serverMessage(applyFailure) != null;
     }
 
     /** The row's permissions count: the file's count for a new role, else now, or "now → after" when it changes. */
@@ -216,6 +232,22 @@ final class RoleImportText {
             }
         }
         return null;
+    }
+
+    /**
+     * A file failure with its reason: {@code lead + ": " + reason + "."}. The reason is the
+     * exception's message. A file system exception with no reason of its own carries only the
+     * path, so its class name (AccessDeniedException, say) goes in front of it.
+     */
+    static String withReason(String lead, Exception e) {
+        String message = e.getMessage() == null ? "" : e.getMessage().trim();
+        String reason = message;
+        if (message.isEmpty()) {
+            reason = e.getClass().getSimpleName();
+        } else if (e instanceof FileSystemException && ((FileSystemException) e).getReason() == null) {
+            reason = e.getClass().getSimpleName() + ": " + message;
+        }
+        return lead + ": " + reason + (reason.endsWith(".") ? "" : ".");
     }
 
     private static String orUnknown(String value) {

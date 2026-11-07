@@ -6,6 +6,7 @@ package com.mirth.connect.plugins.auth.client;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Supplier;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -46,8 +47,10 @@ public class SecureAuthorizationController implements AuthorizationController {
     private volatile boolean loaded = false;
 
     // Whether the signed-in user holds the admin role. Export Roles and Import Roles are
-    // gated on it, not on a permission. Loaded with the permissions; false when unknown.
-    private volatile boolean adminRole = false;
+    // gated on it, not on a permission. Loaded with the permissions; null while unknown (the
+    // lookup failed), which checkTask answers as false and retries.
+    private volatile Boolean adminRole = Boolean.FALSE;
+    private volatile long lastAdminAttemptMs = 0;
 
     // Settings tasks only users holding the admin role may see (composite "group/task" keys).
     // Web twin: "adminOnlyTasks" in webadmin/web/task-permission-map.json.
@@ -60,6 +63,11 @@ public class SecureAuthorizationController implements AuthorizationController {
     interface CurrentUserId {
         int get() throws Exception;
     }
+
+    // Where the permission load and the admin lookup reach the server; tests replace them.
+    Supplier<RbacServletInterface> servlet =
+            () -> PlatformUI.MIRTH_FRAME.mirthClient.getServlet(RbacServletInterface.class);
+    CurrentUserId currentUserId = () -> PlatformUI.MIRTH_FRAME.mirthClient.getCurrentUser().getId();
 
     // Backoff for the lazy retry in checkTask. The engine calls checkTask once per task
     // component on the EDT for every view switch, so a persistently failing load (e.g. the
@@ -102,16 +110,21 @@ public class SecureAuthorizationController implements AuthorizationController {
     private void loadPermissions() {
         lastLoadAttemptMs = System.currentTimeMillis();
         try {
-            RbacServletInterface rbac = PlatformUI.MIRTH_FRAME.mirthClient.getServlet(RbacServletInterface.class);
-            userPermissions = rbac.getMyPermissions();
-            mergeExtensionTaskPermissions(rbac.getExtensionTaskPermissions());
+            RbacServletInterface rbac = servlet.get();
+            Set<String> permissions = rbac.getMyPermissions();
+            Map<String, String> extensionTasks = rbac.getExtensionTaskPermissions();
             // The engine calls this before it constructs RbacClientPlugin, which whitelists rbac's
             // classes; the admin lookup reads a Role, so the whitelist has to come first.
             RbacClientPlugin.allowModelTypes();
-            adminRole = loadAdminFlag(userPermissions, rbac,
-                    () -> PlatformUI.MIRTH_FRAME.mirthClient.getCurrentUser().getId());
+            Boolean admin = loadAdminFlag(permissions, rbac, currentUserId);
+            // checkTask reads userPermissions first, so it is published last: a thread that sees
+            // it also sees the merged maps and the admin flag.
+            mergeExtensionTaskPermissions(extensionTasks);
+            lastAdminAttemptMs = System.currentTimeMillis();
+            adminRole = admin;
+            userPermissions = permissions;
             loaded = true;
-            log.info("RBAC: Loaded {} permissions for current user", userPermissions.size());
+            log.info("RBAC: Loaded {} permissions for current user", permissions.size());
         } catch (Exception e) {
             log.error("RBAC: Failed to load user permissions", e);
             userPermissions = null;
@@ -123,20 +136,36 @@ public class SecureAuthorizationController implements AuthorizationController {
     /**
      * Whether the signed-in user holds the admin role. Asked only when the user holds
      * "View Roles": admins hold every permission, and a user without it never sees the
-     * RBAC tab. Any failure counts as "not an admin" and is logged, so the rest of the
-     * permission load still counts.
+     * RBAC tab. A failure is logged and answers null (unknown), so the rest of the
+     * permission load still counts and checkTask retries the lookup.
      */
-    boolean loadAdminFlag(Set<String> permissions, RbacServletInterface rbac, CurrentUserId currentUserId) {
+    Boolean loadAdminFlag(Set<String> permissions, RbacServletInterface rbac, CurrentUserId currentUserId) {
         if (permissions == null || !permissions.contains(RbacServletInterface.PERMISSION_VIEW)) {
-            return false;
+            return Boolean.FALSE;
         }
         try {
             Role role = rbac.getUserRole(currentUserId.get());
             return role != null && role.isAdmin();
         } catch (Exception e) {
             log.warn("RBAC: Could not tell whether the current user holds the admin role; "
-                    + "Export Roles and Import Roles stay hidden", e);
-            return false;
+                    + "Export Roles and Import Roles stay hidden until a retry succeeds", e);
+            return null;
+        }
+    }
+
+    /**
+     * Retries a failed admin lookup, at most once per backoff interval like the permission
+     * reload, since checkTask runs on the event thread for every task it shows.
+     */
+    private void retryAdminLookupIfDue() {
+        if (adminRole != null || System.currentTimeMillis() - lastAdminAttemptMs <= RETRY_BACKOFF_MS) {
+            return;
+        }
+        lastAdminAttemptMs = System.currentTimeMillis();
+        try {
+            adminRole = loadAdminFlag(userPermissions, servlet.get(), currentUserId);
+        } catch (RuntimeException e) {
+            log.warn("RBAC: Could not retry the admin role lookup", e);
         }
     }
 
@@ -204,7 +233,8 @@ public class SecureAuthorizationController implements AuthorizationController {
 
         // Export Roles and Import Roles: shown to the admin role only (not a permission)
         if (ADMIN_ONLY_TASKS.contains(compositeKey)) {
-            return adminRole;
+            retryAdminLookupIfDue();
+            return Boolean.TRUE.equals(adminRole);
         }
 
         // Check group-specific mapping first (for settings panels with shared task names)

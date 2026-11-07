@@ -7,8 +7,11 @@ import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
+import java.util.function.BooleanSupplier;
 
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
@@ -36,8 +39,12 @@ import com.mirth.connect.client.ui.Frame;
  * channels.</p>
  *
  * <p>Changing either channel tick box previews the file again, because the plan token
- * depends on both settings. A failed apply shows the server's message and previews again
- * with the same settings, so the table shows the current state. The REST calls run on
+ * depends on both settings. The tick boxes start at the first preview's settings, and the
+ * table, the hint and the channel tables follow the last preview that succeeded; after a
+ * failed one, Import waits for a preview that succeeds. A failed apply shows the server's
+ * message and previews again with the same settings, so the table shows the current state;
+ * a failure with no server message (a lost connection, say) shows one error and keeps the
+ * last preview. While a call runs, the dialog can't be closed. The REST calls run on
  * {@link SwingWorker} threads and are supplied by a {@link Backend}.</p>
  */
 public class RoleImportDialog extends JDialog {
@@ -56,9 +63,10 @@ public class RoleImportDialog extends JDialog {
     private final Backend backend;
 
     private final JLabel fromLabel = new JLabel();
-    private final JCheckBox applyBox = new JCheckBox("Apply channel restrictions from the import", true);
-    private boolean channelsApplied = true;
-    private final JCheckBox matchBox = new JCheckBox("Also match channels by name when the id isn't found", false);
+    // Both boxes start at the first preview's settings (set in the constructor).
+    private final JCheckBox applyBox = new JCheckBox("Apply channel restrictions from the import");
+    private boolean channelsApplied;
+    private final JCheckBox matchBox = new JCheckBox("Also match channels by name when the id isn't found");
     private final JLabel nameHint = new JLabel();
     private final RoleImportTableModel model = new RoleImportTableModel(() -> this.busy, this::updateControls);
     private final JTable table;
@@ -80,6 +88,10 @@ public class RoleImportDialog extends JDialog {
         super(parent, "Import Roles", true);
         this.parent = parent;
         this.backend = backend;
+        applyBox.setSelected(first.isApplyChannels());
+        matchBox.setSelected(first.isMatchChannelsByName());
+        setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
+        addWindowListener(new CloseWhenIdle(() -> busy, this::dispose));
 
         table = new JTable(model) {
             @Override
@@ -153,13 +165,12 @@ public class RoleImportDialog extends JDialog {
 
     private void show(RoleImportResult result) {
         current = result;
-        channelsApplied = applyBox.isSelected();
+        channelsApplied = result.isApplyChannels();
         fromLabel.setText(RoleImportText.fromLine(result));
         int keepIndex = selectedRoleIndex();
         model.setRows(result.getRows());
         selectRole(keepIndex);
-        int count = result.getChannelNameMatches() == null ? 0 : result.getChannelNameMatches().size();
-        String hint = RoleImportText.nameMatchHint(count, applyBox.isSelected(), matchBox.isSelected());
+        String hint = RoleImportText.nameMatchHint(result);
         nameHint.setText(hint == null ? "" : hint);
         nameHint.setVisible(hint != null);
         updateControls();
@@ -276,6 +287,11 @@ public class RoleImportDialog extends JDialog {
                     }
                 } catch (ExecutionException e) {
                     reportFailure(e);
+                    if (!RoleImportText.previewAgainAfter(e.getCause())) {
+                        // A preview would fail the same way; the last one and its token stay.
+                        updateControls();
+                        return;
+                    }
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                 }
@@ -290,6 +306,28 @@ public class RoleImportDialog extends JDialog {
             RoleTransferActions.report(parent, this, (ClientException) e.getCause());
         } else {
             parent.alertThrowable(this, e.getCause() != null ? e.getCause() : e);
+        }
+    }
+
+    /**
+     * Lets the window's close button close the dialog only while no call runs. Closing during
+     * an apply would hide its result: the roles would be written, but there would be no
+     * message and the tab would keep the roles from before the import.
+     */
+    static final class CloseWhenIdle extends WindowAdapter {
+        private final BooleanSupplier busy;
+        private final Runnable close;
+
+        CloseWhenIdle(BooleanSupplier busy, Runnable close) {
+            this.busy = busy;
+            this.close = close;
+        }
+
+        @Override
+        public void windowClosing(WindowEvent e) {
+            if (!busy.getAsBoolean()) {
+                close.run();
+            }
         }
     }
 }

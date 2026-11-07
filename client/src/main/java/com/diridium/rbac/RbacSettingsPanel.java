@@ -27,7 +27,6 @@ import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
 import javax.swing.JTable;
-import javax.swing.JTextArea;
 import javax.swing.ListSelectionModel;
 import javax.swing.SwingWorker;
 import javax.swing.border.TitledBorder;
@@ -43,7 +42,8 @@ import com.mirth.connect.model.User;
 
 /**
  * Settings tab that lists roles and user-role assignments, with buttons to
- * add/edit/delete roles and assign/remove role assignments.
+ * add/edit/delete roles and assign/remove role assignments. The assignments
+ * half is {@link UserAssignmentsPanel}; this class loads both halves.
  *
  * <p>Lives under the administrator client's Settings view (one tab per
  * registered {@code SettingsPanelPlugin}). All mutating operations are
@@ -57,7 +57,6 @@ import com.mirth.connect.model.User;
 public class RbacSettingsPanel extends AbstractSettingsPanel {
 
     private static final String[] ROLE_COLUMNS = {"ID", "Name", "Description"};
-    private static final String[] USER_COLUMNS = {"User ID", "Username", "Assigned Role"};
 
     private final Frame parent;
     private final AtomicBoolean refreshing = new AtomicBoolean(false);
@@ -67,11 +66,10 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
     private final AtomicBoolean refreshPending = new AtomicBoolean(false);
 
     private JTable rolesTable;
-    private JTable usersTable;
+    private UserAssignmentsPanel userAssignments;
     private final RoleTransferActions transfer;
 
     private List<Role> cachedRoles = new ArrayList<>();
-    private List<User> cachedUsers = new ArrayList<>();
     private Set<String> cachedPermissions;
     private Map<String, String> cachedExtensionGroups = new LinkedHashMap<>();
     private Map<String, String> cachedChannelMap = new LinkedHashMap<>();
@@ -121,6 +119,7 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
                 return false;
             }
         });
+        rolesTable.setDefaultRenderer(Object.class, new PlainCellRenderer(null));
         rolesTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         rolesTable.getColumnModel().getColumn(0).setMaxWidth(60);
         rolesTable.getColumnModel().getColumn(0).setPreferredWidth(50);
@@ -157,41 +156,10 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
         rolesPanel.add(roleButtonPanel, BorderLayout.EAST);
 
         // ========== Users Panel (Bottom) ==========
-        JPanel usersPanel = new JPanel(new BorderLayout(5, 5));
-        usersPanel.setBorder(BorderFactory.createTitledBorder(
-                BorderFactory.createEtchedBorder(), "User-Role Assignments",
-                TitledBorder.DEFAULT_JUSTIFICATION, TitledBorder.DEFAULT_POSITION));
-
-        usersTable = new JTable(new DefaultTableModel(new Object[0][3], USER_COLUMNS) {
-            @Override
-            public boolean isCellEditable(int row, int column) {
-                return false;
-            }
-        });
-        usersTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        usersTable.getColumnModel().getColumn(0).setMaxWidth(80);
-        usersTable.getColumnModel().getColumn(0).setPreferredWidth(60);
-
-        JScrollPane usersScroll = new JScrollPane(usersTable);
-        usersPanel.add(usersScroll, BorderLayout.CENTER);
-
-        JPanel userButtonPanel = new JPanel();
-        userButtonPanel.setLayout(new BoxLayout(userButtonPanel, BoxLayout.Y_AXIS));
-        JButton assignRoleButton = new JButton("Assign Role");
-        assignRoleButton.setMaximumSize(new Dimension(Integer.MAX_VALUE, assignRoleButton.getPreferredSize().height));
-        assignRoleButton.addActionListener(e -> assignRoleToUser());
-        JButton removeRoleButton = new JButton("Remove Role");
-        removeRoleButton.setMaximumSize(new Dimension(Integer.MAX_VALUE, removeRoleButton.getPreferredSize().height));
-        removeRoleButton.addActionListener(e -> removeRoleFromUser());
-
-        userButtonPanel.add(assignRoleButton);
-        userButtonPanel.add(Box.createVerticalStrut(5));
-        userButtonPanel.add(removeRoleButton);
-        userButtonPanel.add(Box.createVerticalGlue());
-        usersPanel.add(userButtonPanel, BorderLayout.EAST);
+        userAssignments = new UserAssignmentsPanel(parent, () -> cachedRoles, () -> cachedChannelMap, this::runMutation);
 
         // ========== Split Pane ==========
-        JSplitPane splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, rolesPanel, usersPanel);
+        JSplitPane splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, rolesPanel, userAssignments);
         splitPane.setDividerLocation(250);
         splitPane.setResizeWeight(0.5);
         add(splitPane, BorderLayout.CENTER);
@@ -204,7 +172,7 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
 
     /**
      * {@inheritDoc}
-     * <p>Loads roles, users, permission catalog, and channel id-to-name
+     * <p>Loads roles, users and each user's role, permission catalog, and channel id-to-name
      * map from the server on a {@link SwingWorker} background thread; the
      * EDT-bound {@code done} hook then repopulates both tables and surfaces
      * any error. A refresh asked for while one runs is noted in
@@ -216,6 +184,7 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
             new SwingWorker<Void, Void>() {
                 private List<Role> roles;
                 private List<User> users;
+                private Map<Integer, String> userRoleNames;
                 private Set<String> permissions;
                 private Map<String, String> channelMap;
                 private Map<String, String> extensionGroups;
@@ -226,6 +195,8 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
                     try {
                         roles = parent.mirthClient.getServlet(RbacServletInterface.class).getRoles();
                         users = parent.mirthClient.getServlet(UserServletInterface.class).getAllUsers();
+                        userRoleNames = UserAssignmentsPanel.lookUpRoleNames(users,
+                                parent.mirthClient.getServlet(RbacServletInterface.class)::getUserRole);
                         permissions = parent.mirthClient.getServlet(RbacServletInterface.class).getAvailablePermissions();
                         channelMap = parent.mirthClient.getServlet(ChannelServletInterface.class).getChannelIdsAndNames();
                         try {
@@ -252,8 +223,7 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
                             refreshRolesTable();
                         }
                         if (users != null) {
-                            cachedUsers = users;
-                            refreshUsersTable();
+                            userAssignments.showUsers(users, userRoleNames);
                         }
                         if (permissions != null) {
                             cachedPermissions = permissions;
@@ -306,27 +276,6 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
         for (Role role : cachedRoles) {
             model.addRow(new Object[]{role.getId(), role.getName(), role.getDescription()});
         }
-    }
-
-    private void refreshUsersTable() {
-        DefaultTableModel model = (DefaultTableModel) usersTable.getModel();
-        model.setRowCount(0);
-        for (User user : cachedUsers) {
-            String roleName = getRoleNameForUser(user.getId());
-            model.addRow(new Object[]{user.getId(), user.getUsername(), roleName != null ? roleName : "(none)"});
-        }
-    }
-
-    private String getRoleNameForUser(int userId) {
-        try {
-            Role role = parent.mirthClient.getServlet(RbacServletInterface.class).getUserRole(userId);
-            if (role != null) {
-                return role.getName();
-            }
-        } catch (ClientException e) {
-            // Ignore - just show (none)
-        }
-        return null;
     }
 
     /**
@@ -442,114 +391,11 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
         }
     }
 
-    private void assignRoleToUser() {
-        int row = usersTable.getSelectedRow();
-        if (row < 0) {
-            parent.alertWarning(parent, "Please select a user to assign a role to.");
-            return;
-        }
-
-        int userId = (int) usersTable.getValueAt(row, 0);
-
-        if (cachedRoles.isEmpty()) {
-            parent.alertWarning(parent, "No roles available. Create a role first.");
-            return;
-        }
-
-        String[] roleNames = cachedRoles.stream().map(Role::getName).toArray(String[]::new);
-        String selected = (String) JOptionPane.showInputDialog(parent,
-                "Select a role for user " + usersTable.getValueAt(row, 1) + ":",
-                "Assign Role", JOptionPane.PLAIN_MESSAGE, null, roleNames, roleNames[0]);
-
-        if (selected != null) {
-            Role selectedRole = cachedRoles.stream()
-                    .filter(r -> r.getName().equals(selected))
-                    .findFirst().orElse(null);
-            if (selectedRole != null) {
-                String username = (String) usersTable.getValueAt(row, 1);
-                String currentRoleName = (String) usersTable.getValueAt(row, 2);
-                if (!confirmAssignment(username, currentRoleName, selectedRole)) {
-                    return;
-                }
-                runMutation(() -> parent.mirthClient.getServlet(RbacServletInterface.class)
-                        .assignUserRole(userId, selectedRole.getId()));
-            }
-        }
-    }
-
-    /**
-     * Shows what a role grants — the user's current role, the new role, its
-     * channel scope, and the full permission list — so the admin can review
-     * the impact before committing an assignment. Role assignment is easy to
-     * get wrong, so this preview is the safeguard.
-     *
-     * @param username        the target user's display name
-     * @param currentRoleName the user's current role name (or "(none)")
-     * @param role            the role about to be assigned, fully populated
-     * @return {@code true} if the admin confirms the assignment
-     */
-    private boolean confirmAssignment(String username, String currentRoleName, Role role) {
-        StringBuilder details = new StringBuilder();
-        details.append("User:         ").append(username).append('\n');
-        details.append("Current role: ").append(currentRoleName != null ? currentRoleName : "(none)").append('\n');
-        details.append("New role:     ").append(role.getName()).append("\n\n");
-
-        Set<String> channelIds = role.getChannelIds();
-        if (!role.isRestricted()) {
-            details.append("Channel access: All channels\n\n");
-        } else if (channelIds == null || channelIds.isEmpty()) {
-            details.append("Channel access: No channels\n\n");
-        } else {
-            details.append("Channel access: restricted to ").append(channelIds.size()).append(" channel(s):\n");
-            List<String> channelLabels = new ArrayList<>();
-            for (String id : channelIds) {
-                String name = cachedChannelMap.get(id);
-                channelLabels.add("  " + (name != null ? name : id));
-            }
-            channelLabels.sort(null);
-            for (String label : channelLabels) {
-                details.append(label).append('\n');
-            }
-            details.append('\n');
-        }
-
-        List<String> sortedPerms = new ArrayList<>();
-        if (role.getPermissions() != null) {
-            sortedPerms.addAll(role.getPermissions());
-        }
-        sortedPerms.sort(null);
-        details.append("Permissions (").append(sortedPerms.size()).append("):\n");
-        if (sortedPerms.isEmpty()) {
-            details.append("  (none — the user could log in but perform no actions)\n");
-        } else {
-            for (String perm : sortedPerms) {
-                details.append("  ").append(perm).append('\n');
-            }
-        }
-
-        JTextArea area = new JTextArea(details.toString());
-        area.setEditable(false);
-        area.setCaretPosition(0);
-        JScrollPane scroll = new JScrollPane(area);
-        scroll.setPreferredSize(new Dimension(420, 260));
-
-        JPanel panel = new JPanel(new BorderLayout(0, 6));
-        panel.add(new JLabel("Review the access this role grants before assigning:"), BorderLayout.NORTH);
-        panel.add(scroll, BorderLayout.CENTER);
-        JLabel immediateLabel = new JLabel("This assignment takes effect immediately.");
-        immediateLabel.setFont(immediateLabel.getFont().deriveFont(Font.ITALIC));
-        panel.add(immediateLabel, BorderLayout.SOUTH);
-
-        int choice = JOptionPane.showConfirmDialog(parent, panel, "Confirm Role Assignment",
-                JOptionPane.OK_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE);
-        return choice == JOptionPane.OK_OPTION;
-    }
-
     /**
      * A single mutating REST call, allowed to throw {@link ClientException}.
      */
     @FunctionalInterface
-    private interface MutationCall {
+    interface MutationCall {
         void run() throws ClientException;
     }
 
@@ -561,7 +407,7 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
      *
      * @param call the REST mutation to perform
      */
-    private void runMutation(MutationCall call) {
+    void runMutation(MutationCall call) {
         new SwingWorker<Void, Void>() {
             private ClientException error;
 
@@ -584,25 +430,5 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
                 doRefresh();
             }
         }.execute();
-    }
-
-    private void removeRoleFromUser() {
-        int row = usersTable.getSelectedRow();
-        if (row < 0) {
-            parent.alertWarning(parent, "Please select a user to remove their role.");
-            return;
-        }
-
-        int userId = (int) usersTable.getValueAt(row, 0);
-        String username = (String) usersTable.getValueAt(row, 1);
-        int confirm = JOptionPane.showConfirmDialog(parent,
-                "Remove the role from user \"" + username + "\"?\nThey will lose all access.\n\nThis change takes effect immediately.",
-                "Confirm Remove", JOptionPane.YES_NO_OPTION);
-
-        // The admin floor (don't strip the last admin) is enforced server-side
-        // by AdminRoleGuard, which returns a clear message surfaced below.
-        if (confirm == JOptionPane.YES_OPTION) {
-            runMutation(() -> parent.mirthClient.getServlet(RbacServletInterface.class).removeUserRole(userId));
-        }
     }
 }
