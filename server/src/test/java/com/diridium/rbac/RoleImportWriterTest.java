@@ -51,6 +51,20 @@ class RoleImportWriterTest {
             params.put("id", 77);
             return 1;
         }).when(session).insert(eq("Rbac.insertRole"), anyMap());
+        when(session.update(eq("Rbac.updateRole"), anyMap())).thenReturn(1);
+    }
+
+    @Test
+    void anOverwriteOfARoleDeletedSinceThePreview_stopsTheImportAsStale() {
+        // The re-plan reads outside the transaction; a delete between it and the update leaves no row to update.
+        when(session.update(eq("Rbac.updateRole"), anyMap())).thenReturn(0);
+
+        RoleImportWriter.NameClash clash = assertThrows(RoleImportWriter.NameClash.class,
+                () -> new RoleImportWriter().write(session, List.of(planned(5, "Lab", Set.of("viewChannels"), Set.of(), true))));
+
+        assertEquals("The roles changed since the preview. Preview the import again.", clash.getMessage());
+        assertEquals(true, clash.changedSincePreview());
+        verify(session, never()).insert(eq("Rbac.insertRolePermission"), anyMap());
     }
 
     @AfterEach
@@ -176,6 +190,7 @@ class RoleImportWriterTest {
             params.put("id", 77);
             return 1;
         }).when(transaction).insert(eq("Rbac.insertRole"), anyMap());
+        when(transaction.update(eq("Rbac.updateRole"), anyMap())).thenReturn(1);
         SqlConfig sqlConfig = mock(SqlConfig.class);
         SqlSessionManager manager = mock(SqlSessionManager.class);
         when(sqlConfig.getSqlSessionManager()).thenReturn(manager);

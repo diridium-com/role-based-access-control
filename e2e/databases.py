@@ -46,7 +46,12 @@ def run_container(suffix, inner_port, options, image, command=()):
         labels += ["--label", pair.strip()]
     container = docker("run", "-d", "--name", f"{prefix}-{suffix}", *labels, "-p", f"127.0.0.1::{inner_port}",
                        *options, image, *command).stdout.strip()
-    mapping = docker("port", container, f"{inner_port}/tcp").stdout.splitlines()[0]
+    try:
+        mapping = docker("port", container, f"{inner_port}/tcp").stdout.splitlines()[0]
+    except Exception:
+        # The container is up but its port can't be read: remove it rather than leak it.
+        docker("rm", "-f", "-v", container, check=False)
+        raise
     return container, int(mapping.rsplit(":", 1)[1])
 
 
@@ -98,7 +103,10 @@ class Database:
 
     def stop(self):
         if self.container:
-            docker("rm", "-f", "-v", self.container, check=False)
+            result = docker("rm", "-f", "-v", self.container, check=False)
+            if result.returncode != 0:
+                print(f"WARN: docker rm {self.container} failed: {(result.stderr or result.stdout).strip()}",
+                      flush=True)
             self.container = None
 
     # ---------- per-scenario databases
@@ -151,12 +159,6 @@ class Database:
         else:
             q = f"SELECT count(*) FROM user_tables WHERE table_name IN ({names.upper()})"
         return self._scalar(name, q)
-
-    def plugin_row_counts(self, name):
-        """{table: rows} for rbac's four tables. None for Derby."""
-        if self.kind == "derby":
-            return None
-        return {table: self._scalar(name, f"SELECT count(*) FROM {table}") for table in PLUGIN_TABLES}
 
     def user_role_rows(self, name, user_id):
         """How many rbac_user_role rows the user has. None for Derby."""

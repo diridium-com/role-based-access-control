@@ -60,18 +60,20 @@ class Api:
         """Logs in, retrying until the engine answers. alive() returning False stops the wait early."""
         end = time.time() + wait
         form = urllib.parse.urlencode({"username": self.username, "password": self.password})
+        last = "no answer yet"
         while True:
             try:
                 status, text = self.request("POST", "/users/_login", form,
                                             content_type="application/x-www-form-urlencoded")
                 if status == 200 and "SUCCESS" in text:
                     return
-            except OSError:
-                pass
+                last = f"HTTP {status}: {text.strip()[:200]}"
+            except OSError as e:
+                last = f"{type(e).__name__}: {e}"
             if not alive():
                 raise ApiError("the engine exited or gave up on startup before it accepted a login; see its mirth.log")
             if time.time() > end:
-                raise ApiError(f"no successful login within {wait} seconds")
+                raise ApiError(f"no successful login within {wait} seconds; last answer: {last}")
             time.sleep(3)
 
     def xml(self, method, path, body=None, query=None, ok=(200, 201, 204)):
@@ -80,13 +82,6 @@ class Api:
         if status not in ok:
             raise ApiError(f"{method} {path} -> HTTP {status}: {text[:300]}")
         return ET.fromstring(text) if text.strip() else None
-
-    def text(self, path, query=None):
-        """GET for an endpoint that returns a String. Returns (status, string)."""
-        status, text = self.request("GET", path, query=query)
-        if status == 200 and text.lstrip().startswith("<string"):
-            return status, ET.fromstring(text).text or ""
-        return status, text
 
     def multipart(self, path, parts, query=None):
         """POST multipart/form-data. parts: list of (name, filename or None, content type, bytes or str)."""

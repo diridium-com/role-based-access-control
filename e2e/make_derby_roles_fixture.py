@@ -3,7 +3,8 @@
 
 """Writes fixtures/roles-from-derby.xml: a role export file from a real engine on Derby, for the check that imports a
 file from another engine (transfer_checks._transfer_from_another_engine). That check expects these roles and channel
-names, so change both together.
+names, so change both together. The checked-in file was written by a 1.3.0 pre-release build and its rbacVersion
+attribute set to 1.3.0 by hand (the attribute is informational: the import shows it and nothing matches on it).
 
 Usage: python3 -B make_derby_roles_fixture.py <oie_unix tarball> <rbac zip> <new work dir> <JAVA_HOME>
 """

@@ -76,18 +76,14 @@ def seeding(r, w, db, dbname, early_users):
 
 # ---------- roles over REST, on this database
 
-def role_crud(r, w, known_issue=None):
+def role_crud(r, w):
     """Create, read, update and delete. The name has characters outside Latin-1, for the database's character
-    set; creating a role on Oracle is what failed in 1.1.2 (issue #10). known_issue: an open issue that makes the
-    name checks fail on this database. Only the checks that depend on the stored name become NOTEs then
-    (Report.known); everything else stays a check."""
+    set; creating a role on Oracle is what failed in 1.1.2 (issue #10), and SQL Server lost the characters until
+    schema v3 (issue #34)."""
     a, chans = w.api, w.channels
 
     def name_check(label, ok, detail):
-        if known_issue:
-            r.known(label, ok, known_issue, detail)
-        else:
-            r.check(label, ok, detail)
+        r.check(label, ok, detail)
 
     name = "e2e Rôle ünïcödé 角色"
     perms = {"viewChannels", "viewDashboard", "viewMessages", "viewAlerts", "View Roles"}

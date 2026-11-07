@@ -95,6 +95,19 @@ class DeletedChannelSweepTest {
     }
 
     @Test
+    void deletesWithTheValueAsRead_andComparesItTrimmed() {
+        // A CHAR(36) column comes back padded on some drivers; the comparison ignores the padding, the delete
+        // uses the stored value so the row is matched.
+        List<Map<String, Object>> rows = List.of(row(5, "id-gone   "), row(5, "id-lab   "));
+
+        int removed = DeletedChannelSweep.run(() -> Set.of("id-lab"), () -> rows,
+                (roleId, channelId) -> deleted.add(channelId), () -> Map.of(5, "Lab"));
+
+        assertEquals(1, removed);
+        assertEquals(List.of("id-gone   "), deleted, "deleted with the padding the column holds");
+    }
+
+    @Test
     void aFailingDelete_isNonFatal() {
         List<Map<String, Object>> rows = List.of(row(5, "id-gone"));
 

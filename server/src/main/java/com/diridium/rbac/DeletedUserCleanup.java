@@ -100,7 +100,9 @@ final class DeletedUserCleanup {
                     }
                     continue;
                 }
-                pending.remove(userId, p);
+                if (!pending.remove(userId, p)) {
+                    continue; // another request got here first and is handling this user
+                }
                 String role = roleNameOf.apply(userId);
                 if (role != null) {
                     deleteAssignment.accept(userId);

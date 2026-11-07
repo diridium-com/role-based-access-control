@@ -46,6 +46,7 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     outputs:
       asset: ${{ steps.pkg.outputs.asset }}
     steps:
@@ -135,8 +136,9 @@ jobs:
       # plugin.xml gets its version from the pom when the zip is built, and webadmin/plugin.json
       # is copied in. Check what actually went into the zip, so a broken filter can't ship a placeholder.
       - name: Check the version inside the zip
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
         run: |
-          VERSION="${{ steps.ver.outputs.version }}"
           ZIP="package/target/rbac-${VERSION}.zip"
           XML="$(unzip -p "$ZIP" rbac/plugin.xml | sed -n 's:.*<pluginVersion>\(.*\)</pluginVersion>.*:\1:p')"
           JSON="$(unzip -p "$ZIP" rbac/webadmin/plugin.json | jq -r .version)"
@@ -148,8 +150,9 @@ jobs:
 
       - name: Stage the release asset and checksum
         id: pkg
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
         run: |
-          VERSION="${{ steps.ver.outputs.version }}"
           ASSET="rbac-${VERSION}.zip"
           SRC="package/target/${ASSET}"
           if [ ! -f "$SRC" ]; then
@@ -179,6 +182,17 @@ jobs:
       GH_REPO: ${{ github.repository }}
       ASSET: ${{ needs.build.outputs.asset }}
     steps:
+      # The Build workflow (unit tests on 17 and 21, the browser suite, the e2e matrix) runs on the
+      # push to main, not on the tag. A tag on a commit whose Build failed, or never ran, gets no draft.
+      - name: Require a green Build run on the tagged commit
+        run: |
+          n="$(gh api "repos/${GH_REPO}/actions/workflows/build.yml/runs?head_sha=${GITHUB_SHA}&status=success&per_page=1" -q .total_count)"
+          if [ "$n" -lt 1 ]; then
+            echo "::error::No successful Build run for ${GITHUB_SHA}. Merge it to main, wait for Build, then tag."
+            exit 1
+          fi
+          echo "Build passed on ${GITHUB_SHA}"
+
       - name: Download the release asset and checksum
         run: |
           gh run download "$GITHUB_RUN_ID" --name release-zip --dir out

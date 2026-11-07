@@ -32,7 +32,7 @@ def export_import(r, w, db_server):
     _transfer_overwrites(r, a, t)
     _transfer_without_channels(r, a, t)
     _transfer_refusals(r, a, t)
-    _transfer_names(r, a)
+    _transfer_names(r, a, db_server)
     _transfer_none_role(r, a)
     _transfer_renamed_channel(r, a, t)
     _transfer_from_another_engine(r, a, db_server)
@@ -294,7 +294,7 @@ def _transfer_refusals(r, a, t):
             and _roles_by_name(a)["e2e transfer open"]["permissions"] == {"viewChannels"}, f"HTTP {status}: {body[:200]}")
 
 
-def _transfer_names(r, a):
+def _transfer_names(r, a, db_server):
     """A name with characters outside Latin-1 out over HTTP and back, and names this database may hold as one."""
     wide = "e2e transfer Rôle 角色"
     wide_id = b.create_role(a, wide, ["viewChannels"])
@@ -308,15 +308,19 @@ def _transfer_names(r, a):
     r.check("import: a name with characters outside Latin-1 goes back in intact",
             status == 200 and wide in _roles_by_name(a), f"HTTP {status}: {body[:200]}; planned: {list(plan['rows'])}")
 
-    # Postgres, Derby and Oracle hold "Case" and "CASE" as two roles; MySQL and SQL Server refuse the second (409).
-    # Either way an export of every role reads back, and where both exist they go back in as two roles.
+    # Postgres, Derby and Oracle hold "Case" and "CASE" as two roles; MySQL and SQL Server (both drivers) compare
+    # names ignoring case and refuse the second (409). Measured on all six, 2026-11-06. Either way an export of
+    # every role reads back, and where both exist they go back in as two roles.
     case_pair = ["e2e transfer Case", "e2e transfer CASE"]
     b.create_role(a, case_pair[0], ["viewChannels"])
     status, _ = b.post_role(a, b.role_xml(case_pair[1], ["viewChannels"]))
     both = status in (200, 201)
-    r.check("a role whose name differs from another only in case is created, or refused (409)",
-            both or status == 409, f"HTTP {status} {a.reason}")
-    r.note("a second role whose name differs only in case", "created" if both else f"HTTP {status}")
+    if db_server in ONE_NAME_FOR_BOTH_CASES:
+        r.check("a role whose name differs from another only in case is refused (409) on this database",
+                status == 409, f"HTTP {status} {a.reason}")
+    else:
+        r.check("a role whose name differs from another only in case is created on this database",
+                both, f"HTTP {status} {a.reason}")
     status, everything = b.export_roles(a)
     plan = _preview(r, a, everything, label="a preview of every role")
     held = case_pair if both else case_pair[:1]
@@ -334,20 +338,21 @@ def _transfer_names(r, a):
                 status == 200 and all(name in now for name in case_pair), f"HTTP {status}: {body[:200]}")
 
     # Two new names that differ only by an accent. The file compares names exactly, so both are planned as new; a
-    # database whose names also ignore accents (MySQL's default collation) treats them as one name. There the apply
-    # stops on the second, says why, and writes neither. The NOTE says which happened.
+    # database whose names also ignore accents (MySQL's default collation; SQL Server's default is accent-sensitive)
+    # treats them as one name. There the apply stops on the second, says why, and writes neither: the first role
+    # must not be left behind by the rolled-back transaction. Measured on all six, 2026-11-06.
     accents = ("e2e transfer Café", "e2e transfer Cafe")
     pair = b.role_file([(name, ["viewChannels"], None) for name in accents])
     plan = _preview(r, a, pair, label="a preview of two names that differ only by an accent")
     status, body = _apply(a, pair, plan, accents)
     written = [name for name in accents if name in _roles_by_name(a)]
-    r.check("import: two names that differ only by an accent are both written, or refused (400) with the reason"
-            " and neither written",
-            (status == 200 and len(written) == 2)
-            or (status == 400 and "Rename one of them in the file." in body and not written),
-            f"HTTP {status}: {body[:200]}; written: {written}")
-    r.note("import of two names that differ only by an accent",
-           "both written" if status == 200 else f"HTTP {status}, neither written: {body[:200]}")
+    if db_server == "mysql":
+        r.check("import: two names that differ only by an accent are refused (400) with the reason, and neither is"
+                " written", status == 400 and "Rename one of them in the file." in body and not written,
+                f"HTTP {status}: {body[:200]}; written: {written}")
+    else:
+        r.check("import: two names that differ only by an accent are both written on this database",
+                status == 200 and len(written) == 2, f"HTTP {status}: {body[:200]}; written: {written}")
 
 
 def _transfer_none_role(r, a):

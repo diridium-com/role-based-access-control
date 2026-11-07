@@ -56,7 +56,7 @@
                         <id>install-node-and-npm</id>
                         <phase>generate-resources</phase>
                         <goals><goal>install-node-and-npm</goal></goals>
-                        <configuration><nodeVersion>v24.21.0</nodeVersion></configuration>
+                        <configuration><nodeVersion>v24.22.1</nodeVersion></configuration>
                     </execution>
                     <!-- ci, not install: installs exactly what package-lock.json pins and
                          fails if package.json and the lockfile disagree. -->
