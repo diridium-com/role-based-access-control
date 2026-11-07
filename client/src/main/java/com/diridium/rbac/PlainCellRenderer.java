@@ -6,7 +6,9 @@ package com.diridium.rbac;
 import java.awt.Component;
 import java.awt.Font;
 
+import javax.swing.DefaultListCellRenderer;
 import javax.swing.JComponent;
+import javax.swing.JList;
 import javax.swing.JTable;
 import javax.swing.table.DefaultTableCellRenderer;
 
@@ -33,5 +35,22 @@ class PlainCellRenderer extends DefaultTableCellRenderer {
         }
         ((JComponent) c).putClientProperty("html.disable", Boolean.TRUE);
         return c;
+    }
+
+    /** The same for a list or combo box; a {@link Role} shows its name. */
+    static class ForList extends DefaultListCellRenderer {
+
+        ForList() {
+            putClientProperty("html.disable", Boolean.TRUE);
+        }
+
+        @Override
+        public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean selected,
+                boolean focus) {
+            Object text = value instanceof Role ? ((Role) value).getName() : value;
+            Component c = super.getListCellRendererComponent(list, text, index, selected, focus);
+            ((JComponent) c).putClientProperty("html.disable", Boolean.TRUE);
+            return c;
+        }
     }
 }

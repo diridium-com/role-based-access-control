@@ -76,11 +76,14 @@ final class DeletedChannelSweep {
                 // The map's keys are the column labels as the driver returns them: ROLEID on Derby and
                 // Oracle, roleid on PostgreSQL, roleId on MySQL and SQL Server.
                 int roleId = ((Number) column(row, "roleId")).intValue();
-                String channelId = String.valueOf(column(row, "channelId")).trim();
-                if (live.contains(channelId)) {
+                // Compared trimmed (CHAR columns pad), deleted as read: on Oracle a padded CHAR value
+                // only matches a bind of the same length, so a trimmed id would delete nothing and
+                // the row would be logged as removed at every start.
+                String stored = String.valueOf(column(row, "channelId"));
+                if (live.contains(stored.trim())) {
                     leftByRole.merge(roleId, 1, Integer::sum);
                 } else {
-                    delete.delete(roleId, channelId);
+                    delete.delete(roleId, stored);
                     removedByRole.merge(roleId, 1, Integer::sum);
                 }
             }

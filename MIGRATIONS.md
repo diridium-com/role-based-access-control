@@ -41,12 +41,13 @@ writeSchemaVersion(LATEST_VERSION);
 ```
 
 **Detection runs on every startup, not only when the property is null.**
-The engine's plugin uninstall drops the RBAC tables but does not clear
-the plugin's {@code CONFIGURATION} properties, so on reinstall a stale
-{@code schema_version} would otherwise convince the migrator that no
-work is needed. Always detecting from {@code DatabaseMetaData} avoids
-the issue and also tolerates other operational quirks (manual edits to
-CONFIGURATION, partial restores, pre-versioning installs).
+On uninstall the engine drops the plugin's tables and, at the restart that
+completes the uninstall, clears the plugin's `CONFIGURATION` properties,
+`schema_version` included (measured by the e2e uninstall scenario on all six
+databases, 2026-11-06), so a reinstall starts clean. Detecting from
+`DatabaseMetaData` on every start is for the other quirks: manual edits to
+CONFIGURATION, partial restores, pre-versioning installs, and a stored
+version that doesn't match the tables for any other reason.
 
 Each `applyVN()` method:
 
@@ -91,7 +92,12 @@ When the schema needs to change:
    write SQL for all five supported dialects (Derby, MySQL, Oracle,
    PostgreSQL, SQL Server)
 5. **Never edit prior `applyVN()` methods.** They have already run on
-   customer installs. Append only.
+   customer installs. Append only. The create scripts (`applyV1`'s SQL
+   files) may change when a later step would only re-create what they
+   make: `sqlserver-rbac-tables.sql` creates the text columns as
+   `NVARCHAR` since v3, so a fresh install has nothing for v3 to convert
+   and the step is a no-op there, while an install created by the old
+   script still gets converted.
 6. Update this document with what version N does
 7. Update `MigrationStatusTest` or add a new test class as appropriate
 

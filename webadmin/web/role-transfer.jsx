@@ -5,7 +5,8 @@
  * Export Roles and Import Roles on the Roles settings panel: the two task
  * handlers and the dialogs they open. The panel keeps one `transfer` value
  * ({ kind: 'export', roles, channelMap } or { kind: 'import', fileText, initial }) and
- * renders <TransferDialogs> for it.
+ * renders <TransferDialogs> for it. Export reads the roles from the server on
+ * each click, as the Swing Administrator does, never the panel's last list.
  */
 
 import { MSG_NO_ROLES_TO_EXPORT, importRefusedText } from './role-transfer-core.js';
@@ -18,9 +19,17 @@ export function makeRoleTransfer(platform, api) {
     const ExportDialog = makeRoleExportDialog(platform, api);
     const ImportDialog = makeRoleImportDialog(platform, api);
 
-    /* The value to open the export dialog with, or null (with a message) when
-       no role but the admin role exists. */
-    function startExport(roles, channelMap) {
+    /* Resolves the value to open the export dialog with, or null (with a
+       message) when the roles can't be read or no role but the admin role
+       exists. channelMap is the panel's channel names, or null. */
+    async function startExport(channelMap) {
+        let roles;
+        try {
+            roles = await api.getRoles();
+        } catch (e) {
+            ui.toast(String(e && e.message || e), 'error');
+            return null;
+        }
         const exportable = roles.filter((r) => !r.isAdmin);
         if (exportable.length === 0) {
             ui.toast(MSG_NO_ROLES_TO_EXPORT, 'info');

@@ -3,7 +3,6 @@
 
 package com.diridium.rbac;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -40,10 +39,5 @@ class RoleEditorDialogWarningTest {
     void otherPermissionsGetNoTooltip() {
         assertNull(tooltipFor("viewChannels"));
         assertNull(tooltipFor(RbacServletInterface.PERMISSION_VIEW));
-    }
-
-    @Test
-    void noChannelsLineIsTheAgreedWording() {
-        assertEquals("This role sees no channels until some are ticked.", RoleEditorDialog.NO_CHANNELS_LINE);
     }
 }

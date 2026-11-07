@@ -62,26 +62,35 @@ public class RbacChannelPlugin implements ChannelPlugin {
      */
     static int channelRemoved(String channelId, String channelName, Function<String, List<Integer>> rolesFor,
             Function<String, Integer> delete, IntFunction<Role> roleById, Runnable invalidate) {
+        List<Integer> roleIds;
+        int removed;
         try {
-            List<Integer> roleIds = rolesFor.apply(channelId);
+            roleIds = rolesFor.apply(channelId);
             if (roleIds.isEmpty()) {
                 return 0;
             }
-            int removed = delete.apply(channelId);
+            removed = delete.apply(channelId);
             invalidate.run();
-            for (int roleId : roleIds) {
-                Role role = roleById.apply(roleId);
-                String name = role != null ? role.getName() : "id " + roleId;
-                boolean none = role != null && (role.getChannelIds() == null || role.getChannelIds().isEmpty());
-                log.info("RBAC: found deleted channel '{}' in role '{}', removing stale data.{}", channelName, name,
-                        none ? " Role '" + name + "' now has no channels." : "");
-            }
-            return removed;
         } catch (Exception e) {
-            log.warn("RBAC: could not remove the restrictions to deleted channel '{}' (non-fatal, the startup sweep"
-                    + " will): {}", channelName, e.getMessage());
+            log.warn("RBAC maintenance: could not remove the restrictions to deleted channel '{}' (non-fatal, the"
+                    + " startup sweep will): {}", channelName, e.getMessage());
+            log.debug("RBAC maintenance: the failure", e);
             return 0;
         }
+        // The rows are gone; a failed read of a role's name only changes the log line.
+        for (int roleId : roleIds) {
+            Role role = null;
+            try {
+                role = roleById.apply(roleId);
+            } catch (Exception e) {
+                log.debug("RBAC maintenance: could not read role {} for the log", roleId, e);
+            }
+            String name = role != null ? role.getName() : "id " + roleId;
+            boolean none = role != null && (role.getChannelIds() == null || role.getChannelIds().isEmpty());
+            log.info("RBAC maintenance: channel '{}' was deleted, removed its restriction from role '{}'.{}",
+                    channelName, name, none ? " Role '" + name + "' now has no channels." : "");
+        }
+        return removed;
     }
 
     private static void invalidateCache() {

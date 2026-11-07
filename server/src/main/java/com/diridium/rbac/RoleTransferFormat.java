@@ -48,7 +48,9 @@ final class RoleTransferFormat {
     /** Far more than any real export; bounds what the parser is asked to read. */
     static final int MAX_CHARS = 5 * 1024 * 1024;
 
-    // The rbac_role and rbac_role_permission column sizes on every database.
+    // The rbac_role and rbac_role_permission column sizes, counted in characters. Oracle counts
+    // VARCHAR2 in bytes unless the database uses character semantics, so there a shorter value
+    // of multi-byte text can still be refused by the database at the apply (a 500, nothing written).
     static final int MAX_NAME = 255;
     static final int MAX_PERMISSION = 255;
     static final int MAX_DESCRIPTION = 1024;
@@ -228,6 +230,7 @@ final class RoleTransferFormat {
 
         List<ExportedRole> roles = new ArrayList<>();
         Set<String> names = new HashSet<>();
+        Map<String, String> channelNames = new HashMap<>();
         for (Element element : children(root, "<rbacRoles>")) {
             if (!"role".equals(element.getTagName())) {
                 throw undefined(element, "<rbacRoles>");
@@ -237,6 +240,16 @@ final class RoleTransferFormat {
             // export has to read back. Where the database holds two names as one, the import says so.
             if (!names.add(role.name())) {
                 throw new Refusal("The file has more than one role named '" + role.name() + "'.");
+            }
+            // One channel is one name across the whole file: an export writes every role's channels from one
+            // snapshot, and the import matches a channel by name once per id, so a hand-merged file that
+            // names an id two ways would match the second role to the first name's channel.
+            for (Channel channel : role.channels()) {
+                String earlier = channelNames.putIfAbsent(channel.id(), channel.name());
+                if (earlier != null && !earlier.equals(channel.name())) {
+                    throw new Refusal("The file lists the channel " + channel.id() + " under two names, '" + earlier
+                            + "' and '" + channel.name() + "'.");
+                }
             }
             roles.add(role);
         }
@@ -298,6 +311,7 @@ final class RoleTransferFormat {
             throws Refusal {
         allowAttributes(permissionsElement);
         List<String> permissions = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
         for (Element child : children(permissionsElement, where)) {
             if (!"permission".equals(child.getTagName())) {
                 throw undefined(child, where);
@@ -310,7 +324,7 @@ final class RoleTransferFormat {
                 throw new Refusal("The role '" + name + "' has a permission longer than " + MAX_PERMISSION
                         + " characters.");
             }
-            if (permissions.contains(permission)) {
+            if (!seen.add(permission)) {
                 throw new Refusal("The role '" + name + "' lists the permission '" + permission + "' twice.");
             }
             permissions.add(permission);

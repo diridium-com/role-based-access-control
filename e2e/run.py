@@ -9,7 +9,8 @@ database, driven over the engine's REST API as real logged-in users.
 
 Databases: derby, postgres, mysql, sqlserver (jTDS driver), sqlserver-ms (Microsoft driver), oracle.
 Needs Java 17 or later (JAVA_HOME or --java-home) for the engine, and Docker for every database but Derby.
---work must not exist yet; the run leaves each engine and its logs there.
+--work must not exist yet; the run leaves each scenario's logs there, and the engine copy itself only when the
+scenario failed (or with --keep-engines).
 
 Scenarios: fresh (every feature, with controls), one upgrade per entry in upgrade-sources.txt, and uninstall.
 An upgrade from a release built for an older engine starts on that engine, whose tarball engines.txt names,
@@ -25,6 +26,7 @@ Exit status 1 if any check failed.
 import argparse
 import hashlib
 import os
+import shutil
 import sys
 import time
 import traceback
@@ -62,6 +64,22 @@ def download(url, digest, dest):
     return dest
 
 
+def keep_logs_and_remove(home):
+    """A passed scenario keeps only its engine's logs (mirth.log and the rolled parts, the console captures)
+    beside where the copy was, and the copy itself goes: about 2.6 GB per scenario."""
+    kept = home + "-logs"
+    os.makedirs(kept)
+    logs = os.path.join(home, "logs")
+    if os.path.isdir(logs):
+        for entry in os.listdir(logs):
+            shutil.move(os.path.join(logs, entry), kept)
+    for entry in os.listdir(home):
+        if entry.startswith("console-") and entry.endswith(".log"):
+            shutil.move(os.path.join(home, entry), kept)
+    shutil.rmtree(home)
+    print(f"REMOVED engine copy {home}; its logs are in {kept}", flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--db", required=True, choices=KINDS)
@@ -71,6 +89,8 @@ def main():
     parser.add_argument("--java-home", default=os.environ.get("JAVA_HOME"))
     parser.add_argument("--scenarios", default="all", help="comma separated: fresh, upgrade-<version>, uninstall")
     parser.add_argument("--label-as", help="install the zips relabelled for this engine version")
+    parser.add_argument("--keep-engines", action="store_true",
+                        help="keep every scenario's engine copy; without it a passed scenario keeps only its logs")
     args = parser.parse_args()
 
     plan = [("fresh", scenarios.fresh, {})]
@@ -95,7 +115,9 @@ def main():
         its role, and relabel() refuses to overwrite, so an older release with the same file name as the zip
         under test can never replace it."""
         built_for = mirth_version(zip_path)
-        if not args.label_as or built_for == args.label_as:
+        # Only the zip under test is relabelled: an older release in an upgrade scenario runs on the engine it
+        # was built for (e2e/engines.txt), so relabelling it would skip the engine upgrade the scenario tests.
+        if role != "new" or not args.label_as or built_for == args.label_as:
             return zip_path
         relabelled.append(f"{os.path.basename(zip_path)} (built for OIE {built_for})")
         return relabel(zip_path, args.label_as,
@@ -153,6 +175,12 @@ def main():
             finally:
                 for engine in engines:
                     engine.stop()
+                if report.failed or args.keep_engines:
+                    for engine in engines:
+                        print(f"KEPT [{name}] engine copy {engine.home}", flush=True)
+                else:
+                    for engine in engines:
+                        keep_logs_and_remove(engine.home)
     finally:
         db.stop()
 

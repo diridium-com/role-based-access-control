@@ -31,6 +31,7 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     # Tests run on 17, the engine's minimum, and on 21, the JRE the 4.7.0 installers
     # bundle. <release>17 in the POM keeps the output Java 17 bytecode on both.
     strategy:
@@ -132,6 +133,7 @@ jobs:
   # moved.
   browser:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       OIE_WEB_CLIENT_REF: 932f3bb69ec9accece660db4f4c4f617beff1466 # v1.3.0
     steps:
@@ -188,8 +190,9 @@ jobs:
   # Installs the zip into the released OIE engine through its own installer, the way a
   # user would, and runs the scenarios in e2e/run.py as real signed-in users: fresh install
   # (seeding, roles, the admin floor, what each role can and can't do, channel restrictions,
-  # Data Pruner, the cache, the orphan sweep, a restart), an upgrade from each release in
-  # e2e/upgrade-sources.txt, and uninstall. One job per database and Java: the engine runs
+  # Data Pruner and the plugin-settings guard, the cache, export and import, a deleted user's
+  # assignment, the channel-delete hook and the startup sweep, a restart), an upgrade from
+  # each release in e2e/upgrade-sources.txt, and uninstall. One job per database and Java: the engine runs
   # on 17 and on 21, the Java the OIE 4.7.0 installers bundle.
   e2e:
     needs: build

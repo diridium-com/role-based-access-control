@@ -111,6 +111,44 @@ class RoleDetailRowsTest {
     }
 
     @Test
+    void matchText_byIdWithNoNameInImport_isByIdNotRenamed() {
+        // The exporter writes name="" for a channel its engine lacked; the web client receives it as null.
+        assertEquals("by id", RoleDetailRows.matchText(ch("a", "Lab", "", "a", RoleImportChannel.Match.BY_ID, true)));
+        assertEquals("by id", RoleDetailRows.matchText(ch("a", "Lab", null, "a", RoleImportChannel.Match.BY_ID, true)));
+    }
+
+    @Test
+    void channelRows_emptyNameInImport_isNoName() {
+        RoleImportRow r = row(RoleImportRow.Action.CREATE);
+        r.setChannelsAfter(Arrays.asList(
+                ch("id-a", "Alpha", "", "id-a", RoleImportChannel.Match.BY_ID, true),
+                ch("file-e", null, "", "file-e", RoleImportChannel.Match.NOT_FOUND, false)));
+        List<String[]> rows = RoleDetailRows.channelRows(r);
+        assertEquals(Arrays.asList("Alpha", "id-a", "", "yes", "by id", "", "id-a"), cols(rows.get(0)));
+        assertEquals(Arrays.asList("file-e", "", "", "", "not on this engine", "", "file-e"), cols(rows.get(1)),
+                "no name anywhere: the id, as the web client shows it");
+    }
+
+    @Test
+    void channelRows_currentChannelDeletedHereThatTheImportNames_isOneRow() {
+        RoleImportRow r = row(RoleImportRow.Action.OVERWRITE);
+        r.setExistsHere(true);
+        r.setChannelsNow(Arrays.asList(
+                ch("id-own", "Own", null, null, RoleImportChannel.Match.BY_ID, true),
+                ch("id-del", null, null, null, RoleImportChannel.Match.NOT_FOUND, true)));
+        r.setChannelsAfter(Arrays.asList(
+                ch("id-del", "Old lab", "Old lab", "id-del", RoleImportChannel.Match.NOT_FOUND, false),
+                ch("file-x", "Missing", "Missing", "file-x", RoleImportChannel.Match.NOT_FOUND, false)));
+        List<String[]> rows = RoleDetailRows.channelRows(r);
+        assertEquals(3, rows.size());
+        assertEquals(Arrays.asList("(no longer exists)", "id-del", "yes", "", "deleted on this engine", "Old lab",
+                "id-del"), cols(rows.get(0)));
+        assertEquals(Arrays.asList("Missing", "", "", "", "not on this engine", "Missing", "file-x"), cols(rows.get(1)),
+                "a channel only the import has is still not joined");
+        assertEquals(Arrays.asList("Own", "id-own", "yes", "", "not in the import", "", ""), cols(rows.get(2)));
+    }
+
+    @Test
     void channelRows_keptChannelsAreCurrentlyAndAfterWithNoImportColumns() {
         RoleImportRow r = row(RoleImportRow.Action.OVERWRITE);
         r.setExistsHere(true);

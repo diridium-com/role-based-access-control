@@ -10,7 +10,6 @@ import signal
 import socket
 import subprocess
 import tarfile
-import time
 import xml.etree.ElementTree as ET
 import zipfile
 
@@ -30,8 +29,13 @@ def free_ports(count):
             s.close()
 
 
-def free_port():
-    return free_ports(1)[0]
+def java_version(java_home):
+    """JAVA_VERSION from the JDK's release file, as the engine prints it in its startup line."""
+    with open(os.path.join(java_home, "release"), encoding="utf-8") as f:
+        for line in f:
+            if line.startswith("JAVA_VERSION="):
+                return line.split("=", 1)[1].strip().strip('"')
+    raise ApiError(f"no JAVA_VERSION in {java_home}/release")
 
 
 def unpack(tarball, dest):
@@ -88,7 +92,7 @@ class Engine:
         self.process = None
         self.console = None
         self.last_start_lost_port = False
-        self.port = free_port()
+        self.port = None  # set by configure() through _set_ports()
         self.starts = 0
         # Stock OIE logs only ERROR. rbac logs its schema steps and its admin role seeding at INFO and every
         # refusal at WARN, and the tests read those lines, so com.diridium is turned up here.

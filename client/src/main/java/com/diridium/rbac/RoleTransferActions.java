@@ -20,6 +20,9 @@ import java.util.function.Supplier;
 
 import javax.swing.SwingWorker;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.mirth.connect.client.core.ClientException;
 import com.mirth.connect.client.ui.Frame;
 
@@ -33,6 +36,7 @@ import com.mirth.connect.client.ui.Frame;
  */
 class RoleTransferActions {
 
+    private static final Logger log = LoggerFactory.getLogger(RoleTransferActions.class);
     private static final String DEFAULT_FILE_NAME = "rbac-roles.xml";
 
     private final Frame parent;
@@ -86,7 +90,8 @@ class RoleTransferActions {
             try {
                 Files.write(file.toPath(), text.getBytes(StandardCharsets.UTF_8));
             } catch (IOException e) {
-                parent.alertError(parent, "File could not be written.");
+                log.warn("RBAC: The role export could not be written to {}", file, e);
+                parent.alertError(parent, RoleImportText.withReason("File could not be written", e));
                 return;
             }
             parent.alertInformation(parent, "Exported " + ids.size() + " role(s).");
@@ -102,13 +107,14 @@ class RoleTransferActions {
         }
         String text;
         try {
-            text = new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8);
-        } catch (IOException e) {
-            parent.alertError(parent, "Unable to read file.");
+            text = RoleImportFile.read(file.toPath());
+        } catch (RoleImportFile.Refused e) {
+            parent.alertError(parent, e.getMessage());
             return;
-        }
-        if (text.startsWith("\uFEFF")) {
-            text = text.substring(1);
+        } catch (IOException e) {
+            log.warn("RBAC: The role import file {} could not be read", file, e);
+            parent.alertError(parent, RoleImportText.withReason("Unable to read file", e));
+            return;
         }
         final String fileText = text;
         RoleImportDialog.Backend backend = new RoleImportDialog.Backend() {

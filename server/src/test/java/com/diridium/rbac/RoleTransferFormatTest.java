@@ -3,6 +3,7 @@
 
 package com.diridium.rbac;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -173,6 +174,16 @@ class RoleTransferFormatTest {
         assertRefused(HEADER + LAB.replace("<channel id=\"c1\" name=\"Lab In\"/>",
                 "<channel id=\"c1\" name=\"Lab In\"/><channel id=\"c1\" name=\"Again\"/>") + "</rbacRoles>",
                 "lists the channel c1 twice");
+    }
+
+    @Test
+    void oneChannelIdUnderTwoNamesInDifferentRoles_isRefused() {
+        String adt = LAB.replace("<name>Lab</name>", "<name>ADT</name>").replace("name=\"Lab In\"", "name=\"Orders\"");
+        assertRefused(HEADER + LAB + adt + "</rbacRoles>",
+                "lists the channel c1 under two names, 'Lab In' and 'Orders'");
+        // The same name twice is fine: that is what an export writes.
+        assertDoesNotThrow(() -> RoleTransferFormat.parse(HEADER + LAB
+                + LAB.replace("<name>Lab</name>", "<name>ADT</name>") + "</rbacRoles>"));
     }
 
     @Test

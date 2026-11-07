@@ -13,6 +13,7 @@ import xml.etree.ElementTree as ET
 import zipfile
 
 import checks as k
+import engine as eng
 import rbac as b
 import transfer_checks as tk
 from oie import Api
@@ -42,14 +43,6 @@ class Report:
         self.notes.append(f"{name}: {value}")
         print(f"NOTE [{self.scenario}] {name}: {value}", flush=True)
 
-    def known(self, name, ok, issue, detail=""):
-        """A check that fails today because of an open issue: failing is a NOTE, not a FAIL. Passing is a PASS plus
-        a NOTE that the issue looks fixed and its marker can go."""
-        if ok:
-            self.check(name, True)
-            self.note("known failure passes", f"{name}: {issue} looks fixed; remove its marker in e2e/")
-        else:
-            self.note("known failure", f"{name} ({issue})" + (f" [{detail}]" if detail else ""))
 
 
 def sha256(data):
@@ -76,6 +69,17 @@ def check_server_jar(r, engine, zip_path):
             got = sha256(f.read())
     r.check(f"installed server jar is {os.path.basename(name)} and the only one",
             jars == [os.path.basename(name)] and got == want, f"found {jars}")
+
+
+def check_java(r, engine):
+    """The engine logs the JVM it runs on at startup; it must be the one --java-home named, not whichever java
+    the PATH found first."""
+    if not engine.java_home:
+        return
+    expected = eng.java_version(engine.java_home)
+    running = [line for line in engine.log().splitlines() if "Running " in line and " on " in line]
+    r.check(f"the engine runs on the Java of --java-home ({expected})",
+            any(f" {expected} on " in line for line in running), running[-1] if running else "no startup line found")
 
 
 def install_and_restart(r, engine, api, zip_path, check_loaded=True):
@@ -124,6 +128,7 @@ def check_schema_version(r, db, dbname, where=""):
 
 def fresh(r, engine, db, dbname, new_zip, **_):
     api = engine.start()
+    check_java(r, engine)
     early = {key: b.create_user(api, "rbac-e2e-" + key, PASSWORD) for key in ("early-1", "early-2")}
     api = install_and_restart(r, engine, api, new_zip)
     w = k.world(engine, api, PASSWORD)
@@ -199,9 +204,11 @@ def fresh(r, engine, db, dbname, new_zip, **_):
             str(trimmed.get(sweep_only)))
     deleted_log = engine.log()[log_len:]
     r.check("mirth.log: the delete names each role it trimmed",
-            "found deleted channel 'rbac e2e gone' in role 'e2e sweep A and gone', removing stale data." in deleted_log
-            and "found deleted channel 'rbac e2e gone' in role 'e2e sweep gone only', removing stale data. Role"
-                " 'e2e sweep gone only' now has no channels." in deleted_log, deleted_log[-1500:])
+            "RBAC maintenance: channel 'rbac e2e gone' was deleted, removed its restriction from role"
+            " 'e2e sweep A and gone'." in deleted_log
+            and "RBAC maintenance: channel 'rbac e2e gone' was deleted, removed its restriction from role"
+                " 'e2e sweep gone only'. Role 'e2e sweep gone only' now has no channels." in deleted_log,
+            deleted_log[-1500:])
     status, ids = b.channel_ids(w.users["sweep-only"])
     r.check("a user whose role is restricted to no channel sees no channel, without a restart",
             status == 200 and ids == set(), f"HTTP {status}: {ids}")
@@ -213,10 +220,9 @@ def fresh(r, engine, db, dbname, new_zip, **_):
     # A row left by a channel deleted while rbac was not loaded: planted by SQL, swept at the next start.
     planted = db.plant_role_channel(dbname, sweep_only, gone)
 
-    before_roles = b.roles(api)
     # RbacChannelPlugin removed the restrictions to the channels earlier checks deleted (A2 in the channel-limited
     # bulk remove) at delete time, so every role is expected back exactly as it is now.
-    expected_roles = before_roles
+    before_roles = b.roles(api)
     before_users = {key: (b.user_role(api, uid) or {}).get("id") for key, uid in w.ids.items()}
     log_len = len(engine.log())
     api = engine.restart()
@@ -236,13 +242,13 @@ def fresh(r, engine, db, dbname, new_zip, **_):
     status, ids = b.channel_ids(login(engine, "rbac-e2e-sweep-only"))
     r.check("after a restart, a user whose role is restricted to no channel still sees no channel",
             status == 200 and ids == set(), f"HTTP {status}: {ids}")
-    before_roles = {rid: role for rid, role in expected_roles.items() if rid not in (sweep_both, sweep_only)}
+    before_roles = {rid: role for rid, role in before_roles.items() if rid not in (sweep_both, sweep_only)}
     r.check("after a restart, the deleted user's role assignment is gone", b.user_role(api, orphan) is None)
     rows = db.user_role_rows(dbname, orphan)
     if rows is not None:
         r.check("after a restart, the deleted user's rbac_user_role row is gone", rows == 0, f"found {rows}")
     other_roles = {rid: role for rid, role in b.roles(api).items() if rid not in (sweep_both, sweep_only)}
-    r.check("after a restart, every other role is unchanged but for restrictions to deleted channels",
+    r.check("after a restart, every other role is unchanged",
             other_roles == before_roles,
             str({rid: (before_roles.get(rid), other_roles.get(rid)) for rid in set(before_roles) | set(other_roles)
                  if before_roles.get(rid) != other_roles.get(rid)}))
@@ -384,8 +390,8 @@ def uninstall(r, engine, db, dbname, new_zip, **_):
     r.check("its extension folder is gone", engine.extension_files(b.PLUGIN_PATH) is None)
     check_tables(r, db, dbname, 0, "after the uninstall: ")
     leftover = db.schema_version(dbname)
-    if leftover is not None:
-        r.note("after the uninstall", f"schema_version {leftover} is left in CONFIGURATION (the engine doesn't clear it)")
+    r.check("after the uninstall: the engine cleared schema_version from CONFIGURATION", leftover is None,
+            f"found {leftover}")
     status, _ = login(engine, "rbac-e2e-viewer").request("GET", "/server/settings")
     r.note("after the uninstall", f"the former read-only user gets HTTP {status} for server settings "
                                   "(the engine's allow-all fallback)")
@@ -393,7 +399,7 @@ def uninstall(r, engine, db, dbname, new_zip, **_):
     log_len = len(engine.log())
     api = install_and_restart(r, engine, api, new_zip)
     after = engine.log()[log_len:]
-    r.check("reinstall: the schema is created again despite the old schema_version", "Applying RBAC schema v1" in after)
+    r.check("reinstall: the schema is created again", "Applying RBAC schema v1" in after)
     check_tables(r, db, dbname, 4, "reinstall: ")
     check_schema_version(r, db, dbname, "reinstall: ")
     now = b.roles(api)

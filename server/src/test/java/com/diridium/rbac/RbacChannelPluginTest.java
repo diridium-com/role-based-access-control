@@ -52,6 +52,17 @@ class RbacChannelPluginTest {
     }
 
     @Test
+    void aFailedRoleLookupAfterTheDelete_stillReportsTheRowsRemoved() {
+        int removed = RbacChannelPlugin.channelRemoved("id-gone", "Gone", id -> List.of(5),
+                id -> { deleted.add(id); return 1; },
+                id -> { throw new IllegalStateException("db unreachable"); }, () -> invalidated = true);
+
+        assertEquals(1, removed, "the rows were removed before the lookup failed");
+        assertEquals(List.of("id-gone"), deleted);
+        assertTrue(invalidated);
+    }
+
+    @Test
     void aFailure_isNonFatal_andLeavesTheRowsForTheSweep() {
         int removed = RbacChannelPlugin.channelRemoved("id-gone", "Gone",
                 id -> { throw new IllegalStateException("db unreachable"); },

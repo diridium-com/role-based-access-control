@@ -5,6 +5,7 @@ package com.diridium.rbac;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.Collections;
@@ -65,5 +66,28 @@ class RoleChannelSelectionTest {
     void adminRoleKeepsItsStoredFlag() {
         assertFalse(RoleChannelSelection.savedRestricted(role(true, false), true));
         assertTrue(RoleChannelSelection.savedRestricted(role(true, true), false));
+    }
+
+    @Test
+    void noChannelsLineIsTheAgreedWording() {
+        assertEquals("This role sees no channels until some are ticked.", RoleChannelSelection.NO_CHANNELS_LINE);
+    }
+
+    @Test
+    void channelsLine_noChannelsOnlyWhenNothingIsTickedAndNothingUnseenIsKept() {
+        assertEquals(RoleChannelSelection.NO_CHANNELS_LINE,
+                RoleChannelSelection.channelsLine(true, false, set("a"), set("a", "b")), "stored ids all listed");
+        assertEquals(RoleChannelSelection.NO_CHANNELS_LINE, RoleChannelSelection.channelsLine(true, false, null, set("a")),
+                "a new role");
+        assertNull(RoleChannelSelection.channelsLine(true, true, set("a", "hidden"), set("a")), "something is ticked");
+        assertNull(RoleChannelSelection.channelsLine(false, false, set("hidden"), set("a")), "All Channels");
+    }
+
+    @Test
+    void channelsLine_countsTheKeptChannelsTheListDoesNotShow() {
+        assertEquals("This role keeps 1 channel this list does not show.",
+                RoleChannelSelection.channelsLine(true, false, set("a", "hidden"), set("a")));
+        assertEquals("This role keeps 2 channels this list does not show.",
+                RoleChannelSelection.channelsLine(true, false, set("h1", "h2"), Collections.<String>emptySet()));
     }
 }

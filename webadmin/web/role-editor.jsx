@@ -15,7 +15,8 @@
  * Apply runs Swing's exact validation chain: name required; refusal to save
  * an existing role with no permission catalog (a silent wipe otherwise);
  * missing-base-permissions Yes/No warn. "Specific Channels" with nothing ticked is
- * legal (the role sees no channels); a line under the list says so.
+ * legal (the role sees no channels); a line under the list says so, or says how
+ * many stored channels the list does not show are kept (noChannelsTickedLine).
  * Orphan permissions (grants not in the fetched catalog) render no checkbox
  * and are silently preserved on Apply.
  *
@@ -33,38 +34,19 @@ import {
     TITLE_ADD_ROLE, TITLE_EDIT_ROLE, MSG_NAME_REQUIRED, TITLE_VALIDATION_ERROR,
     MSG_CATALOG_EMPTY_EDIT, TITLE_PERMISSIONS_UNAVAILABLE,
     missingBaseWarningText, TITLE_MISSING_BASE_PERMISSIONS,
-    MSG_NO_CHANNELS_TICKED
+    noChannelsTickedLine, toggleIn
 } from './rbac-core.js';
+import { makeOverlayShell } from './overlay-shell.jsx';
 
-/* Own classes, NOT host Tailwind utilities: the host generates utilities from
-   ITS source scan, so a class no host file uses simply does not exist in
-   app.css — and this plugin's sources are never scanned (the community-store
-   cs-overlay precedent). Host COMPONENT classes (.panel, .btn, .tabs, .hint)
-   are fine. */
+/* The editor's own rules, inside the overlay shell (overlay-shell.jsx, which
+   says why these are own classes and not host Tailwind utilities). */
 const EDITOR_CSS = `
-.rbac-overlay {
-    position: fixed;
-    top: 0; right: 0; bottom: 0; left: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(0, 0, 0, 0.45);
-    /* Below the host's .modal-overlay (100): the Apply confirms and validation
-       alerts (ui.modal / ui.confirmDialog) must stack above this editor. */
-    z-index: 95;
-}
 .rbac-editor {
     width: 720px;
     max-width: 92vw;
     height: 600px;
-    max-height: 88vh;
-    display: flex;
-    flex-direction: column;
 }
 .rbac-editor > .panel-body {
-    flex: 1;
-    min-height: 0;
-    overflow: auto;
     display: flex;
     flex-direction: column;
 }
@@ -79,8 +61,6 @@ const EDITOR_CSS = `
 .rbac-perm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-items: start; }
 .rbac-fieldset { border: 1px solid var(--line, #8884); border-radius: 4px; padding: 4px 10px 8px; margin: 0; min-width: 0; }
 .rbac-fieldset legend { font-size: 11px; font-weight: 600; padding: 0 4px; }
-.rbac-check { display: flex; align-items: center; gap: 6px; font-size: 12px; margin: 3px 0; cursor: pointer; }
-.rbac-check input { margin: 0; flex: none; }
 .rbac-channel-list {
     display: flex;
     flex-direction: column;
@@ -97,19 +77,12 @@ const EDITOR_CSS = `
 .rbac-channel-list .rbac-check:hover { background: color-mix(in srgb, var(--accent, #46f) 7%, transparent); }
 .rbac-channel-list .rbac-check:has(input:disabled) { opacity: 0.55; cursor: default; }
 .rbac-ch-id { font-family: monospace; font-size: 11px; color: var(--text-dim, #888); }
-.rbac-editor-foot {
-    flex: none;
-    display: flex;
-    justify-content: flex-end;
-    gap: 8px;
-    padding: 10px 14px;
-    border-top: 1px solid var(--line, #8884);
-}
 `;
 
 export function makeRoleEditor(platform) {
     const React = platform.React;
     const ui = platform.ui;
+    const Shell = makeOverlayShell(React);
 
     /* Validation alert (Swing's error JOptionPane): titled, OK-only, \n kept. */
     function alertDialog(title, message) {
@@ -143,7 +116,8 @@ export function makeRoleEditor(platform) {
        or null), extGroups (permission → publishing plugin, for per-plugin
        headers), channels ([{id, name}] live, wire order), onApply(built),
        onCancel(). Apply closes via onApply like Swing: validation passes →
-       the dialog is done; the panel commits and surfaces errors. */
+       the dialog is done; the panel commits and surfaces errors. Escape
+       cancels (Swing dialog parity), through the overlay shell. */
     function RoleEditor({ role, catalog, extGroups, channels, onApply, onCancel }) {
         const isAdmin = !!(role && role.isAdmin);
         const catalogEmpty = !catalog || catalog.size === 0;
@@ -162,23 +136,7 @@ export function makeRoleEditor(platform) {
         const [tab, setTab] = React.useState('permissions');
 
         const channelsEnabled = mode === 'specific' && !isAdmin;
-        const noneTicked = mode === 'specific' && checkedChannels.size === 0;
-
-        // Escape cancels (Swing dialog parity) — unless a host modal (confirm/
-        // alert) is stacked on top, which owns the key.
-        React.useEffect(() => {
-            const onKey = (e) => {
-                if (e.key === 'Escape' && !document.querySelector('.modal-overlay')) onCancel();
-            };
-            document.addEventListener('keydown', onKey);
-            return () => document.removeEventListener('keydown', onKey);
-        }, [onCancel]);
-
-        const toggleIn = (set, value) => {
-            const next = new Set(set);
-            if (next.has(value)) next.delete(value); else next.add(value);
-            return next;
-        };
+        const channelsLine = noChannelsTickedLine(mode, checkedChannels.size, role ? role.channelIds : [], liveIds);
 
         async function apply() {
             const trimmedName = name.trim();
@@ -225,96 +183,92 @@ export function makeRoleEditor(platform) {
         }
 
         return (
-            <div className="rbac-overlay">
-                <style>{EDITOR_CSS}</style>
-                <div className="panel rbac-editor">
-                    <div className="panel-header">{role ? TITLE_EDIT_ROLE : TITLE_ADD_ROLE}</div>
-                    <div className="panel-body">
-                        <div className="rbac-form-row">
-                            <label>Name:</label>
-                            <input type="text" value={name} disabled={isAdmin}
-                                onChange={(e) => setName(e.target.value)} />
-                        </div>
-                        <div className="rbac-form-row">
-                            <label>Description:</label>
-                            <input type="text" value={description}
-                                onChange={(e) => setDescription(e.target.value)} />
-                        </div>
-
-                        <div className="tabs">
-                            <button className={'tab' + (tab === 'permissions' ? ' active' : '')}
-                                onClick={() => setTab('permissions')}>Permissions</button>
-                            <button className={'tab' + (tab === 'channels' ? ' active' : '')}
-                                onClick={() => setTab('channels')}>Channel Restrictions</button>
-                        </div>
-
-                        {tab === 'permissions' ? (
-                            <div>
-                                <div className="rbac-preset-row">
-                                    <button className="btn" disabled={isAdmin}
-                                        onClick={() => setSelected(new Set(catalog || []))}>Select All</button>
-                                    <button className="btn" disabled={isAdmin}
-                                        onClick={() => setSelected(new Set())}>Deselect All</button>
-                                    <button className="btn" disabled={isAdmin} title={READ_ONLY_TOOLTIP}
-                                        onClick={() => setSelected(new Set(
-                                            READ_ONLY_PERMISSIONS.filter((p) => catalog && catalog.has(p))))}>
-                                        Read-Only</button>
-                                </div>
-                                <div className="rbac-perm-grid">
-                                    {groups.map((group) => (
-                                        <fieldset key={group.name} className="rbac-fieldset">
-                                            <legend>{group.name}</legend>
-                                            {group.permissions.map((perm) => (
-                                                <label key={perm} className="rbac-check"
-                                                    title={permissionWarning(perm)}>
-                                                    <input type="checkbox" checked={selected.has(perm)} disabled={isAdmin}
-                                                        onChange={() => setSelected((s) => toggleIn(s, perm))} />
-                                                    {perm}
-                                                </label>
-                                            ))}
-                                        </fieldset>
-                                    ))}
-                                </div>
-                                {isAdmin ? <div className="hint">{MSG_ADMIN_EVERY_PERMISSION}</div> : null}
-                            </div>
-                        ) : (
-                            <div>
-                                <div className="rbac-preset-row">
-                                    <label className="rbac-check">
-                                        <input type="radio" name="rbac-channel-mode" checked={mode === 'all'}
-                                            disabled={isAdmin} onChange={() => setMode('all')} />
-                                        All Channels
-                                    </label>
-                                    <label className="rbac-check">
-                                        <input type="radio" name="rbac-channel-mode" checked={mode === 'specific'}
-                                            disabled={isAdmin} onChange={() => setMode('specific')} />
-                                        Specific Channels
-                                    </label>
-                                </div>
-                                <div className="rbac-channel-list">
-                                    {channels.map((channel) => (
-                                        <label key={channel.id} className="rbac-check">
-                                            <input type="checkbox" checked={checkedChannels.has(channel.id)}
-                                                disabled={!channelsEnabled}
-                                                onChange={() => setCheckedChannels((s) => toggleIn(s, channel.id))} />
-                                            <span>{channel.name}</span>
-                                            <span className="rbac-ch-id">{channel.id}</span>
-                                        </label>
-                                    ))}
-                                    {channels.length === 0 ? (
-                                        <div className="hint">No channels</div>
-                                    ) : null}
-                                </div>
-                                {noneTicked ? <div className="hint">{MSG_NO_CHANNELS_TICKED}</div> : null}
-                            </div>
-                        )}
-                    </div>
-                    <div className="rbac-editor-foot">
+            <Shell title={role ? TITLE_EDIT_ROLE : TITLE_ADD_ROLE} className="rbac-editor" css={EDITOR_CSS}
+                onCancel={onCancel} footer={(
+                    <>
                         <button className="btn" onClick={onCancel}>Cancel</button>
                         <button className="btn btn-primary" onClick={() => apply()}>Apply</button>
-                    </div>
+                    </>
+                )}>
+                <div className="rbac-form-row">
+                    <label>Name:</label>
+                    <input type="text" value={name} disabled={isAdmin}
+                        onChange={(e) => setName(e.target.value)} />
                 </div>
-            </div>
+                <div className="rbac-form-row">
+                    <label>Description:</label>
+                    <input type="text" value={description}
+                        onChange={(e) => setDescription(e.target.value)} />
+                </div>
+
+                <div className="tabs">
+                    <button className={'tab' + (tab === 'permissions' ? ' active' : '')}
+                        onClick={() => setTab('permissions')}>Permissions</button>
+                    <button className={'tab' + (tab === 'channels' ? ' active' : '')}
+                        onClick={() => setTab('channels')}>Channel Restrictions</button>
+                </div>
+
+                {tab === 'permissions' ? (
+                    <div>
+                        <div className="rbac-preset-row">
+                            <button className="btn" disabled={isAdmin}
+                                onClick={() => setSelected(new Set(catalog || []))}>Select All</button>
+                            <button className="btn" disabled={isAdmin}
+                                onClick={() => setSelected(new Set())}>Deselect All</button>
+                            <button className="btn" disabled={isAdmin} title={READ_ONLY_TOOLTIP}
+                                onClick={() => setSelected(new Set(
+                                    READ_ONLY_PERMISSIONS.filter((p) => catalog && catalog.has(p))))}>
+                                Read-Only</button>
+                        </div>
+                        <div className="rbac-perm-grid">
+                            {groups.map((group) => (
+                                <fieldset key={group.name} className="rbac-fieldset">
+                                    <legend>{group.name}</legend>
+                                    {group.permissions.map((perm) => (
+                                        <label key={perm} className="rbac-check"
+                                            title={permissionWarning(perm)}>
+                                            <input type="checkbox" checked={selected.has(perm)} disabled={isAdmin}
+                                                onChange={() => setSelected((s) => toggleIn(s, perm))} />
+                                            {perm}
+                                        </label>
+                                    ))}
+                                </fieldset>
+                            ))}
+                        </div>
+                        {isAdmin ? <div className="hint">{MSG_ADMIN_EVERY_PERMISSION}</div> : null}
+                    </div>
+                ) : (
+                    <div>
+                        <div className="rbac-preset-row">
+                            <label className="rbac-check">
+                                <input type="radio" name="rbac-channel-mode" checked={mode === 'all'}
+                                    disabled={isAdmin} onChange={() => setMode('all')} />
+                                All Channels
+                            </label>
+                            <label className="rbac-check">
+                                <input type="radio" name="rbac-channel-mode" checked={mode === 'specific'}
+                                    disabled={isAdmin} onChange={() => setMode('specific')} />
+                                Specific Channels
+                            </label>
+                        </div>
+                        <div className="rbac-channel-list">
+                            {channels.map((channel) => (
+                                <label key={channel.id} className="rbac-check">
+                                    <input type="checkbox" checked={checkedChannels.has(channel.id)}
+                                        disabled={!channelsEnabled}
+                                        onChange={() => setCheckedChannels((s) => toggleIn(s, channel.id))} />
+                                    <span>{channel.name}</span>
+                                    <span className="rbac-ch-id">{channel.id}</span>
+                                </label>
+                            ))}
+                            {channels.length === 0 ? (
+                                <div className="hint">No channels</div>
+                            ) : null}
+                        </div>
+                        {channelsLine ? <div className="hint">{channelsLine}</div> : null}
+                    </div>
+                )}
+            </Shell>
         );
     }
 

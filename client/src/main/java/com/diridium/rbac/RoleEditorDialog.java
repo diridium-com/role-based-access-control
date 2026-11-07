@@ -60,8 +60,6 @@ import com.mirth.connect.client.ui.Frame;
  */
 public class RoleEditorDialog extends JDialog {
 
-    static final String NO_CHANNELS_LINE = "This role sees no channels until some are ticked.";
-
     private Role result = null;
     private final Role existingRole;
 
@@ -339,7 +337,7 @@ public class RoleEditorDialog extends JDialog {
         JScrollPane channelScroll = new JScrollPane(channelCheckboxPanel);
         channelsPanel.add(channelScroll, BorderLayout.CENTER);
 
-        noChannelsLabel = new JLabel(NO_CHANNELS_LINE);
+        noChannelsLabel = new JLabel(RoleChannelSelection.NO_CHANNELS_LINE);
         noChannelsLabel.setBorder(BorderFactory.createEmptyBorder(4, 6, 4, 6));
         noChannelsLabel.setVisible(false);
         channelsPanel.add(noChannelsLabel, BorderLayout.SOUTH);
@@ -461,14 +459,17 @@ public class RoleEditorDialog extends JDialog {
 
     /**
      * Shows the line under the channel list while "Specific Channels" is selected and no
-     * channel is ticked.
+     * channel is ticked (see {@link RoleChannelSelection#channelsLine}).
      */
     private void updateNoChannelsLine() {
         boolean any = false;
         for (JCheckBox cb : channelCheckboxes.values()) {
             any |= cb.isSelected();
         }
-        noChannelsLabel.setVisible(specificChannelsRadio.isSelected() && !any);
+        String line = RoleChannelSelection.channelsLine(specificChannelsRadio.isSelected(), any,
+                existingRole != null ? existingRole.getChannelIds() : null, channelCheckboxes.keySet());
+        noChannelsLabel.setText(line == null ? RoleChannelSelection.NO_CHANNELS_LINE : line);
+        noChannelsLabel.setVisible(line != null);
     }
 
     private void save() {

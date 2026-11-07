@@ -22,6 +22,9 @@ the caller's role.
   channel scope and its full permission list.
 - **Both administrators**: the Swing Administrator and the OIE Web
   Administrator, from the same zip.
+- **Export and import**: roles go to a plain XML file and come back on the
+  same or another engine, with a preview of what the import changes (since
+  1.3.0, admin role only).
 
 ## Before you install
 

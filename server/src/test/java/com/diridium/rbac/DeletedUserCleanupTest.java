@@ -57,6 +57,28 @@ class DeletedUserCleanupTest {
     }
 
     @Test
+    void twoRequestsHandlingTheSameDeletedUser_removeTheAssignmentOnce() {
+        // A second request runs the cleanup while the first is inside the engine lookup: whichever takes the
+        // pending entry does the delete, the other skips it.
+        DeletedUserCleanup[] holder = new DeletedUserCleanup[1];
+        int[] lookups = {0};
+        holder[0] = new DeletedUserCleanup(id -> {
+            if (lookups[0]++ == 0) {
+                holder[0].run();  // the other request, between this lookup and the removal
+            }
+            return false;
+        }, id -> "Pharmacy", deleted::add, invalidated::add, now::get);
+        holder[0].expect(7, "jsmith");
+        engineUsers.remove(7);
+
+        int removed = holder[0].run();
+
+        assertEquals(List.of(7), deleted, "one delete, not two");
+        assertEquals(0, removed, "the nested run took the entry, so the outer run removed nothing");
+        assertTrue(holder[0].pendingUserIds().isEmpty());
+    }
+
+    @Test
     void userGoneWithNoRoleRemovesNothing() {
         DeletedUserCleanup c = cleanup(null);
         c.expect(8, "nobody");

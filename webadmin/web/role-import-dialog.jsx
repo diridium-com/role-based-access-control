@@ -8,16 +8,20 @@
  * (a click on a row selects it), the selected role's permissions and channels
  * in two tables below it, and an Import button that applies the ticked rows
  * with the preview's plan token. Any failed apply shows the server's message
- * and previews again, so the tables show what the roles are now.
+ * and previews again, so the tables show what the roles are now. The tables,
+ * the "not applied" line and the name-match hint are the last successful
+ * preview's; after a failed preview Import stays disabled until one succeeds.
+ * While a preview or an apply runs, Cancel and Escape do nothing.
  */
 
 import {
     TITLE_IMPORT_ROLES, IMPORT_APPLY_CHANNELS, IMPORT_MATCH_BY_NAME, IMPORT_COLUMNS,
     PERMISSION_COLUMNS, CHANNEL_COLUMNS, CHANNEL_ID_COLUMNS, PERMISSIONS_LEGEND, CHANNELS_LEGEND, CHANNELS_NOT_APPLIED,
     importRefusedText, importSourceText, importedText, actionLabel, canTick, notesText,
-    mergeTicks, pickedIndexes, nameMatchHint, sortRows, permissionsCountText, channelsCountText,
-    permissionsHeading, channelsHeading, permissionRows, channelRows, everyChannelText, compareCounts
+    mergeTicks, pickedIndexes, nameMatchHint, sortByColumn, IMPORT_COUNT_COLUMNS, permissionsCountText, channelsCountText,
+    permissionsHeading, channelsHeading, permissionRows, channelRows, everyChannelText
 } from './role-transfer-core.js';
+import { toggleIn } from './rbac-core.js';
 import { makeTransferShell } from './role-transfer-shell.jsx';
 import { makeDetailTables } from './role-detail-tables.jsx';
 
@@ -33,16 +37,18 @@ export function makeRoleImportDialog(platform, api) {
        onClose(), onImported() (after a successful apply) */
     return function RoleImportDialog({ fileText, initial, onClose, onImported }) {
         const [result, setResult] = React.useState(initial);
-        const [applyChannels, setApplyChannels] = React.useState(true);
-        const [matchByName, setMatchByName] = React.useState(false);
+        const [applyChannels, setApplyChannels] = React.useState(initial.applyChannels);
+        const [matchByName, setMatchByName] = React.useState(initial.matchChannelsByName);
         const [ticks, setTicks] = React.useState(() => mergeTicks([], new Set(), initial.rows));
         const [busy, setBusy] = React.useState(false);
+        const [previewFailed, setPreviewFailed] = React.useState(false);
         const [selectedIndex, setSelectedIndex] = React.useState(initial.rows.length ? initial.rows[0].index : -1);
         const [sort, toggleSort] = useSort();
         const latest = React.useRef(0);
 
         // Preview the file again with these settings. A refused file closes the
-        // dialog; a failed call keeps what is shown and says why.
+        // dialog; a failed call keeps what is shown, says why, and disables
+        // Import until a preview succeeds.
         async function preview(nextApply, nextMatch) {
             const mine = ++latest.current;
             setBusy(true);
@@ -58,8 +64,12 @@ export function makeRoleImportDialog(platform, api) {
                 }
                 setTicks((before) => mergeTicks(result.rows, before, next.rows));
                 setResult(next);
+                setPreviewFailed(false);
             } catch (e) {
-                if (mine === latest.current) ui.toast(errorText(e), 'error');
+                if (mine === latest.current) {
+                    setPreviewFailed(true);
+                    ui.toast(errorText(e), 'error');
+                }
             } finally {
                 if (mine === latest.current) setBusy(false);
             }
@@ -77,28 +87,23 @@ export function makeRoleImportDialog(platform, api) {
             preview(applyChannels, on);
         }
 
+        // Apply with the settings of the preview shown, which its plan token covers.
         async function apply() {
             const pick = pickedIndexes(result.rows, ticks);
             setBusy(true);
             try {
                 await api.importRoles(fileText, {
-                    dryRun: false, applyChannels, matchChannelsByName: matchByName,
+                    dryRun: false, applyChannels: result.applyChannels, matchChannelsByName: result.matchChannelsByName,
                     pick, planToken: result.planToken
                 });
             } catch (e) {
                 ui.toast(errorText(e), 'error');
-                await preview(applyChannels, matchByName);
+                await preview(result.applyChannels, result.matchChannelsByName);
                 return;
             }
             ui.toast(importedText(pick.length), 'success');
             onImported();
         }
-
-        const toggleTick = (index) => setTicks((set) => {
-            const next = new Set(set);
-            if (next.has(index)) next.delete(index); else next.add(index);
-            return next;
-        });
 
         // The selected role: kept across a preview while a row with its index exists.
         const selected = result.rows.find((r) => r.index === selectedIndex) || result.rows[0];
@@ -106,19 +111,16 @@ export function makeRoleImportDialog(platform, api) {
             (r) => (ticks.has(r.index) ? 1 : 0), (r) => r.name, (r) => actionLabel(r.action),
             (r) => r.descriptionNow, (r) => r.descriptionAfter, permissionsCountText, channelsCountText, notesText
         ];
-        // The Permissions and Channels columns (5 and 6) sort by number.
-        const countColumn = sort && (sort.col === 5 || sort.col === 6);
-        const shownRows = sort
-            ? sortRows(result.rows, sortKeys[sort.col], sort.dir, countColumn ? compareCounts : undefined) : result.rows;
+        const shownRows = sortByColumn(result.rows, sortKeys, sort, IMPORT_COUNT_COLUMNS);
 
-        const hint = nameMatchHint(result.channelNameMatches.length, applyChannels, matchByName);
+        const hint = nameMatchHint(result.channelNameMatches.length, result.applyChannels, result.matchChannelsByName);
         const nothingPicked = pickedIndexes(result.rows, ticks).length === 0;
 
         return (
-            <Shell title={TITLE_IMPORT_ROLES} onCancel={onClose} footer={(
+            <Shell title={TITLE_IMPORT_ROLES} onCancel={onClose} closable={!busy} footer={(
                 <>
-                    <button className="btn" onClick={onClose}>Cancel</button>
-                    <button className="btn btn-primary" disabled={busy || nothingPicked}
+                    <button className="btn" disabled={busy} onClick={onClose}>Cancel</button>
+                    <button className="btn btn-primary" disabled={busy || nothingPicked || previewFailed}
                         onClick={() => apply()}>Import</button>
                 </>
             )}>
@@ -148,7 +150,7 @@ export function makeRoleImportDialog(platform, api) {
                                             checked={canTick(row) && ticks.has(row.index)}
                                             disabled={busy || !canTick(row)}
                                             onClick={(e) => e.stopPropagation()}
-                                            onChange={() => toggleTick(row.index)} />
+                                            onChange={() => setTicks((set) => toggleIn(set, row.index))} />
                                     </td>
                                     <td>{row.name}</td>
                                     <td>{actionLabel(row.action)}</td>
@@ -169,7 +171,7 @@ export function makeRoleImportDialog(platform, api) {
                         channels={{ heading: channelsHeading(selected.name), columns: CHANNEL_COLUMNS,
                             rows: channelRows(selected), idColumns: CHANNEL_ID_COLUMNS,
                             legend: CHANNELS_LEGEND, notice: everyChannelText(selected),
-                            notApplied: applyChannels ? null : CHANNELS_NOT_APPLIED }} />
+                            notApplied: result.applyChannels ? null : CHANNELS_NOT_APPLIED }} />
                 ) : null}
             </Shell>
         );

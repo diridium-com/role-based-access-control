@@ -68,7 +68,10 @@ final class RoleImportWriter {
             } else {
                 roleId = write.existingId();
                 params.put("id", roleId);
-                session.update(stmt("updateRole"), params);
+                if (session.update(stmt("updateRole"), params) != 1) {
+                    // The role was deleted between the re-plan and this transaction.
+                    throw new NameClash("The roles changed since the preview. Preview the import again.", true);
+                }
             }
             RbacRepository.savePermissionsForRole(session, roleId, role.getPermissions());
             if (write.writeChannels()) {

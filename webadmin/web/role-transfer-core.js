@@ -55,6 +55,8 @@ const EVERY = 'every';
 const NONE = 'none';
 const YES = 'yes';
 const NOT_IN_IMPORT = 'not in the import';
+const NO_LONGER_EXISTS = '(no longer exists)';
+const DELETED_HERE = 'deleted on this engine';
 export const EXPORT_EVERY_CHANNEL = 'This role sees every channel.';
 export const EXPORT_NO_CHANNEL = 'This role sees no channels.';
 export function importRefusedText(refusal) {
@@ -141,16 +143,37 @@ function firstNumber(text) {
     return /^\d+$/.test(first) ? Number(first) : Infinity;
 }
 
+// The default order of a column: two texts by localeCompare with no locale
+// argument (the browser's language, as the Swing tables sort text with the
+// default Collator); anything else, such as a tick column's 0 and 1, by < and >.
+function compareValues(x, y) {
+    if (typeof x === 'string' && typeof y === 'string') return x.localeCompare(y);
+    return x > y ? 1 : x < y ? -1 : 0;
+}
+
 // Sort rows by a column. key is a column index or property name, or a function
 // of the row. Ascending or descending; the sort is stable and returns a copy.
-// compare is an optional comparator of two column values (default: < and >).
+// compare is an optional comparator of two column values (default: compareValues).
 export function sortRows(rows, key, dir, compare) {
     const sign = dir === 'desc' ? -1 : 1;
     const of = typeof key === 'function' ? key : (r) => r[key];
-    const order = compare || ((x, y) => (x > y ? 1 : x < y ? -1 : 0));
+    const order = compare || compareValues;
     return rows.map((r, i) => [r, i]).sort((a, b) => {
         return sign * order(of(a[0]), of(b[0])) || a[1] - b[1];
     }).map((p) => p[0]);
+}
+
+// The columns of the roles tables that hold counts and sort by number.
+export const EXPORT_COUNT_COLUMNS = [3, 4];
+export const IMPORT_COUNT_COLUMNS = [5, 6];
+
+// The rows as a header click left them. sort is { col, dir } or null (the rows
+// as given); keys holds each column's sort key, or is null to sort by the
+// column index; a column in countColumns sorts with compareCounts.
+export function sortByColumn(rows, keys, sort, countColumns = []) {
+    if (!sort) return rows;
+    const key = keys ? keys[sort.col] : sort.col;
+    return sortRows(rows, key, sort.dir, countColumns.includes(sort.col) ? compareCounts : undefined);
 }
 
 // The Permissions and Channels columns of the roles table. now and after are
@@ -202,11 +225,12 @@ export function everyChannelText(row) {
 }
 
 // How a channel in the import was found on this engine. Empty for an entry that
-// is not from the import (a kept copy of the channels here has no id in it).
+// is not from the import (a kept copy of the channels here has no id in it). A
+// channel with no name in the import (null or empty) found by id reads "by id".
 export function foundText(channel) {
     if (channel.fileId === null) return '';
     if (channel.match === 'BY_ID') {
-        return channel.fileName === null || channel.name === channel.fileName ? 'by id' : 'by id, renamed on this engine';
+        return !channel.fileName || channel.name === channel.fileName ? 'by id' : 'by id, renamed on this engine';
     }
     if (channel.match === 'BY_NAME') return channel.used ? 'by name' : 'by name, not used';
     return 'not on this engine';
@@ -228,15 +252,22 @@ export function permissionRows(row) {
 // role's other channels on this engine. An import channel that is also one the
 // role has on this engine (same id) is one row. A channel the role has that is
 // not in the import reads "not in the import". A name-less channel shows its
-// id in the Channel column. A row is [Channel, Id on this engine, Currently, After import,
-// Match, Name in import, Id in import].
+// id in the Channel column. A channel the role has whose id no longer exists on
+// this engine (no name here) and that the import names but did not find is one
+// row, "(no longer exists)" and "deleted on this engine". A row is [Channel,
+// Id on this engine, Currently, After import, Match, Name in import, Id in import].
 export function channelRows(row) {
     const kept = row.channels === 'KEPT';
     const nowIds = new Set(row.channelsNow.map((c) => c.id));
+    const deletedHere = new Set(row.channelsNow.filter((c) => c.name === null).map((c) => c.id));
     const joined = new Set();
     const rows = row.channelsAfter.map((c) => {
         const fromImport = !kept && c.fileId !== null;
         const missing = fromImport && c.match === 'NOT_FOUND';
+        if (missing && deletedHere.has(c.id)) {
+            joined.add(c.id);
+            return [NO_LONGER_EXISTS, c.id, YES, '', DELETED_HERE, c.fileName === null ? '' : c.fileName, c.fileId];
+        }
         const isNow = !missing && nowIds.has(c.id);
         if (isNow) joined.add(c.id);
         const name = c.name !== null ? c.name : (c.fileName !== null ? c.fileName : c.id);
@@ -262,12 +293,24 @@ export function exportChannelRows(role, channelMap) {
     const rows = [...role.channelIds].map((id) => [channelMap && channelMap.has(id) ? channelMap.get(id) : id, id]);
     return rows.sort((a, b) => compareIgnoreCase(a[0], b[0]) || (a[1] > b[1] ? 1 : a[1] < b[1] ? -1 : 0));
 }
-// Like Java's String.CASE_INSENSITIVE_ORDER: compare upper-cased, then lower-cased.
-function compareIgnoreCase(a, b) {
-    const upper = [a.toUpperCase(), b.toUpperCase()];
-    if (upper[0] !== upper[1]) return upper[0] > upper[1] ? 1 : -1;
-    const lower = [a.toLowerCase(), b.toLowerCase()];
-    return lower[0] > lower[1] ? 1 : lower[0] < lower[1] ? -1 : 0;
+// Java's String.CASE_INSENSITIVE_ORDER, which the Swing export dialog uses: the
+// two strings compared code unit by code unit as toLowerCase(toUpperCase(c)),
+// then by length. Java maps one character to one. Where JavaScript's mapping is
+// longer, the upper case keeps the character ("\u00df" stays, Java has no
+// one-character upper case for it) and the lower case takes the first unit
+// ("\u0130" becomes "i", as in Java).
+export function compareIgnoreCase(a, b) {
+    const x = foldCase(a);
+    const y = foldCase(b);
+    return x > y ? 1 : x < y ? -1 : 0;
+}
+function foldCase(s) {
+    let out = '';
+    for (let i = 0; i < s.length; i++) {
+        const upper = s[i].toUpperCase();
+        out += (upper.length === 1 ? upper : s[i]).toLowerCase()[0];
+    }
+    return out;
 }
 
 // The export table's counts.

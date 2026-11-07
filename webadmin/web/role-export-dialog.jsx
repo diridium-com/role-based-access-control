@@ -12,8 +12,9 @@ import {
     TITLE_EXPORT_ROLES, EXPORT_PROMPT, EXPORT_CHANNELS_NOTE, EXPORT_CHANNELS_BOLD, EXPORT_COLUMNS,
     EXPORT_FILE_NAME, EXPORT_PERMISSION_COLUMNS, EXPORT_CHANNEL_COLUMNS, EXPORT_CHANNEL_ID_COLUMNS,
     EXPORT_EVERY_CHANNEL, EXPORT_NO_CHANNEL, exportedText, exportPermissionRows, exportChannelRows,
-    exportPermissionsCount, exportChannelsCount, permissionsHeading, channelsHeading, sortRows, compareCounts
+    exportPermissionsCount, exportChannelsCount, permissionsHeading, channelsHeading, sortByColumn, EXPORT_COUNT_COLUMNS
 } from './role-transfer-core.js';
+import { toggleIn } from './rbac-core.js';
 import { makeTransferShell } from './role-transfer-shell.jsx';
 import { makeDetailTables } from './role-detail-tables.jsx';
 
@@ -30,12 +31,6 @@ export function makeRoleExportDialog(platform, api) {
         const [busy, setBusy] = React.useState(false);
         const [selectedId, setSelectedId] = React.useState(roles[0].id);
         const [sort, toggleSort] = useSort();
-
-        const toggle = (id) => setTicked((set) => {
-            const next = new Set(set);
-            if (next.has(id)) next.delete(id); else next.add(id);
-            return next;
-        });
 
         // saveFile must open the browser's save dialog inside this click, so
         // nothing is awaited before it; the server's text is fetched after the
@@ -65,9 +60,7 @@ export function makeRoleExportDialog(platform, api) {
             (r) => (ticked.has(r.id) ? 1 : 0), (r) => r.name, (r) => r.description,
             exportPermissionsCount, exportChannelsCount
         ];
-        // The Permissions and Channels columns (3 and 4) sort by number.
-        const shownRoles = sort
-            ? sortRows(roles, sortKeys[sort.col], sort.dir, sort.col >= 3 ? compareCounts : undefined) : roles;
+        const shownRoles = sortByColumn(roles, sortKeys, sort, EXPORT_COUNT_COLUMNS);
 
         return (
             <Shell title={TITLE_EXPORT_ROLES} onCancel={onClose} footer={(
@@ -92,7 +85,7 @@ export function makeRoleExportDialog(platform, api) {
                                         <input type="checkbox" aria-label={role.name}
                                             checked={ticked.has(role.id)}
                                             onClick={(e) => e.stopPropagation()}
-                                            onChange={() => toggle(role.id)} />
+                                            onChange={() => setTicked((set) => toggleIn(set, role.id))} />
                                     </td>
                                     <td>{role.name}</td>
                                     <td>{role.description}</td>

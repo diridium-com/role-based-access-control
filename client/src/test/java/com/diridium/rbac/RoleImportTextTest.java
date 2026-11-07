@@ -250,6 +250,32 @@ class RoleImportTextTest {
     }
 
     @Test
+    void nameMatchHint_followsTheSettingsOfThePreviewShown() {
+        RoleImportResult r = new RoleImportResult();
+        r.setChannelNameMatches(Arrays.asList(new ChannelNameMatch(), new ChannelNameMatch()));
+        r.setApplyChannels(true);
+        assertEquals("2 channels in the import match a channel on this engine by name only. "
+                + "Tick the box above to use them.", RoleImportText.nameMatchHint(r));
+        r.setMatchChannelsByName(true);
+        assertNull(RoleImportText.nameMatchHint(r), "that preview matched by name");
+        r.setMatchChannelsByName(false);
+        r.setApplyChannels(false);
+        assertNull(RoleImportText.nameMatchHint(r), "that preview did not apply channel restrictions");
+        assertNull(RoleImportText.nameMatchHint(new RoleImportResult()), "no matches");
+    }
+
+    @Test
+    void previewAgainAfter_onlyAFailureTheServerAnswered() {
+        assertTrue(RoleImportText.previewAgainAfter(new ClientException("Method failed: HTTP/1.1 409 Conflict",
+                new EntityException("The roles changed since the preview. Preview the import again."))));
+        assertTrue(RoleImportText.previewAgainAfter(
+                new ForbiddenException("HTTP/1.1 403 Importing roles needs the admin role.")));
+        assertFalse(RoleImportText.previewAgainAfter(new ClientException(new java.io.IOException("Connection reset"))),
+                "a lost connection: one error, no preview");
+        assertFalse(RoleImportText.previewAgainAfter(new IllegalStateException("not a server answer")));
+    }
+
+    @Test
     void serverMessage_conflictAndBadRequestBodies() {
         ClientException conflict = new ClientException("Method failed: HTTP/1.1 409 Conflict",
                 new EntityException("The roles changed since the preview. Preview the import again."));
