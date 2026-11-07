@@ -234,6 +234,9 @@ export const EXPORT_FILE = `<?xml version="1.0" encoding="UTF-8"?>
 </rbacRoles>
 `;
 
+// The same file with a role name outside ASCII, for the export download and the import body.
+export const EXPORT_FILE_ACCENTED = EXPORT_FILE.replace('<name>probe lab</name>', '<name>Café Québec</name>');
+
 // POST /extensions/rbac/roles/_import answers, built by hand in the shape a real
 // engine sends (the captures in web/wire-parsing.test.mjs):
 // lists under their FQCN root, one element as a bare object or string, an empty
@@ -392,6 +395,17 @@ export const IMPORT_NO_CHANNEL_FOUND = wireResult([wireRow({
     descriptionAfter: 'lost', permissionsAfter: ['viewChannels'],
     channelsAfter: [channel(NOWHERE, 'probe nowhere', { match: 'NOT_FOUND', used: false })]
 }), { ...NEW_LAB, index: 1 }]);
+
+// The preview of EXPORT_FILE_ACCENTED: its first role, new here.
+export const IMPORT_PREVIEW_ACCENTED = wireResult([{ ...NEW_LAB, name: 'Café Québec' }]);
+
+// The server's answer carries the two settings it was asked with (RoleTransferService.importRoles), so a
+// preview fixture echoes the request's. Anything that is not a result (an error answer) is returned as is.
+export function echoSettings(answer, searchParams) {
+    if (!answer || !answer[RESULT]) return answer;
+    return { [RESULT]: { ...answer[RESULT], applyChannels: searchParams.get('applyChannels') === 'true',
+        matchChannelsByName: searchParams.get('matchChannelsByName') === 'true' } };
+}
 
 export const IMPORT_APPLIED = wireResult([NEW_LAB], { applied: true });
 export const IMPORT_REFUSED = JSON.parse(

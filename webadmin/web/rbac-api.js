@@ -66,9 +66,21 @@ export function mapEntries(map) {
     return out;
 }
 
+/* A limit of the engine's JSON, not fixed here. Its XML-to-JSON writer turns a
+   string that looks like a number or a keyword into that JSON type (measured on
+   OIE 4.7.0 with rbac 1.3.0): a role named "1.0" arrives as the number 1.0, "1e3"
+   as 1000.0, "true" as true, "null" as null and "12345678901234567890" as an
+   integer, while "007" stays a string; descriptions the same. Once parsed, most
+   of these can't be turned back into the text (1.0 is 1, 1e3 is 1000, null is no
+   name, the long one is rounded; only true reads "true" again), so the web shows
+   such a name converted, and an Apply from the role editor sends the converted
+   text back. The import preview is affected the same way, but only on
+   screen: the apply re-reads the file on the server. Reading roles as XML would
+   fix it; see docs/design-notes.md, 2026-11-07. */
+
 /* Coerce a raw wire Role into a stable client shape (id:number|null, name/
    description:string, permissions/channelIds:Set<string>, restricted and
-   isAdmin:boolean). */
+   isAdmin:boolean). Names and descriptions: see the limit above. */
 export function normalizeRole(raw) {
     if (!raw || typeof raw !== 'object') return null;
     return {
@@ -152,7 +164,9 @@ function normalizeImportRow(raw) {
    shape: lists are always arrays of plain strings or plain objects, formatVersion
    and the version strings are strings, flags are booleans. This is the only
    place that knows the wire quirks (a one-element list arrives as a bare
-   object or string, an empty list as null, formatVersion as a number). */
+   object or string, an empty list as null, formatVersion as a number). A role
+   name or description that looks like a number or a keyword arrives converted
+   and shows converted (the limit above normalizeRole). */
 export function normalizeImportResult(raw) {
     if (raw && typeof raw === 'object' && raw[RESULT_FQCN] !== undefined) raw = raw[RESULT_FQCN];
     if (!raw || typeof raw !== 'object') raw = {};

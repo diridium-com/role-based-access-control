@@ -16,19 +16,17 @@
  * only (the controller answers doExportRoles/doImportRoles from the admin
  * flag; see role-transfer.jsx); the Add/Edit/Delete and Assign/Remove buttons are gated on
  * checkTask(…, 'doSave') → "Manage Roles" (the Config Map Add Row precedent).
+ * The assignments table and its Assign and Remove are user-assignments.jsx;
+ * this panel loads its data with everything else.
  * When the users list is denied (listing users needs manageUsers, which a
  * View-Roles-only user lacks) the roles table still renders and the
  * assignments area degrades to a hint — same partial panel as Swing.
  */
 
 import {
-    IMMEDIATE_NOTICE, ROLE_COLUMNS, USER_COLUMNS, NONE_ROLE_LABEL,
+    IMMEDIATE_NOTICE, ROLE_COLUMNS,
     MSG_CATALOG_NOT_LOADED, MSG_CHANNELS_NOT_LOADED, MSG_SELECT_ROLE_EDIT, MSG_SELECT_ROLE_DELETE,
-    MSG_SELECT_USER_ASSIGN, MSG_SELECT_USER_REMOVE, MSG_ADMIN_ROLE_CANNOT_DELETE,
-    MSG_NO_ROLES, deleteRoleConfirmText, TITLE_CONFIRM_DELETE,
-    removeRoleConfirmText, TITLE_CONFIRM_REMOVE, assignRolePromptText,
-    TITLE_ASSIGN_ROLE, buildAssignmentPreview, ASSIGN_PREVIEW_HEADER,
-    ASSIGN_PREVIEW_FOOTER, TITLE_CONFIRM_ASSIGNMENT
+    MSG_ADMIN_ROLE_CANNOT_DELETE, deleteRoleConfirmText, TITLE_CONFIRM_DELETE, lookUpRoleNames
 } from './rbac-core.js';
 import {
     TASK_EXPORT_ROLES, TASK_EXPORT_ROLES_TOOLTIP, TASK_IMPORT_ROLES, TASK_IMPORT_ROLES_TOOLTIP
@@ -36,6 +34,7 @@ import {
 import { mapEntries } from './rbac-api.js';
 import { makeRoleEditor } from './role-editor.jsx';
 import { makeRoleTransfer } from './role-transfer.jsx';
+import { makeUserAssignments } from './user-assignments.jsx';
 
 const RBAC_GROUP = 'settings_Role-Based Access Control';
 
@@ -44,66 +43,23 @@ export function registerRolesPanel(platform, api) {
     const ui = platform.ui;
     const RoleEditor = makeRoleEditor(platform);
     const { startExport, startImport, TransferDialogs } = makeRoleTransfer(platform, api);
-
-    /* Role picker for Assign Role (Swing's showInputDialog with the role-name
-       combo). Resolves the chosen role id, or null on cancel. */
-    function pickRole(roles, username) {
-        return new Promise((resolve) => {
-            const sel = ui.select(
-                roles.map((r) => ({ value: r.id, label: r.name })), roles[0].id);
-            ui.modal({
-                title: TITLE_ASSIGN_ROLE,
-                body: ui.field(assignRolePromptText(username), sel),
-                onClose: () => resolve(null),
-                buttons: [
-                    { label: 'Cancel', onClick: () => resolve(null) },
-                    { label: 'OK', primary: true, onClick: () => resolve(sel.value) }
-                ]
-            });
-        });
-    }
-
-    /* The assignment-impact preview (Swing's confirmAssignment): monospace body
-       with the exact Swing text, OK/Cancel. */
-    function confirmAssignment(username, currentRoleName, role, channelMap) {
-        const preview = buildAssignmentPreview(username, currentRoleName, role, channelMap);
-        return new Promise((resolve) => {
-            ui.modal({
-                title: TITLE_CONFIRM_ASSIGNMENT,
-                body: ui.h('div',
-                    ui.h('div', { style: 'margin-bottom: 8px' }, ASSIGN_PREVIEW_HEADER),
-                    ui.h('pre', {
-                        style: 'margin: 0; max-height: 260px; overflow: auto; font-size: 12px;'
-                            + ' border: 1px solid var(--line, #8884); border-radius: 4px; padding: 8px 10px;'
-                    }, preview),
-                    ui.h('div', { style: 'margin-top: 8px; font-style: italic' }, ASSIGN_PREVIEW_FOOTER)),
-                onClose: () => resolve(false),
-                buttons: [
-                    { label: 'Cancel', onClick: () => resolve(false) },
-                    { label: 'OK', primary: true, onClick: () => resolve(true) }
-                ]
-            });
-        });
-    }
+    const UserAssignments = makeUserAssignments(platform, api);
 
     function RolesPanel({ setTasks }) {
         const [roles, setRoles] = React.useState([]);
         const [users, setUsers] = React.useState([]);
         const [usersError, setUsersError] = React.useState(null); // users.list denied/failed
-        const [userRoles, setUserRoles] = React.useState({});     // userId -> role name | null
+        const [userRoles, setUserRoles] = React.useState({});     // userId -> role name, "(none)" or "(unknown)"
         const [catalog, setCatalog] = React.useState(null);       // Set<string> | null (not loaded)
         const [extGroups, setExtGroups] = React.useState({});     // permission -> publishing plugin
         const [channels, setChannels] = React.useState([]);       // [{id, name}] live, wire order
         const [channelsLoaded, setChannelsLoaded] = React.useState(false); // last fetch succeeded
         const [selectedRoleId, setSelectedRoleId] = React.useState(null);
-        const [selectedUserId, setSelectedUserId] = React.useState(null);
         const [editor, setEditor] = React.useState(null);         // { role: Role|null } while open
         const [transfer, setTransfer] = React.useState(null);     // export/import dialog value while open
         const [loading, setLoading] = React.useState(true);
 
-        const rolesRef = React.useRef(roles); // the export task reads the latest list
-        rolesRef.current = roles;
-        const channelMapRef = React.useRef(null); // and the channel names, null when not loaded
+        const channelMapRef = React.useRef(null); // the export task reads the channel names, null when not loaded
         const loadingRef = React.useRef(false);
         const pendingRef = React.useRef(false);
 
@@ -143,17 +99,9 @@ export function registerRolesPanel(platform, api) {
                 }
                 if (usersRes.status === 'fulfilled') {
                     // N+1 like Swing: resolve each user's assigned role;
-                    // per-user failures tolerated (rendered as "(none)").
+                    // a failed lookup shows "(unknown)", no role "(none)".
                     const list = usersRes.value;
-                    const names = {};
-                    await Promise.all(list.map(async (u) => {
-                        try {
-                            const role = await api.getUserRole(u.id);
-                            names[u.id] = role ? role.name : null;
-                        } catch {
-                            names[u.id] = null;
-                        }
-                    }));
+                    const names = await lookUpRoleNames(list, api.getUserRole);
                     setUsers(list);
                     setUserRoles(names);
                     setUsersError(null);
@@ -178,7 +126,7 @@ export function registerRolesPanel(platform, api) {
             // for the admin role only; the controller hides them from anyone else.
             setTasks('Role-Based Access Control Tasks', [
                 ui.taskButton('Refresh', 'refresh', () => load(), { task: 'doRefresh', group: RBAC_GROUP }),
-                ui.taskButton(TASK_EXPORT_ROLES, 'export', () => setTransfer(startExport(rolesRef.current, channelMapRef.current)),
+                ui.taskButton(TASK_EXPORT_ROLES, 'export', async () => setTransfer(await startExport(channelMapRef.current)),
                     { task: 'doExportRoles', group: RBAC_GROUP, title: TASK_EXPORT_ROLES_TOOLTIP }),
                 ui.taskButton(TASK_IMPORT_ROLES, 'import', async () => setTransfer(await startImport()),
                     { task: 'doImportRoles', group: RBAC_GROUP, title: TASK_IMPORT_ROLES_TOOLTIP })
@@ -190,7 +138,6 @@ export function registerRolesPanel(platform, api) {
             () => new Map(channels.map((c) => [c.id, c.name])), [channels]);
         channelMapRef.current = channelsLoaded ? channelMap : null;
         const selectedRole = roles.find((r) => String(r.id) === String(selectedRoleId)) || null;
-        const selectedUser = users.find((u) => String(u.id) === String(selectedUserId)) || null;
 
         const catalogNotLoaded = () => {
             if (!catalog || catalog.size === 0) {
@@ -242,29 +189,6 @@ export function registerRolesPanel(platform, api) {
                 deleteRoleConfirmText(selectedRole.name), { danger: true, okLabel: 'Delete' });
             if (!ok) return;
             await mutate(() => api.deleteRole(selectedRole.id));
-        }
-
-        async function assignRole() {
-            if (!selectedUser) { ui.toast(MSG_SELECT_USER_ASSIGN, 'warn'); return; }
-            if (roles.length === 0) { ui.toast(MSG_NO_ROLES, 'warn'); return; }
-            const username = selectedUser.username;
-            const roleId = await pickRole(roles, username);
-            if (roleId === null) return;
-            const role = roles.find((r) => String(r.id) === String(roleId));
-            if (!role) return;
-            const currentRoleName = userRoles[selectedUser.id] != null ? userRoles[selectedUser.id] : null;
-            if (!await confirmAssignment(username, currentRoleName, role, channelMap)) return;
-            await mutate(() => api.assignUserRole(selectedUser.id, role.id));
-        }
-
-        async function removeRole() {
-            if (!selectedUser) { ui.toast(MSG_SELECT_USER_REMOVE, 'warn'); return; }
-            // The admin floor (don't strip the last admin) is enforced
-            // server-side by AdminRoleGuard; its message surfaces via mutate().
-            const ok = await ui.confirmDialog(TITLE_CONFIRM_REMOVE,
-                removeRoleConfirmText(selectedUser.username), { danger: true, okLabel: 'Remove' });
-            if (!ok) return;
-            await mutate(() => api.removeUserRole(selectedUser.id));
         }
 
         // The editor commits like Swing: the dialog closes the moment Apply
@@ -322,50 +246,15 @@ export function registerRolesPanel(platform, api) {
                     </div>
                 </div>
 
-                <div className="panel">
-                    <div className="panel-header">User-Role Assignments
-                        {canManage && !usersError ? (
-                            <div className="panel-tools" style={{ display: 'flex', gap: 8 }}>
-                                <button className="btn" onClick={() => assignRole()}>Assign Role</button>
-                                <button className="btn" onClick={() => removeRole()}>Remove Role</button>
-                            </div>
-                        ) : null}
-                    </div>
-                    <div className="panel-body flush">
-                        {usersError ? (
-                            <div className="text-text-faint" style={{ padding: 12 }}>
-                                The user list could not be loaded (viewing assignments requires the
-                                manageUsers permission): {usersError}
-                            </div>
-                        ) : (
-                            <table className="dt" style={{ width: '100%' }}>
-                                <thead>
-                                    <tr>
-                                        <th style={{ width: 80 }}>{USER_COLUMNS[0]}</th>
-                                        <th>{USER_COLUMNS[1]}</th>
-                                        <th>{USER_COLUMNS[2]}</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {users.length === 0 ? (
-                                        <tr><td colSpan={3} className="text-text-faint" style={{ padding: 12 }}>
-                                            {loading ? 'Loading…' : 'No users'}
-                                        </td></tr>
-                                    ) : users.map((user) => (
-                                        <tr key={user.id}
-                                            className={String(user.id) === String(selectedUserId) ? 'selected' : ''}
-                                            style={{ cursor: 'pointer' }}
-                                            onClick={() => setSelectedUserId(user.id)}>
-                                            <td>{user.id}</td>
-                                            <td>{user.username}</td>
-                                            <td>{userRoles[user.id] != null ? userRoles[user.id] : NONE_ROLE_LABEL}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        )}
-                    </div>
-                </div>
+                <UserAssignments
+                    users={users}
+                    userRoles={userRoles}
+                    usersError={usersError}
+                    roles={roles}
+                    channelMap={channelMap}
+                    canManage={canManage}
+                    loading={loading}
+                    mutate={mutate} />
 
                 {editor ? (
                     <RoleEditor

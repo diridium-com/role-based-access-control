@@ -20,7 +20,8 @@ import {
     EXPORT_PERMISSION_COLUMNS, EXPORT_CHANNEL_COLUMNS,
     EXPORT_EVERY_CHANNEL, EXPORT_NO_CHANNEL, countText, permissionsCountText, channelsCountText, everyChannelText, foundText,
     permissionRows, channelRows, permissionsHeading, channelsHeading, sortRows, compareCounts,
-    exportPermissionRows, exportChannelRows, exportPermissionsCount, exportChannelsCount
+    exportPermissionRows, exportChannelRows, exportPermissionsCount, exportChannelsCount,
+    compareIgnoreCase, sortByColumn, EXPORT_COUNT_COLUMNS, IMPORT_COUNT_COLUMNS
 } from './role-transfer-core.js';
 import { MSG_NO_CHANNELS_TICKED } from './rbac-core.js';
 
@@ -216,6 +217,14 @@ test('Match: by id, renamed on this engine, by name used and not used, not on th
     assert.equal(foundText(nowChan()), '', 'a now entry or a kept copy has no id in the import');
 });
 
+test('Match: a channel found by id with no name in the import reads "by id", null or empty', () => {
+    // The exporter writes name="" for a channel its engine lacks; the engine's JSON sends that as null.
+    assert.equal(foundText(chan({ name: 'One', fileName: null })), 'by id');
+    assert.equal(foundText(chan({ name: 'One', fileName: '' })), 'by id');
+    assert.deepEqual(channelRows(row({ channelsAfter: [chan({ name: 'One', fileName: null })] })),
+        [['One', 'id-1', '', 'yes', 'by id', '', 'id-1']]);
+});
+
 test('permission rows: the union by name, the left-out ones noted', () => {
     assert.deepEqual(permissionRows(row({
         existsHere: true, permissionsNow: ['viewAlerts', 'viewChannels'],
@@ -251,6 +260,32 @@ test('channel rows: the import in its order, the joined channel once, a renamed 
     ]);
     const byName = channelRows(row({ channelsAfter: [chan({ id: 'id-2', name: 'Two', fileId: 'file-2', fileName: 'Two', match: 'BY_NAME', used: true })] }));
     assert.deepEqual(byName, [['Two', 'id-2', '', 'yes', 'by name', 'Two', 'file-2']], 'by name, used');
+});
+
+test('channel rows: a channel the role has whose id no longer exists here, named in the import and not found, is one row', () => {
+    const rows = channelRows(row({
+        existsHere: true, restrictedNow: true, restrictedAfter: true,
+        channelsNow: [nowChan({ id: 'id-1', name: 'One' }), nowChan({ id: 'gone', name: null, match: 'NOT_FOUND' })],
+        channelsAfter: [chan({ id: 'id-1', name: 'One' }),
+            chan({ id: 'gone', name: 'Gone', fileId: 'gone', fileName: 'Gone', match: 'NOT_FOUND', used: false })]
+    }));
+    assert.deepEqual(rows, [
+        ['One', 'id-1', 'yes', 'yes', 'by id', 'One', 'id-1'],
+        ['(no longer exists)', 'gone', 'yes', '', 'deleted on this engine', 'Gone', 'gone']
+    ]);
+    const nameless = channelRows(row({
+        existsHere: true, restrictedNow: true, restrictedAfter: true,
+        channelsNow: [nowChan({ id: 'gone', name: null, match: 'NOT_FOUND' })],
+        channelsAfter: [chan({ id: 'gone', name: null, fileId: 'gone', fileName: null, match: 'NOT_FOUND', used: false })]
+    }));
+    assert.deepEqual(nameless, [['(no longer exists)', 'gone', 'yes', '', 'deleted on this engine', '', 'gone']],
+        'no name in the import either');
+    const notNamed = channelRows(row({
+        existsHere: true, restrictedNow: true,
+        channelsNow: [nowChan({ id: 'gone', name: null, match: 'NOT_FOUND' })], channelsAfter: []
+    }));
+    assert.deepEqual(notNamed, [['gone', 'gone', 'yes', '', 'not in the import', '', '']],
+        'a deleted channel the import does not name stays a "not in the import" row');
 });
 
 test('channel rows: the Channel column is the name here, else the name in the import, else the id', () => {
@@ -289,6 +324,47 @@ test('sortRows with a comparator: count texts sort by number, descending reverse
     assert.deepEqual(sortRows(rows, 1, 'asc', compareCounts).map((r) => r[0]), ['b', 'd', 'a', 'c', 'e']);
     assert.deepEqual(sortRows(rows, 1, 'desc', compareCounts).map((r) => r[0]), ['e', 'c', 'a', 'b', 'd']);
     assert.deepEqual(sortRows(rows, 1, 'asc').map((r) => r[0]), ['a', 'b', 'd', 'c', 'e'], 'as text, "10" is first');
+});
+
+test('sortRows: text sorts with localeCompare and no locale (as Swing\'s Collator), other values with < and >', () => {
+    const rows = [['Night'], ['lab'], ['Day'], ['c-unknown'], ['Demo Started']];
+    assert.deepEqual(sortRows(rows, 0, 'asc').map((r) => r[0]), ['c-unknown', 'Day', 'Demo Started', 'lab', 'Night'],
+        'not by code unit, which puts every capital first');
+    assert.deepEqual(sortRows([[1], [0], [1]], 0, 'desc').map((r) => r[0]), [1, 1, 0], 'a tick column');
+    const expected = rows.map((r) => r[0]).sort((a, b) => a.localeCompare(b));
+    assert.deepEqual(sortRows(rows, 0, 'asc').map((r) => r[0]), expected);
+});
+
+test('sortByColumn: no sort keeps the rows; keys or the column index; count columns by number', () => {
+    const rows = [{ name: 'b', count: '10' }, { name: 'a', count: '2' }, { name: 'C', count: 'every' }];
+    assert.equal(sortByColumn(rows, null, null), rows, 'no header clicked: the same rows');
+    const keys = [(r) => r.name, (r) => r.count];
+    assert.deepEqual(sortByColumn(rows, keys, { col: 0, dir: 'asc' }).map((r) => r.name), ['a', 'b', 'C']);
+    assert.deepEqual(sortByColumn(rows, keys, { col: 1, dir: 'asc' }, [1]).map((r) => r.count), ['2', '10', 'every']);
+    assert.deepEqual(sortByColumn(rows, keys, { col: 1, dir: 'asc' }).map((r) => r.count), ['10', '2', 'every'],
+        'a column not in countColumns sorts as text');
+    const cells = [['x', 'B'], ['y', 'a']];
+    assert.deepEqual(sortByColumn(cells, null, { col: 1, dir: 'desc' }), [['x', 'B'], ['y', 'a']], 'keys null: by index');
+    assert.deepEqual(EXPORT_COUNT_COLUMNS, [3, 4]);
+    assert.deepEqual(IMPORT_COUNT_COLUMNS, [5, 6]);
+});
+
+test('compareIgnoreCase is Java\'s String.CASE_INSENSITIVE_ORDER', () => {
+    // Each expectation measured with Java 17's String.CASE_INSENSITIVE_ORDER.compare (jshell, 2026-11-07).
+    const sign = (a, b) => Math.sign(compareIgnoreCase(a, b));
+    assert.equal(sign('Lab_A', 'LabB'), -1, 'an underscore sorts before a letter of either case');
+    assert.equal(sign('Lab^', 'LabZ'), -1);
+    assert.equal(sign('x`', 'xZ'), -1);
+    assert.equal(sign('Lab[1]', 'Labz'), -1);
+    assert.equal(sign('a', 'B'), -1);
+    assert.equal(sign('Night', 'lab'), 1);
+    assert.equal(sign('Ab', 'aB'), 0);
+    assert.equal(sign('Stra\u00dfe', 'Strasse'), 1, 'Java does not upper-case the sharp s to SS');
+    assert.equal(sign('\u0130stanbul', 'istanbul'), 0, 'Java lower-cases the dotted capital I to i');
+    assert.equal(sign('Caf\u00e9 Qu\u00e9bec', 'Cafe Quebec'), 1);
+    assert.equal(sign('Lab', 'Lab A'), -1, 'a prefix first');
+    assert.deepEqual(exportChannelRows({ restricted: true, channelIds: new Set(['i1', 'i2']) },
+        new Map([['i1', 'LabB'], ['i2', 'Lab_A']])), [['Lab_A', 'i2'], ['LabB', 'i1']], 'the export channel table');
 });
 
 test('sortRows: ascending, descending, by index, name or function; stable; a copy', () => {

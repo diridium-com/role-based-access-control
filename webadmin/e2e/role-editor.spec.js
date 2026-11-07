@@ -5,8 +5,9 @@
  * The role editor's channel tab and the restricted flag, against the real built
  * bundle and the host with the engine mocked: the radio comes from the role's
  * flag (not from whether its channel list is empty), "Specific Channels" with
- * nothing ticked is legal and says so, no confirmation appears, and the role
- * sent to the server carries the flag.
+ * nothing ticked is legal and says so (or says how many channels it keeps that
+ * the list does not show), no confirmation appears, the role sent to the server
+ * carries the flag, and Escape closes the editor.
  */
 
 import { test, expect } from '@playwright/test';
@@ -14,6 +15,7 @@ import { mockEngineWithRbac } from './mock.js';
 import { rbacFixtures, ADMIN_ROLE, READ_ONLY_ROLE, FULL_PERMISSIONS } from './fixtures.js';
 
 const NO_CHANNELS = 'This role sees no channels until some are ticked.';
+const KEEPS_ONE = 'This role keeps 1 channel this list does not show.';
 const ADMIN_EVERY = 'The admin role has every permission, including those of plugins installed later.';
 const NONE_ROLE = { ...READ_ONLY_ROLE, id: 5, name: 'Sees None', restricted: true, channelIds: null };
 const SOME_ROLE = { ...READ_ONLY_ROLE, id: 6, name: 'Sees Some', restricted: true, channelIds: { string: 'c-started' } };
@@ -179,6 +181,32 @@ test.describe('role editor: the restricted flag', () => {
         await expect.poll(() => writes.length).toBe(1);
         expect(writes[0][1]).toContain(
             '<channelIds><string>c-started</string><string>c-not-here</string></channelIds><restricted>true</restricted>');
+    });
+
+    test('with nothing listed ticked, a role keeping a channel the list does not show says so instead', async ({ page }) => {
+        const writes = watchWrites(page);
+        await openPanel(page);
+        const editor = await editRole(page, 'Sees Unknown');
+        await expect(editor.getByText(KEEPS_ONE)).toHaveCount(0);
+        await editor.getByLabel('Demo Started').uncheck();
+        await expect(editor.getByText(KEEPS_ONE)).toBeVisible();
+        await expect(editor.getByText(NO_CHANNELS)).toHaveCount(0);
+        await editor.getByLabel('Demo Started').check();
+        await expect(editor.getByText(KEEPS_ONE)).toHaveCount(0);
+        await editor.getByLabel('Demo Started').uncheck();
+        await editor.getByRole('button', { name: 'Apply' }).click();
+        await expect.poll(() => writes.length).toBe(1);
+        expect(writes[0][1]).toContain('<channelIds><string>c-not-here</string></channelIds><restricted>true</restricted>');
+    });
+
+    test('Escape closes the editor without saving', async ({ page }) => {
+        const writes = watchWrites(page);
+        await openPanel(page);
+        await editRole(page, 'Sees Some');
+        await expect(page.getByRole('dialog', { name: 'Edit Role', exact: true })).toBeVisible();
+        await page.keyboard.press('Escape');
+        await expect(page.locator('.rbac-overlay')).toHaveCount(0);
+        expect(writes).toEqual([]);
     });
 
     test('All Channels drops a stored id the editor does not list', async ({ page }) => {

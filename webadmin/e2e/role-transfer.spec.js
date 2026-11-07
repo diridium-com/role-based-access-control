@@ -6,16 +6,18 @@
  * built bundle and the host with the engine mocked: who sees the two tasks
  * (the admin role only), the export download and its tables, and the import
  * preview (the roles table and the selected role's permission and channel
- * tables), tick boxes, sorting, apply and failed apply.
+ * tables), tick boxes, sorting, apply and failed apply, a failed preview, and
+ * that the dialog can't be closed while an apply runs.
  */
 
 import fs from 'node:fs';
 import { test, expect } from '@playwright/test';
 import { mockEngineWithRbac } from './mock.js';
 import {
-    rbacFixtures, rolesList, ADMIN_ROLE, READ_ONLY_ROLE, EXPORT_FILE,
+    rbacFixtures, rolesList, ADMIN_ROLE, READ_ONLY_ROLE, EXPORT_FILE, EXPORT_FILE_ACCENTED,
     IMPORT_PREVIEW_TWO_ROWS, IMPORT_NAME_MATCH_OFF, IMPORT_NAME_MATCH_ON, IMPORT_OVERWRITE_DETAILS,
-    IMPORT_SEVERAL_ROWS, IMPORT_MATCH_VALUES, IMPORT_NONE_ROWS, IMPORT_NO_CHANNEL_FOUND, IMPORT_APPLIED, IMPORT_REFUSED
+    IMPORT_SEVERAL_ROWS, IMPORT_MATCH_VALUES, IMPORT_NONE_ROWS, IMPORT_NO_CHANNEL_FOUND, IMPORT_APPLIED, IMPORT_REFUSED,
+    IMPORT_PREVIEW_ACCENTED, echoSettings
 } from './fixtures.js';
 
 const LAB_ROLE = {
@@ -30,7 +32,7 @@ const STALE = 'The roles changed since the preview. Preview the import again.';
 
 // Records the requests the dialogs make to the two new endpoints.
 function watch(page) {
-    const seen = { exports: [], previews: [], applies: [], bodies: [], roleListLoads: 0 };
+    const seen = { exports: [], previews: [], applies: [], bodies: [], bodyBytes: [], roleListLoads: 0 };
     page.on('request', (req) => {
         const url = new URL(req.url());
         if (url.pathname === '/api/extensions/rbac/roles/_export') seen.exports.push(url.searchParams.getAll('roleId'));
@@ -39,6 +41,7 @@ function watch(page) {
             q.pick = url.searchParams.getAll('pick');
             (q.dryRun === 'true' ? seen.previews : seen.applies).push(q);
             seen.bodies.push(req.postData());
+            seen.bodyBytes.push(req.postDataBuffer());
         }
         if (req.method() === 'GET' && url.pathname === '/api/extensions/rbac/roles') seen.roleListLoads++;
     });
@@ -73,7 +76,7 @@ function importFixtures(preview, extra = {}) {
         'POST /extensions/rbac/roles/_import': (req) => {
             const q = new URL(req.url()).searchParams;
             if (q.get('dryRun') === 'false') return IMPORT_APPLIED;
-            return typeof preview === 'function' ? preview(q) : preview;
+            return echoSettings(typeof preview === 'function' ? preview(q) : preview, q);
         },
         ...extra
     };
@@ -250,11 +253,12 @@ test.describe('Export Roles', () => {
         await expect(box.getByLabel('Lab')).not.toBeChecked();
         await expect(box.getByLabel('Read Only')).toBeChecked();
 
+        // Text sorts with the browser's collation, as Swing's sorts with its Collator: "c-unknown" before "Demo".
         const channelTable = detail(box, 'Channels of Lab');
         await channelTable.getByRole('columnheader', { name: 'Channel' }).click();
-        expect((await cellsOf(channelTable)).map((r) => r[0])).toEqual(['Demo Started', 'Demo Stopped', 'c-unknown']);
+        expect((await cellsOf(channelTable)).map((r) => r[0])).toEqual(['c-unknown', 'Demo Started', 'Demo Stopped']);
         await channelTable.getByRole('columnheader', { name: 'Channel' }).click();
-        expect((await cellsOf(channelTable)).map((r) => r[0])).toEqual(['c-unknown', 'Demo Stopped', 'Demo Started']);
+        expect((await cellsOf(channelTable)).map((r) => r[0])).toEqual(['Demo Stopped', 'Demo Started', 'c-unknown']);
         await channelTable.getByRole('columnheader', { name: 'Id on this engine' }).click();
         expect((await cellsOf(channelTable)).map((r) => r[1])).toEqual(['c-started', 'c-stopped', 'c-unknown']);
     });
@@ -272,6 +276,74 @@ test.describe('Export Roles', () => {
         await box.getByRole('button', { name: 'Cancel', exact: true }).click();
         await expect(dialog(page, 'Export Roles')).toHaveCount(0);
         expect(seen.exports).toEqual([]);
+    });
+
+    test('Export reads the roles from the server when clicked, not the list the panel loaded', async ({ page }) => {
+        const seen = watch(page);
+        let roles = [ADMIN_ROLE, READ_ONLY_ROLE, LAB_ROLE];
+        await openPanel(page, { 'GET /extensions/rbac/roles': () => rolesList(roles) });
+        await page.waitForLoadState('networkidle'); // the panel's loads are done
+        roles = [...roles, { ...READ_ONLY_ROLE, id: 9, name: 'Added Since', description: 'after the panel loaded' }];
+        const loads = seen.roleListLoads;
+        await task(page, 'Export Roles').click();
+        const box = dialog(page, 'Export Roles');
+        await expect(box.getByLabel('Added Since')).toBeChecked();
+        await expect(box.getByRole('checkbox')).toHaveCount(3);
+        expect(seen.roleListLoads).toBe(loads + 1);
+        // The panel's own list is as it was: the dialog read the server, not the panel.
+        await box.getByRole('button', { name: 'Cancel', exact: true }).click();
+        await expect(dialog(page, 'Export Roles')).toHaveCount(0);
+        await expect(page.getByRole('cell', { name: 'Lab staff', exact: true })).toBeVisible();
+        await expect(page.getByRole('cell', { name: 'Added Since', exact: true })).toHaveCount(0);
+    });
+
+    test('a failed role read on Export shows the error and opens no dialog', async ({ page }) => {
+        let fail = false;
+        await openPanel(page, {
+            'GET /extensions/rbac/roles': () => (fail
+                ? { __status: 403, body: 'Missing permission: View Roles' } : rolesList([ADMIN_ROLE, READ_ONLY_ROLE, LAB_ROLE]))
+        });
+        await page.waitForLoadState('networkidle'); // the panel's loads are done
+        fail = true;
+        await task(page, 'Export Roles').click();
+        const error = dialog(page, 'Error');
+        await expect(error.getByText('Missing permission: View Roles')).toBeVisible();
+        await expect(dialog(page, 'Export Roles')).toHaveCount(0);
+        await expect(toast(page, 'There are no roles to export. The admin role is never exported.')).toHaveCount(0);
+    });
+
+    test('a failed export shows the server message and keeps the dialog open', async ({ page }) => {
+        await openPanel(page, {
+            'GET /extensions/rbac/roles/_export': { __status: 400, body: "There's no role with id 9." }
+        });
+        await task(page, 'Export Roles').click();
+        const box = dialog(page, 'Export Roles');
+        await box.getByRole('button', { name: 'Export', exact: true }).click();
+        const error = dialog(page, 'Error');
+        await expect(error.getByText("There's no role with id 9.")).toBeVisible();
+        await error.locator('button.btn-primary', { hasText: 'Close' }).click();
+        await expect(dialog(page, 'Export Roles')).toBeVisible();
+        await expect(box.getByRole('button', { name: 'Export', exact: true })).toBeEnabled();
+        await expect(toast(page, 'Exported')).toHaveCount(0);
+    });
+
+    test('a role name outside ASCII is listed and downloaded byte for byte; Escape closes the dialog', async ({ page }) => {
+        const accented = { ...LAB_ROLE, id: 7, name: 'Café Québec', description: 'accents' };
+        await openPanel(page, { 'GET /extensions/rbac/roles/_export': EXPORT_FILE_ACCENTED },
+            { roles: [ADMIN_ROLE, LAB_ROLE, accented] });
+        await task(page, 'Export Roles').click();
+        let box = dialog(page, 'Export Roles');
+        await expect(box.getByLabel('Café Québec')).toBeChecked();
+        await page.keyboard.press('Escape');
+        await expect(dialog(page, 'Export Roles')).toHaveCount(0);
+
+        await task(page, 'Export Roles').click();
+        box = dialog(page, 'Export Roles');
+        const download = page.waitForEvent('download');
+        await box.getByRole('button', { name: 'Export', exact: true }).click();
+        const file = await download;
+        expect(fs.readFileSync(await file.path()).equals(Buffer.from(EXPORT_FILE_ACCENTED, 'utf8'))).toBe(true);
+        await expect(toast(page, 'Exported 2 role(s).')).toBeVisible();
     });
 
     test('with only the admin role there is a message and no dialog', async ({ page }) => {
@@ -614,7 +686,7 @@ test.describe('Import Roles', () => {
         await openPanel(page, importFixtures(IMPORT_PREVIEW_TWO_ROWS, {
             'POST /extensions/rbac/roles/_import': (req) => {
                 const q = new URL(req.url()).searchParams;
-                return q.get('dryRun') === 'false' ? { __status: 409, body: STALE } : IMPORT_PREVIEW_TWO_ROWS;
+                return q.get('dryRun') === 'false' ? { __status: 409, body: STALE } : echoSettings(IMPORT_PREVIEW_TWO_ROWS, q);
             }
         }));
         await chooseFile(page);
@@ -631,6 +703,100 @@ test.describe('Import Roles', () => {
         await error.locator('button.btn-primary', { hasText: 'Close' }).click();
         await expect(dialog(page, 'Import Roles')).toBeVisible();
         await expect(toast(page, 'Imported 1 role(s).')).toHaveCount(0);
+    });
+
+    test('a failed preview keeps the shown preview, its "not applied" state and hint, and disables Import until one succeeds', async ({ page }) => {
+        const seen = watch(page);
+        let fail = false;
+        await openPanel(page, importFixtures((q) => {
+            if (fail) return { __status: 403, body: 'Importing roles needs the admin role.' };
+            return q.get('matchChannelsByName') === 'true' ? IMPORT_NAME_MATCH_ON : IMPORT_NAME_MATCH_OFF;
+        }));
+        await chooseFile(page);
+        const box = dialog(page, 'Import Roles');
+        const apply = box.getByLabel(APPLY_LABEL);
+        const byName = box.getByLabel("Also match channels by name when the id isn't found");
+        const importButton = box.getByRole('button', { name: 'Import', exact: true });
+        const row = box.locator('.rbac-xfer-roles tbody tr').nth(0);
+        await expect(box.getByText(NAME_MATCH_HINT)).toBeVisible();
+
+        // Matching by name fails to preview: the box shows the new setting, everything else the last preview.
+        fail = true;
+        await byName.check();
+        const error = dialog(page, 'Error');
+        await expect(error.getByText('Importing roles needs the admin role.')).toBeVisible();
+        await error.locator('button.btn-primary', { hasText: 'Close' }).click();
+        await expect(byName).toBeChecked();
+        await expect(cell(row, 'chans')).toHaveText('none');
+        await expect(box.getByText(NAME_MATCH_HINT)).toBeVisible();
+        await expect(importButton).toBeDisabled();
+
+        // Unticking the apply box fails too: the channels table stays, with no "not applied" line.
+        await apply.uncheck();
+        await expect(dialog(page, 'Error').getByText('Importing roles needs the admin role.')).toBeVisible();
+        await dialog(page, 'Error').locator('button.btn-primary', { hasText: 'Close' }).click();
+        await expect(apply).not.toBeChecked();
+        await expect(box.getByText(NOT_APPLIED, { exact: true })).toHaveCount(0);
+        await expect(detail(box, 'Channels of probe moved one').getByRole('columnheader')).toHaveText(CHANNEL_HEADERS);
+        await expect(importButton).toBeDisabled();
+
+        // The next preview succeeds: Import is back, and the dialog shows that preview.
+        fail = false;
+        await apply.check();
+        await expect(importButton).toBeEnabled();
+        await expect(box.getByText(NAME_MATCH_HINT)).toBeVisible();
+        await importButton.click();
+        await expect(toast(page, 'Imported 1 role(s).')).toBeVisible();
+        expect(seen.applies).toHaveLength(1);
+        expect(seen.applies[0]).toMatchObject({ applyChannels: 'true', matchChannelsByName: 'false' });
+    });
+
+    test('while an apply runs, Cancel is disabled and Escape does nothing; when idle, Escape closes', async ({ page }) => {
+        let release;
+        const gate = new Promise((resolve) => { release = resolve; });
+        await openPanel(page, importFixtures(IMPORT_PREVIEW_TWO_ROWS, {
+            'POST /extensions/rbac/roles/_import': async (req) => {
+                const q = new URL(req.url()).searchParams;
+                if (q.get('dryRun') !== 'false') return echoSettings(IMPORT_PREVIEW_TWO_ROWS, q);
+                await gate;
+                return IMPORT_APPLIED;
+            }
+        }));
+        // The control: idle, Escape closes the dialog. Idle means the first preview has answered: while it
+        // runs the dialog is busy and not closable, so wait for Cancel to be enabled before pressing the key.
+        await chooseFile(page);
+        await expect(dialog(page, 'Import Roles')).toBeVisible();
+        await expect(dialog(page, 'Import Roles').getByRole('button', { name: 'Cancel', exact: true })).toBeEnabled();
+        await page.keyboard.press('Escape');
+        await expect(dialog(page, 'Import Roles')).toHaveCount(0);
+
+        await chooseFile(page);
+        const box = dialog(page, 'Import Roles');
+        const cancel = box.getByRole('button', { name: 'Cancel', exact: true });
+        await expect(cancel).toBeEnabled();
+        await box.getByRole('button', { name: 'Import', exact: true }).click();
+        await expect(cancel).toBeDisabled();
+        await page.keyboard.press('Escape');
+        // Nothing to wait for when a key does nothing; give React time to have closed it if it were going to.
+        await page.waitForTimeout(300);
+        await expect(dialog(page, 'Import Roles')).toBeVisible();
+        release();
+        await expect(toast(page, 'Imported 1 role(s).')).toBeVisible();
+        await expect(dialog(page, 'Import Roles')).toHaveCount(0);
+    });
+
+    test('a role name outside ASCII goes to the server byte for byte and shows in the preview', async ({ page }) => {
+        const seen = watch(page);
+        await openPanel(page, importFixtures(IMPORT_PREVIEW_ACCENTED));
+        await chooseFile(page, { ...FILE, buffer: Buffer.from(EXPORT_FILE_ACCENTED, 'utf8') });
+        const box = dialog(page, 'Import Roles');
+        await expect(cell(box.locator('.rbac-xfer-roles tbody tr').nth(0), 'name')).toHaveText('Café Québec');
+        await expect(box.getByRole('heading', { name: 'Permissions of Café Québec' })).toBeVisible();
+        expect(seen.bodies[0]).toBe(EXPORT_FILE_ACCENTED);
+        expect(seen.bodyBytes[0].equals(Buffer.from(EXPORT_FILE_ACCENTED, 'utf8'))).toBe(true);
+        await box.getByRole('button', { name: 'Import', exact: true }).click();
+        await expect(toast(page, 'Imported 1 role(s).')).toBeVisible();
+        expect(seen.bodyBytes[1].equals(Buffer.from(EXPORT_FILE_ACCENTED, 'utf8'))).toBe(true);
     });
 
     test('a refused file shows why and opens no dialog', async ({ page }) => {

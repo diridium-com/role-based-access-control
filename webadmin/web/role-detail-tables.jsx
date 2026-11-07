@@ -9,7 +9,7 @@
  * changes the selection or any tick.
  */
 
-import { sortRows } from './role-transfer-core.js';
+import { sortByColumn } from './role-transfer-core.js';
 
 export function makeDetailTables(React) {
     // [sort, toggle]: sort is { col, dir } or null; a click on a column sorts it
@@ -52,7 +52,7 @@ export function makeDetailTables(React) {
        and the table) */
     function DetailTable({ columns, rows, idColumns, legend, notice, empty, notApplied }) {
         const [sort, toggle] = useSort();
-        const shown = sort ? sortRows(rows, sort.col, sort.dir) : rows;
+        const shown = sortByColumn(rows, null, sort);
         const showEmpty = empty && rows.length === 0;
         if (notApplied) return <div className="rbac-xfer-notice">{notApplied}</div>;
         return (

@@ -146,6 +146,24 @@ export function editorChannelIds(ticked, storedIds, liveIds) {
     return saved;
 }
 
+// A copy of the set with value removed if it was there, added if it was not (a tick
+// box in the role editor and the export and import dialogs).
+export function toggleIn(set, value) {
+    const next = new Set(set);
+    if (next.has(value)) next.delete(value); else next.add(value);
+    return next;
+}
+
+// The line under the role editor's channel list, or null. Only while "Specific
+// Channels" is selected and no listed channel is ticked: the role sees no channels,
+// unless it keeps stored channels the list does not show (editorChannelIds keeps
+// them on Apply), and then it says how many.
+export function noChannelsTickedLine(mode, tickedCount, storedIds, liveIds) {
+    if (mode !== 'specific' || tickedCount > 0) return null;
+    const unseen = [...storedIds].filter((id) => !liveIds.has(id)).length;
+    return unseen === 0 ? MSG_NO_CHANNELS_TICKED : keptChannelsText(unseen);
+}
+
 // What the editor shows ticked: the whole catalog for the admin role, whose holders
 // have every permission whatever its stored list says (issue #28); otherwise the
 // role's stored permissions that the catalog has. role is the stored role or null.
@@ -261,8 +279,13 @@ export function missingBaseWarningText(missing) {
 export const TITLE_MISSING_BASE_PERMISSIONS = 'Missing Base Permissions';
 
 // RoleEditorDialog, the line under the channel list while "Specific Channels"
-// is selected and nothing is ticked.
+// is selected, nothing is ticked and no channel the list does not show is kept.
 export const MSG_NO_CHANNELS_TICKED = 'This role sees no channels until some are ticked.';
+
+// RoleEditorDialog, the same line when channels the list does not show are kept.
+export function keptChannelsText(count) {
+    return 'This role keeps ' + (count === 1 ? '1 channel' : count + ' channels') + ' this list does not show.';
+}
 
 // RbacSettingsPanel — italic notice above the tables.
 export const IMMEDIATE_NOTICE =
@@ -273,6 +296,24 @@ export const IMMEDIATE_NOTICE =
 export const ROLE_COLUMNS = ['ID', 'Name', 'Description'];
 export const USER_COLUMNS = ['User ID', 'Username', 'Assigned Role'];
 export const NONE_ROLE_LABEL = '(none)';
+export const UNKNOWN_ROLE_LABEL = '(unknown)';
+
+// RbacSettingsPanel (UserAssignmentsPanel.lookUpRoleNames): each user's Assigned
+// Role text by user id, from one getUserRole(id) call per user (the servlet has no
+// bulk read). The role's name; "(none)" for a user with no role (getUserRole
+// resolves null); "(unknown)" when the lookup failed, since "(none)" means no role.
+export async function lookUpRoleNames(users, getUserRole) {
+    const names = {};
+    await Promise.all(users.map(async (user) => {
+        try {
+            const role = await getUserRole(user.id);
+            names[user.id] = role ? role.name : NONE_ROLE_LABEL;
+        } catch {
+            names[user.id] = UNKNOWN_ROLE_LABEL;
+        }
+    }));
+    return names;
+}
 
 // RbacSettingsPanel.permissionCatalogNotLoaded() — add/edit guard.
 export const MSG_CATALOG_NOT_LOADED =
