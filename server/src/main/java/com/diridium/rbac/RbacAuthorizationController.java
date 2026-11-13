@@ -674,6 +674,12 @@ public class RbacAuthorizationController extends AuthorizationController {
      * known to affect a specific user (avoids hammering the DB for
      * unrelated users on the next request).
      *
+     * <p>Also called by reflection from outside plugins (gibson9583/oie-oidc-auth,
+     * the upcoming diridium-com/oie-ldap-plugin) after they assign a role
+     * through {@link RbacRepository#assignUserRole(int, int)}. Keep it public,
+     * non-static and taking {@code Integer}; {@code ReflectionCallerContractTest}
+     * pins it.</p>
+     *
      * @param userId engine user id whose cache entry should be removed;
      *               {@code null} is silently ignored
      */
