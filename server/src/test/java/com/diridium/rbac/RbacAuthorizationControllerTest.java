@@ -589,6 +589,61 @@ class RbacAuthorizationControllerTest {
         assertEquals("Manage Things", taskPerms.get("settings_TestPlugin/doRefresh"));
     }
 
+    // ========== extension permission catalog and groups ==========
+
+    @Test
+    void getExtensionPermissionNames_includesAPermissionDeclaredWithOnlyTaskNames() {
+        controller.addExtensionPermission(new ExtensionPermission(
+                "TaskOnlyPlugin", "Task Only Perm", "desc",
+                new String[]{}, new String[]{"someTask"}));
+        controller.addExtensionPermission(extPerm("Op Perm", "someOp"));
+
+        Set<String> names = controller.getExtensionPermissionNames();
+        assertTrue(names.contains("Task Only Perm"));
+        assertTrue(names.contains("Op Perm"));
+    }
+
+    @Test
+    void getExtensionPermissionGroups_mapsEachPermissionToItsPlugin() {
+        controller.addExtensionPermission(new ExtensionPermission(
+                "Thread Viewer", "View Thread Dump", "desc", new String[]{"getThreads"}, new String[]{}));
+        controller.addExtensionPermission(extPerm("Manage Things", "testOp"));
+
+        Map<String, String> groups = controller.getExtensionPermissionGroups();
+        assertEquals("Thread Viewer", groups.get("View Thread Dump"));
+        assertEquals("TestPlugin", groups.get("Manage Things"));
+    }
+
+    @Test
+    void getExtensionPermissionGroups_andTaskPermissions_returnCopies() {
+        controller.addExtensionPermission(new ExtensionPermission(
+                "TestPlugin", "Manage Things", "desc", new String[]{"opA"}, new String[]{"taskA"}));
+
+        controller.getExtensionPermissionGroups().put("Injected", "Nobody");
+        controller.getExtensionPermissionGroups().remove("Manage Things");
+        controller.getExtensionTaskPermissions().put("injectedTask", "Injected");
+        controller.getExtensionTaskPermissions().remove("taskA");
+
+        assertEquals(Map.of("Manage Things", "TestPlugin"), controller.getExtensionPermissionGroups());
+        assertEquals(Map.of("taskA", "Manage Things"), controller.getExtensionTaskPermissions());
+    }
+
+    @Test
+    void getExtensionPermissionGroups_sameDisplayNameFromTwoPlugins_lastRegistrationWins() throws Exception {
+        // Pins current behavior: the later plugin takes the display name over
+        // without any warning, so the role editors show it under that plugin only.
+        controller.addExtensionPermission(new ExtensionPermission(
+                "First Plugin", "Shared Name", "desc", new String[]{"firstOp"}, new String[]{}));
+        controller.addExtensionPermission(new ExtensionPermission(
+                "Second Plugin", "Shared Name", "desc", new String[]{"secondOp"}, new String[]{}));
+
+        assertEquals("Second Plugin", controller.getExtensionPermissionGroups().get("Shared Name"));
+        // Both plugins' operations still map to the shared permission.
+        givenUserHasRole(2, 5, Set.of("Shared Name"), null);
+        assertTrue(controller.isUserAuthorized(2, op("First Plugin#firstOp"), null, "127.0.0.1", false));
+        assertTrue(controller.isUserAuthorized(2, op("Second Plugin#secondOp"), null, "127.0.0.1", false));
+    }
+
     @Test
     void getExtensionTaskPermissions_empty_returnsEmptyMap() {
         // No extension permissions registered yet
