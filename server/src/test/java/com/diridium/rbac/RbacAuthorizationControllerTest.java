@@ -487,6 +487,37 @@ class RbacAuthorizationControllerTest {
                         java.util.Map.of("userId", 99), "127.0.0.1", false));
     }
 
+    // ========== isUserAuthorized: user preferences (#55) ==========
+
+    @Test
+    void userPreferenceOps_targetingOther_withoutManageUsers_denied() {
+        givenUserHasRole(2, 5, Set.of("viewChannels"), null);
+        for (String opName : RbacAuthorizationController.USER_PREFERENCE_OPERATIONS) {
+            MirthApiException e = assertThrows(MirthApiException.class,
+                    () -> controller.isUserAuthorized(2, op(opName),
+                            java.util.Map.of("userId", 1), "127.0.0.1", false), opName);
+            assertTrue(e.getResponse().getStatusInfo().getReasonPhrase().contains("manageUsers"), opName);
+        }
+    }
+
+    @Test
+    void userPreferenceOps_targetingOther_withManageUsers_authorized() throws Exception {
+        givenUserHasRole(2, 5, Set.of("manageUsers"), null);
+        for (String opName : RbacAuthorizationController.USER_PREFERENCE_OPERATIONS) {
+            assertTrue(controller.isUserAuthorized(2, op(opName),
+                    java.util.Map.of("userId", 1), "127.0.0.1", false), opName);
+        }
+    }
+
+    @Test
+    void userPreferenceOps_asSelf_authorizedForAnyRole() throws Exception {
+        givenUserHasRole(2, 5, Set.of(), null);
+        for (String opName : RbacAuthorizationController.USER_PREFERENCE_OPERATIONS) {
+            assertTrue(controller.isUserAuthorized(2, op(opName),
+                    java.util.Map.of("userId", 2), "127.0.0.1", false), opName);
+        }
+    }
+
     @Test
     void updateUserPassword_nullParameterMap_falsThroughToPermissionCheck() {
         givenUserHasRole(2, 5, Set.of(), null);

@@ -257,8 +257,9 @@ export const DELIBERATELY_UNMAPPED = [
 
     // The engine's "Administrator" settings tab only reads/writes the CURRENT
     // user's own client preferences, and its backing REST ops
-    // (setUserPreferences/setUserPreference) are self-scoped server-side, so it
-    // is safe to show to everyone.
+    // (setUserPreferences/setUserPreference) are self-scoped server-side (the
+    // engine allows the caller's own id, and RbacAuthorizationController requires
+    // manageUsers for anyone else's, #55), so it is safe to show to everyone.
     'settings_Administrator/doRefresh',
     'settings_Administrator/doSave',
     'settings_Administrator/doSetAdminDefaults',
