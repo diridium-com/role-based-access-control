@@ -102,6 +102,22 @@ public class RbacAuthorizationController extends AuthorizationController {
             "updateUserPassword"
     ));
 
+    // The engine's user-preference operations. They declare no permission: the
+    // engine scopes them with @CheckAuthorizedUserId, which asks this controller
+    // only when the id is not the caller's own. Unmapped, that question fell into
+    // allow-unknown, so any role could read and write any user's preferences,
+    // the admin's included (#55). Another user's preferences now need
+    // manageUsers, like their user record; the caller's own stay open to every
+    // role (isSelfUserOperation), in case an engine path asks about them too.
+    static final Set<String> USER_PREFERENCE_OPERATIONS = Set.of(
+            "getUserPreferences",
+            "getUserPreference",
+            "setUserPreferences",
+            "setUserPreference",
+            "userNotificationAcknowledged"
+    );
+    private static final String USER_PREFERENCE_PERMISSION = "manageUsers";
+
     // The engine operation that deletes a user. Guarded so the last admin user
     // cannot be removed via the Users panel, which would otherwise leave the
     // system with zero admins (rbac_user_role has no FK to the person table, so
@@ -167,6 +183,10 @@ public class RbacAuthorizationController extends AuthorizationController {
                 failures++;
                 log.error("Failed to map operations for permission '{}'", permissionName, e);
             }
+        }
+        // putIfAbsent: if an engine version gives these a permission, that one wins.
+        for (String opName : USER_PREFERENCE_OPERATIONS) {
+            operationToPermission.putIfAbsent(opName, USER_PREFERENCE_PERMISSION);
         }
         if (failures > 0 || operationToPermission.isEmpty()) {
             log.error("Operation-to-permission map is DEGRADED: {} of {} permission scans failed, "
@@ -591,7 +611,8 @@ public class RbacAuthorizationController extends AuthorizationController {
         if (callerUserId == null || operation == null || parameterMap == null) {
             return false;
         }
-        if (!SELF_USER_OPERATIONS.contains(operation.getName())) {
+        if (!SELF_USER_OPERATIONS.contains(operation.getName())
+                && !USER_PREFERENCE_OPERATIONS.contains(operation.getName())) {
             return false;
         }
         Object target = parameterMap.get("userId");
