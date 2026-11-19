@@ -82,7 +82,13 @@ Role names are compared exactly as typed, so "Lab" and "LAB" are two roles. MySQ
 
 ## What RBAC enforces
 
-RBAC checks each request against the permission the engine, or the plugin that owns the operation, declares for it. An operation that declares no permission is allowed for any logged-in user who has a role, and the server logs a warning each time (`RBAC: allowing unknown operation ...`). OIE 4.7.0 has dozens of these, mostly helpers behind screens that are already gated, such as the database connectors' table lookup (`getTables`). Gating them belongs in the engine. RBAC reads the engine's permission declarations at startup, so once the engine declares one, RBAC enforces it with no plugin change.
+RBAC checks each request against the permission declared for its operation. It reads three kinds of declaration at startup and keeps no list of its own:
+
+1. The engine's core API, through the permission on each operation.
+2. A plugin's own permissions, which the plugin registers with the engine.
+3. The permission on an operation of a servlet interface an extension registers with the engine, such as a connector's test calls. RBAC uses it when a role can be granted that permission, and a permission the plugin registers for the same operation comes first.
+
+So when the engine or an extension declares a permission, RBAC enforces it with no plugin change. An operation that declares no permission is allowed for any logged-in user who has a role, and the server logs a warning each time (`RBAC: allowing unknown operation ...`). OIE 4.7.0 has dozens of these. Gating one belongs in the engine or the extension that owns it.
 
 The engine's plugin-settings calls (`/api/extensions/{name}/properties`) are allowed only under the exact name of an installed extension, and rbac's own settings only to the admin role.
 

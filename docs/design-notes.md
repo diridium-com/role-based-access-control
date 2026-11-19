@@ -173,3 +173,17 @@ The first import preview (2026-11-02) was one table with a Details cell that joi
 ## 2026-11-07: the engine's JSON turns some role names into numbers, booleans or null
 
 Measured on OIE 4.7.0 with rbac 1.3.0 on Derby (roles created over REST, then `GET /roles` and an import preview with `Accept: application/json`): the engine's XML-to-JSON writer converts a string that looks like a number or a keyword into that JSON type. A role named `1.0` arrives as the number `1.0`, `1e3` as `1000.0`, `true` as `true`, `null` as `null` and `12345678901234567890` as an integer; `007` stays a string. Descriptions get the same treatment. The web Administrator reads roles and previews as JSON, so such a role shows as `1000` or an empty name there, and an Apply from the web role editor would send the converted text back as the role's name. The Swing Administrator reads XML and is not affected, and an import always re-reads the file on the server, so a preview can only display the name wrong, never write it wrong. Not fixed in the web module: role names like these are not in use anywhere we know of, and the fix is to read roles as XML in the web module, which is a wider change than a note. `webadmin/web/rbac-api.js` says so beside its normalizers.
+
+## 2026-11-17: permission labels on extension servlet operations
+
+The engine's `OperationUtil.getOperationNamesForPermission`, which rbac uses for the core API, scans only the `com.mirth.connect.client.core.api.servlets` package. An extension's servlet operations, the built-in connectors' test and lookup calls among them, arrive as `<PLUGIN_POINT>#<operation>`, and their `@MirthOperation` permission never reached rbac. Plugins have a second path, `getExtensionPermissions`, built for permissions a plugin invents. No connector uses it.
+
+rbac now reads those labels when its controller is built (`RegisteredOperationLabels`). It takes the servlet interfaces each enabled extension registers with the engine, the `apiProvider` entries of type `SERVLET_INTERFACE` that the engine's web server serves. It does not scan packages, so a connector or plugin outside the engine's packages is covered the same way, and rbac keeps no list of operations of its own.
+
+**The labels sit in their own map.** The extension-operation map's values are the catalog of extension permissions the role editors show, so a connector labelled `manageChannels` would otherwise appear there as a plugin's permission.
+
+**A registered extension permission comes before a label for the same operation.** A plugin that registers its own permission keeps the behaviour it has today.
+
+**A label is enforced only when a role can be granted its permission**, a core permission or one an extension registers. A label naming anything else would refuse the operation to everyone but admins, with nothing to tick in the role editors, so that operation stays as it was: allowed, with a warning in the log.
+
+The runtime name depends on each interface's `PLUGIN_POINT` constant, the name the engine's servlets pass to `MirthServlet`. That is a convention, not part of the registration. An interface without the constant is skipped, and an extension whose servlet passes some other name misses the lookup and is allowed as before. Both would go away if the engine handed each extension's labels to the authorization controller itself.
