@@ -173,3 +173,29 @@ The first import preview (2026-11-02) was one table with a Details cell that joi
 ## 2026-11-07: the engine's JSON turns some role names into numbers, booleans or null
 
 Measured on OIE 4.7.0 with rbac 1.3.0 on Derby (roles created over REST, then `GET /roles` and an import preview with `Accept: application/json`): the engine's XML-to-JSON writer converts a string that looks like a number or a keyword into that JSON type. A role named `1.0` arrives as the number `1.0`, `1e3` as `1000.0`, `true` as `true`, `null` as `null` and `12345678901234567890` as an integer; `007` stays a string. Descriptions get the same treatment. The web Administrator reads roles and previews as JSON, so such a role shows as `1000` or an empty name there, and an Apply from the web role editor would send the converted text back as the role's name. The Swing Administrator reads XML and is not affected, and an import always re-reads the file on the server, so a preview can only display the name wrong, never write it wrong. Not fixed in the web module: role names like these are not in use anywhere we know of, and the fix is to read roles as XML in the web module, which is a wider change than a note. `webadmin/web/rbac-api.js` says so beside its normalizers.
+
+## 2026-11-17: permission labels on extension servlet operations
+
+The engine's `OperationUtil.getOperationNamesForPermission`, which rbac uses for the core API, scans only the `com.mirth.connect.client.core.api.servlets` package. An extension's servlet operations, the built-in connectors' test and lookup calls among them, arrive as `<PLUGIN_POINT>#<operation>`, and their `@MirthOperation` permission never reached rbac. Plugins have a second path, `getExtensionPermissions`, built for permissions a plugin invents. No connector uses it.
+
+rbac now reads those labels when its controller is built (`RegisteredOperationLabels`). It takes the servlet interfaces each enabled extension registers with the engine, the `apiProvider` entries of type `SERVLET_INTERFACE` that the engine's web server serves. It does not scan packages, so a connector or plugin outside the engine's packages is covered the same way, and rbac keeps no list of operations of its own.
+
+**The labels sit in their own map.** The extension-operation map's values are the catalog of extension permissions the role editors show, so a connector labelled `manageChannels` would otherwise appear there as a plugin's permission.
+
+**A registered extension permission comes before a label for the same operation.** A plugin that registers its own permission keeps the behaviour it has today.
+
+**A label is enforced only when a role can be granted its permission**, a core permission or one an extension registers. A label naming anything else would refuse the operation to everyone but admins, with nothing to tick in the role editors, so that operation stays as it was: allowed, with a warning in the log.
+
+The runtime name depends on each interface's `PLUGIN_POINT` constant, the name the engine's servlets pass to `MirthServlet`. That is a convention, not part of the registration. An interface without the constant is skipped, and an extension whose servlet passes some other name misses the lookup and is allowed as before. Both would go away if the engine handed each extension's labels to the authorization controller itself.
+
+## 2026-11-21: another user's preferences need Manage Users
+
+The engine's user preference operations (`getUserPreferences`, `getUserPreference`, `setUserPreferences`, `setUserPreference` and `userNotificationAcknowledged`) declare no permission in OIE 4.7.0. rbac allowed them as unknown operations, so any role could read and change any user's preferences, the admin's included (issue #55). rbac now requires `manageUsers` for another user's, the permission that guards their user record, and allows every user their own through the same check that lets a user edit their own account and password.
+
+These are the only engine operations rbac gives a permission itself, an exception to the 2026-11-17 entry. The engine can't declare one on them yet without refusing users their own preferences, because it asks the authorization controller even for a user's own (measured on OIE 4.7.0). The entries go in with `putIfAbsent`, so a permission the engine declares later wins, and once it does they can go. The own-preferences check stays as long as the engine asks about a user's own.
+
+The entries are added after the check that reports the operation map as DEGRADED, so an engine scan that found nothing is still reported.
+
+### Tests
+
+Unit tests: another user's preferences refused without `manageUsers` and allowed with it, a user's own allowed for any role, and the DEGRADED report on a scan that found nothing. The e2e suite's `user_preferences` check, on the released engine: a read-only role reads, writes and reads back its own preference, is refused another user's with "Missing permission: manageUsers", the refused write changes nothing, and a role holding `manageUsers` reads another user's.

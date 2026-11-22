@@ -463,9 +463,11 @@ public class SecureAuthorizationController implements AuthorizationController {
 
         // The engine's sixth core settings tab, "Administrator" (settings_Administrator), is
         // intentionally NOT mapped: it only reads/writes the CURRENT user's own client
-        // preferences, and its backing REST ops (setUserPreferences/setUserPreference) are
-        // self-scoped server-side, so it is safe to show to everyone. Leaving it unmapped
-        // lets it fall through checkTask's unknown-task allow branch.
+        // preferences, and the server allows every role its own preferences (rbac's
+        // own-account check; another user's need manageUsers). That check matters: the
+        // engine asks the authorization controller even for a user's own preferences
+        // (measured on OIE 4.7.0). Leaving the tab unmapped lets it fall through
+        // checkTask's unknown-task allow branch.
 
         // Data Pruner's published bare doStart/doStop task names collide with
         // channel controls. Its settings group must resolve before the bare map.

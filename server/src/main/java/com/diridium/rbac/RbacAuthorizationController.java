@@ -24,6 +24,8 @@ import com.mirth.connect.model.ExtensionPermission;
 import com.mirth.connect.model.ServerEvent;
 import com.mirth.connect.server.controllers.AuthorizationController;
 import com.mirth.connect.server.controllers.ChannelAuthorizer;
+import com.mirth.connect.server.controllers.ControllerFactory;
+import com.mirth.connect.server.controllers.ExtensionController;
 
 public class RbacAuthorizationController extends AuthorizationController {
 
@@ -102,6 +104,26 @@ public class RbacAuthorizationController extends AuthorizationController {
             "updateUserPassword"
     ));
 
+    // The engine's user-preference operations. They declare no permission, so
+    // unmapped they fell into allow-unknown and any role could read and write any
+    // user's preferences, the admin's included. Another user's preferences now
+    // need manageUsers, like their user record. A user's own stay open to every
+    // role through isSelfUserOperation, and need to: the engine asks this
+    // controller even for a user's own preferences (measured on OIE 4.7.0).
+    //
+    // These are the only engine operations rbac gives a permission itself; the
+    // engine labels the rest. Once the engine declares a permission on them,
+    // their operation-map entries can go. The own-preferences check stays as
+    // long as the engine asks about a user's own.
+    static final Set<String> USER_PREFERENCE_OPERATIONS = Set.of(
+            "getUserPreferences",
+            "getUserPreference",
+            "setUserPreferences",
+            "setUserPreference",
+            "userNotificationAcknowledged"
+    );
+    private static final String USER_PREFERENCE_PERMISSION = "manageUsers";
+
     // The engine operation that deletes a user. Guarded so the last admin user
     // cannot be removed via the Users panel, which would otherwise leave the
     // system with zero admins (rbac_user_role has no FK to the person table, so
@@ -114,6 +136,15 @@ public class RbacAuthorizationController extends AuthorizationController {
 
     // Maps extension operation name -> extension permission display name
     private final Map<String, String> extensionOperationToPermission = new ConcurrentHashMap<>();
+
+    // Every core permission a role can be granted.
+    private final Set<String> corePermissions = PermissionUtil.getAllCorePermissions();
+
+    // Maps extension operation name ("<PLUGIN_POINT>#<op>") -> the permission its @MirthOperation label
+    // declares, read once at startup from the servlet interfaces extensions register with the engine
+    // (RegisteredOperationLabels). Kept apart from extensionOperationToPermission because that map's values
+    // are the catalog of extension permissions the role editors list.
+    private final Map<String, String> labelledOperationToPermission;
 
     // Maps extension task name (or "group/task" composite) -> permission display name.
     // Populated by addExtensionPermission from each ExtensionPermission's taskNames.
@@ -136,15 +167,29 @@ public class RbacAuthorizationController extends AuthorizationController {
     private final DeletedUserCleanup deletedUsers = DeletedUserCleanup.create(this::invalidateCache);
 
     /**
-     * Builds the operation→permission map immediately so every later
+     * Builds the operation→permission maps immediately so every later
      * {@link #isUserAuthorized} call is a pure map lookup. The engine's
      * {@code DefaultAuthorizationController.create} factory instantiates
-     * this class once at server startup.
+     * this class once at server startup, after it has loaded the extensions'
+     * metadata and set which are enabled (OIE 4.7.0 {@code Mirth.startup}: the
+     * extension status step comes before the web server and the plugins start).
      */
     public RbacAuthorizationController() {
         super();
         buildOperationPermissionMap();
+        labelledOperationToPermission = Map.copyOf(RegisteredOperationLabels.read(extensionController()));
+        log.info("Read {} permission labels from the extensions' registered servlet interfaces",
+                labelledOperationToPermission.size());
         log.info("RBAC AuthorizationController initialized");
+    }
+
+    private static ExtensionController extensionController() {
+        try {
+            return ControllerFactory.getFactory().createExtensionController();
+        } catch (Exception e) {
+            log.error("Could not reach the engine's extension controller; no extension operation labels were read", e);
+            return null;
+        }
     }
 
     private void buildOperationPermissionMap() {
@@ -155,7 +200,6 @@ public class RbacAuthorizationController extends AuthorizationController {
         // into the "unknown operation -> allow" branch of isUserAuthorized, so a single
         // failed scan aborting the rest would silently weaken authorization for every
         // permission after the failure. One bad permission must cost only its own entries.
-        Set<String> corePermissions = PermissionUtil.getAllCorePermissions();
         int failures = 0;
         for (String permissionName : corePermissions) {
             try {
@@ -176,6 +220,11 @@ public class RbacAuthorizationController extends AuthorizationController {
         } else {
             log.info("Built operation-to-permission map with {} entries", operationToPermission.size());
         }
+        // After the check above, so these entries can't hide a scan that found nothing.
+        // putIfAbsent: if an engine version gives these a permission, that one wins.
+        for (String opName : USER_PREFERENCE_OPERATIONS) {
+            operationToPermission.putIfAbsent(opName, USER_PREFERENCE_PERMISSION);
+        }
     }
 
     /**
@@ -189,7 +238,10 @@ public class RbacAuthorizationController extends AuthorizationController {
      *       getMyPermissions, etc.)</li>
      *   <li>The operation is a self-user edit and the target user id in
      *       {@code parameterMap} matches the caller</li>
-     *   <li>The user's role grants the required permission (core or extension)</li>
+     *   <li>The user's role grants the required permission: registered by an
+     *       extension, labelled on an operation of a servlet interface an
+     *       extension registers (when a role can be granted that permission),
+     *       or core, looked up in that order</li>
      *   <li>The operation has no permission mapping at all (unknown
      *       operation; documented in the design review and intentionally
      *       allowed today)</li>
@@ -286,8 +338,11 @@ public class RbacAuthorizationController extends AuthorizationController {
                 authorized = false;
                 deniedPermission = "any (no role assigned)";
             } else {
-                // First check extension permissions
+                // First check extension permissions: registered ones, then labels
                 String extPermission = extensionOperationToPermission.get(operationName);
+                if (extPermission == null) {
+                    extPermission = enforceableLabel(operationName);
+                }
                 if (extPermission != null) {
                     if (userAuth.grantedPermissions.contains(extPermission)) {
                         authorized = true;
@@ -306,8 +361,9 @@ public class RbacAuthorizationController extends AuthorizationController {
                     } else {
                         // Unknown operation — neither a core nor extension permission mapping was
                         // registered for it. Possible causes: (a) an engine endpoint whose
-                        // @MirthOperation declares no permission (dozens in 4.6.0, getTables among
-                        // them); (b) a plugin endpoint declared without one; (c) a case we missed.
+                        // @MirthOperation declares no permission (dozens in 4.7.0); (b) a plugin
+                        // endpoint declared without one; (c) a label naming a permission no role
+                        // can be granted (see enforceableLabel); (d) a case we missed.
                         //
                         // Policy: allow. Defense-in-depth (deny) would break plugin operations
                         // whose permission we have not seen, which is a worse failure mode than
@@ -403,6 +459,30 @@ public class RbacAuthorizationController extends AuthorizationController {
             log.debug("RBAC: could not evaluate the last-admin guard for user deletion", e);
             return false;
         }
+    }
+
+    /**
+     * The permission an operation's {@code @MirthOperation} label declares, when a role can be
+     * granted it: a core permission, or one an extension has registered. A label naming anything
+     * else would refuse the operation to every user but admins, with nothing in the role editors
+     * to grant, so the operation is treated as having no permission instead (allowed, with a
+     * warning), as it was before rbac read labels.
+     *
+     * @param operationName the runtime operation name, {@code <PLUGIN_POINT>#<operation>}
+     * @return the permission to require, or {@code null} for none
+     */
+    private String enforceableLabel(String operationName) {
+        String label = labelledOperationToPermission.get(operationName);
+        if (label == null) {
+            return null;
+        }
+        if (corePermissions.contains(label) || extensionPermissionToPlugin.containsKey(label)
+                || extensionOperationToPermission.containsValue(label)) {
+            return label;
+        }
+        log.warn("RBAC: operation '{}' is labelled '{}', which no role can be granted; treating it as having no permission",
+                operationName, label);
+        return null;
     }
 
     /**
@@ -591,7 +671,8 @@ public class RbacAuthorizationController extends AuthorizationController {
         if (callerUserId == null || operation == null || parameterMap == null) {
             return false;
         }
-        if (!SELF_USER_OPERATIONS.contains(operation.getName())) {
+        if (!SELF_USER_OPERATIONS.contains(operation.getName())
+                && !USER_PREFERENCE_OPERATIONS.contains(operation.getName())) {
             return false;
         }
         Object target = parameterMap.get("userId");

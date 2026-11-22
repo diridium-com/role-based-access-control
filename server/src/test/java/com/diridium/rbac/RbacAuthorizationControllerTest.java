@@ -19,6 +19,7 @@ import static org.mockito.Mockito.when;
 
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -26,6 +27,8 @@ import com.mirth.connect.client.core.ExtensionOperation;
 import com.mirth.connect.client.core.Operation;
 import com.mirth.connect.client.core.Operation.ExecuteType;
 import com.mirth.connect.client.core.api.MirthApiException;
+import com.mirth.connect.model.ApiProvider;
+import com.mirth.connect.model.ConnectorMetaData;
 import com.mirth.connect.model.ExtensionPermission;
 import com.mirth.connect.model.PluginMetaData;
 import com.mirth.connect.model.ServerEvent;
@@ -222,6 +225,26 @@ class RbacAuthorizationControllerTest {
             assertThrows(MirthApiException.class,
                     () -> fresh.isUserAuthorized(2, op("removeUser"), null, "127.0.0.1", false));
         }
+    }
+
+    @Test
+    void buildMap_everyScanEmpty_stillReportedDegraded() {
+        // rbac's user-preference entries go in after the DEGRADED check, so a scan that found
+        // nothing is still reported, not logged as a healthy map of five entries.
+        java.io.PrintStream stderr = System.err;
+        java.io.ByteArrayOutputStream captured = new java.io.ByteArrayOutputStream();
+        try (MockedStatic<com.mirth.connect.client.core.api.util.OperationUtil> opUtil =
+                Mockito.mockStatic(com.mirth.connect.client.core.api.util.OperationUtil.class)) {
+            opUtil.when(() -> com.mirth.connect.client.core.api.util.OperationUtil
+                    .getOperationNamesForPermission(Mockito.anyString()))
+                    .thenReturn(new String[0]);
+            System.setErr(new java.io.PrintStream(captured, true, java.nio.charset.StandardCharsets.UTF_8));
+            new RbacAuthorizationController();
+        } finally {
+            System.setErr(stderr);
+        }
+        String output = captured.toString(java.nio.charset.StandardCharsets.UTF_8);
+        assertTrue(output.contains("Operation-to-permission map is DEGRADED"), output);
     }
 
     // ========== isUserAuthorized: no role assigned ==========
@@ -485,6 +508,37 @@ class RbacAuthorizationControllerTest {
         assertThrows(MirthApiException.class,
                 () -> controller.isUserAuthorized(2, op("updateUser"),
                         java.util.Map.of("userId", 99), "127.0.0.1", false));
+    }
+
+    // ========== isUserAuthorized: user preferences (#55) ==========
+
+    @Test
+    void userPreferenceOps_targetingOther_withoutManageUsers_denied() {
+        givenUserHasRole(2, 5, Set.of("viewChannels"), null);
+        for (String opName : RbacAuthorizationController.USER_PREFERENCE_OPERATIONS) {
+            MirthApiException e = assertThrows(MirthApiException.class,
+                    () -> controller.isUserAuthorized(2, op(opName),
+                            java.util.Map.of("userId", 1), "127.0.0.1", false), opName);
+            assertTrue(e.getResponse().getStatusInfo().getReasonPhrase().contains("manageUsers"), opName);
+        }
+    }
+
+    @Test
+    void userPreferenceOps_targetingOther_withManageUsers_authorized() throws Exception {
+        givenUserHasRole(2, 5, Set.of("manageUsers"), null);
+        for (String opName : RbacAuthorizationController.USER_PREFERENCE_OPERATIONS) {
+            assertTrue(controller.isUserAuthorized(2, op(opName),
+                    java.util.Map.of("userId", 1), "127.0.0.1", false), opName);
+        }
+    }
+
+    @Test
+    void userPreferenceOps_asSelf_authorizedForAnyRole() throws Exception {
+        givenUserHasRole(2, 5, Set.of(), null);
+        for (String opName : RbacAuthorizationController.USER_PREFERENCE_OPERATIONS) {
+            assertTrue(controller.isUserAuthorized(2, op(opName),
+                    java.util.Map.of("userId", 2), "127.0.0.1", false), opName);
+        }
     }
 
     @Test
@@ -821,6 +875,79 @@ class RbacAuthorizationControllerTest {
         Operation auditable = new Operation("getChannel", "getChannel", ExecuteType.SYNC, true);
         controller.isUserAuthorized(2, auditable, null, "127.0.0.1", true);
         verify(eventController, atLeastOnce()).dispatchEvent(any());
+    }
+
+    // ========== isUserAuthorized: labels on registered servlet interfaces ==========
+
+    /** A controller built on an engine with one enabled connector that registers {@code servletInterface}. */
+    private RbacAuthorizationController controllerWithRegistered(Class<?> servletInterface) {
+        ConnectorMetaData connector = new ConnectorMetaData();
+        connector.setName("Test Writer");
+        ApiProvider provider = new ApiProvider();
+        provider.setType(ApiProvider.Type.SERVLET_INTERFACE);
+        provider.setName(servletInterface.getName());
+        connector.setApiProviders(List.of(provider));
+        ExtensionController extensions = mock(ExtensionController.class);
+        when(extensions.getConnectorMetaData()).thenReturn(Map.of("Test Writer", connector));
+        when(extensions.getPluginMetaData()).thenReturn(Map.of());
+        when(extensions.isExtensionEnabled("Test Writer")).thenReturn(true);
+        when(factory.createExtensionController()).thenReturn(extensions);
+        return new RbacAuthorizationController();
+    }
+
+    @Test
+    void labelledOperation_refusedWithoutItsPermission() {
+        RbacAuthorizationController labelled = controllerWithRegistered(RegisteredOperationLabelsTest.LabelledService.class);
+        givenUserHasRole(2, 5, Set.of("viewDashboard"), null);
+        MirthApiException e = assertThrows(MirthApiException.class, () -> labelled.isUserAuthorized(2,
+                op("Test Connector Service#testConnection"), null, "127.0.0.1", false));
+        assertEquals("Missing permission: manageChannels", e.getResponse().getStatusInfo().getReasonPhrase());
+    }
+
+    @Test
+    void labelledOperation_allowedWithItsPermission() throws Exception {
+        RbacAuthorizationController labelled = controllerWithRegistered(RegisteredOperationLabelsTest.LabelledService.class);
+        givenUserHasRole(2, 5, Set.of("manageChannels"), null);
+        assertTrue(labelled.isUserAuthorized(2, op("Test Connector Service#testConnection"), null, "127.0.0.1", false));
+    }
+
+    @Test
+    void labelledOperation_unlabelledSiblingStaysUnknown() throws Exception {
+        RbacAuthorizationController labelled = controllerWithRegistered(RegisteredOperationLabelsTest.LabelledService.class);
+        givenUserHasRole(2, 5, Set.of("viewDashboard"), null);
+        assertTrue(labelled.isUserAuthorized(2, op("Test Connector Service#unlabelled"), null, "127.0.0.1", false));
+    }
+
+    @Test
+    void labelledOperation_aRegisteredExtensionPermissionWinsOverTheLabel() throws Exception {
+        RbacAuthorizationController labelled = controllerWithRegistered(RegisteredOperationLabelsTest.LabelledService.class);
+        labelled.addExtensionPermission(new ExtensionPermission("Test Connector Service", "Run Tests", "desc",
+                new String[]{"testConnection"}, new String[]{}));
+        givenUserHasRole(2, 5, Set.of("manageChannels"), null);
+        MirthApiException e = assertThrows(MirthApiException.class, () -> labelled.isUserAuthorized(2,
+                op("Test Connector Service#testConnection"), null, "127.0.0.1", false));
+        assertEquals("Missing permission: Run Tests", e.getResponse().getStatusInfo().getReasonPhrase());
+        givenUserHasRole(3, 6, Set.of("Run Tests"), null);
+        assertTrue(labelled.isUserAuthorized(3, op("Test Connector Service#testConnection"), null, "127.0.0.1", false));
+    }
+
+    @Test
+    void labelledOperation_aPermissionNoRoleCanHoldIsTreatedAsUnlabelled() throws Exception {
+        RbacAuthorizationController labelled = controllerWithRegistered(RegisteredOperationLabelsTest.UngrantableLabel.class);
+        givenUserHasRole(2, 5, Set.of("viewDashboard"), null);
+        assertTrue(labelled.isUserAuthorized(2, op("Odd Service#doThing"), null, "127.0.0.1", false));
+
+        // Once an extension registers that permission, a role can hold it, so the label applies.
+        labelled.addExtensionPermission(new ExtensionPermission("Odd Plugin", "No Such Permission", "desc",
+                new String[]{"otherOp"}, new String[]{}));
+        assertThrows(MirthApiException.class,
+                () -> labelled.isUserAuthorized(2, op("Odd Service#doThing"), null, "127.0.0.1", false));
+    }
+
+    @Test
+    void labelsAreNotListedAsExtensionPermissions() {
+        RbacAuthorizationController labelled = controllerWithRegistered(RegisteredOperationLabelsTest.LabelledService.class);
+        assertFalse(labelled.getExtensionPermissionNames().contains("manageChannels"));
     }
 
     // ========== Helpers ==========

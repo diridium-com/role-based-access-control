@@ -256,9 +256,10 @@ export const DELIBERATELY_UNMAPPED = [
     'view/doShowSettings',
 
     // The engine's "Administrator" settings tab only reads/writes the CURRENT
-    // user's own client preferences, and its backing REST ops
-    // (setUserPreferences/setUserPreference) are self-scoped server-side, so it
-    // is safe to show to everyone.
+    // user's own client preferences, and the server allows every role its own
+    // preferences (rbac's own-account check; another user's need manageUsers).
+    // That check matters: the engine asks the authorization controller even for
+    // a user's own preferences (measured on OIE 4.7.0).
     'settings_Administrator/doRefresh',
     'settings_Administrator/doSave',
     'settings_Administrator/doSetAdminDefaults',
