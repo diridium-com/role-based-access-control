@@ -25,6 +25,17 @@ import com.mirth.connect.server.util.SqlConfig;
  * (see {@code DefaultUserController.vacuumPersonTable}): open a manual-commit
  * session, run all statements, commit, close in a finally. An uncommitted
  * session rolls back automatically on close.</p>
+ *
+ * <p><b>Outside callers.</b> Other plugins call this class by reflection, with
+ * no compile-time dependency on rbac: gibson9583/oie-oidc-auth (1.0.3,
+ * {@code RbacRoleAssigner}) and the upcoming diridium-com/oie-ldap-plugin, to
+ * set a user's role at sign-in. They look the class up by its name and call
+ * {@link #getInstance()}, {@link #findRoleIdByName(String)},
+ * {@link #getUserRoleId(int)}, {@link #getAdminRoleId()},
+ * {@link #countUsersByRoleId(int)} and {@link #assignUserRole(int, int)}.
+ * Renaming the class or changing those signatures breaks them without breaking
+ * this build; {@code ReflectionCallerContractTest} pins them. Issue #56 tracks a
+ * supported API to replace these calls.</p>
  */
 public class RbacRepository {
 
