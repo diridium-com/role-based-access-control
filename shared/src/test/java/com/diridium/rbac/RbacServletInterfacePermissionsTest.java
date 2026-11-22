@@ -30,6 +30,7 @@ class RbacServletInterfacePermissionsTest {
         assertPermission("getAvailablePermissions", RbacServletInterface.PERMISSION_VIEW, false);
         assertPermission("getMyPermissions", RbacServletInterface.PERMISSION_VIEW, false);
         assertPermission("getExtensionTaskPermissions", RbacServletInterface.PERMISSION_VIEW, false);
+        assertPermission("getExtensionPermissionGroups", RbacServletInterface.PERMISSION_VIEW, false);
     }
 
     @Test

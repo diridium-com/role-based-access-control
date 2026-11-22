@@ -100,6 +100,19 @@ class RbacAuthorizationControllerTest {
         return new Operation(name, name, ExecuteType.SYNC, false);
     }
 
+    /** Runs the action and returns what was logged meanwhile (the tests log through slf4j-simple, to stderr). */
+    private static String stderrDuring(Runnable action) {
+        java.io.PrintStream stderr = System.err;
+        java.io.ByteArrayOutputStream captured = new java.io.ByteArrayOutputStream();
+        try {
+            System.setErr(new java.io.PrintStream(captured, true, java.nio.charset.StandardCharsets.UTF_8));
+            action.run();
+        } finally {
+            System.setErr(stderr);
+        }
+        return captured.toString(java.nio.charset.StandardCharsets.UTF_8);
+    }
+
     // ========== isUserAuthorized: bypass paths ==========
 
     @Test
@@ -231,20 +244,14 @@ class RbacAuthorizationControllerTest {
     void buildMap_everyScanEmpty_stillReportedDegraded() {
         // rbac's user-preference entries go in after the DEGRADED check, so a scan that found
         // nothing is still reported, not logged as a healthy map of five entries.
-        java.io.PrintStream stderr = System.err;
-        java.io.ByteArrayOutputStream captured = new java.io.ByteArrayOutputStream();
         try (MockedStatic<com.mirth.connect.client.core.api.util.OperationUtil> opUtil =
                 Mockito.mockStatic(com.mirth.connect.client.core.api.util.OperationUtil.class)) {
             opUtil.when(() -> com.mirth.connect.client.core.api.util.OperationUtil
                     .getOperationNamesForPermission(Mockito.anyString()))
                     .thenReturn(new String[0]);
-            System.setErr(new java.io.PrintStream(captured, true, java.nio.charset.StandardCharsets.UTF_8));
-            new RbacAuthorizationController();
-        } finally {
-            System.setErr(stderr);
+            String output = stderrDuring(RbacAuthorizationController::new);
+            assertTrue(output.contains("Operation-to-permission map is DEGRADED"), output);
         }
-        String output = captured.toString(java.nio.charset.StandardCharsets.UTF_8);
-        assertTrue(output.contains("Operation-to-permission map is DEGRADED"), output);
     }
 
     // ========== isUserAuthorized: no role assigned ==========
@@ -641,6 +648,74 @@ class RbacAuthorizationControllerTest {
         Map<String, String> taskPerms = controller.getExtensionTaskPermissions();
         assertEquals("Manage Things", taskPerms.get("manageTask"));
         assertEquals("Manage Things", taskPerms.get("settings_TestPlugin/doRefresh"));
+    }
+
+    // ========== extension permission catalog and groups ==========
+
+    @Test
+    void getExtensionPermissionNames_includesAPermissionDeclaredWithOnlyTaskNames() {
+        controller.addExtensionPermission(new ExtensionPermission(
+                "TaskOnlyPlugin", "Task Only Perm", "desc",
+                new String[]{}, new String[]{"someTask"}));
+        controller.addExtensionPermission(extPerm("Op Perm", "someOp"));
+
+        Set<String> names = controller.getExtensionPermissionNames();
+        assertTrue(names.contains("Task Only Perm"));
+        assertTrue(names.contains("Op Perm"));
+    }
+
+    @Test
+    void getExtensionPermissionGroups_mapsEachPermissionToItsPlugin() {
+        controller.addExtensionPermission(new ExtensionPermission(
+                "Thread Viewer", "View Thread Dump", "desc", new String[]{"getThreads"}, new String[]{}));
+        controller.addExtensionPermission(extPerm("Manage Things", "testOp"));
+
+        Map<String, String> groups = controller.getExtensionPermissionGroups();
+        assertEquals("Thread Viewer", groups.get("View Thread Dump"));
+        assertEquals("TestPlugin", groups.get("Manage Things"));
+    }
+
+    @Test
+    void getExtensionPermissionGroups_andTaskPermissions_returnCopies() {
+        controller.addExtensionPermission(new ExtensionPermission(
+                "TestPlugin", "Manage Things", "desc", new String[]{"opA"}, new String[]{"taskA"}));
+
+        controller.getExtensionPermissionGroups().put("Injected", "Nobody");
+        controller.getExtensionPermissionGroups().remove("Manage Things");
+        controller.getExtensionTaskPermissions().put("injectedTask", "Injected");
+        controller.getExtensionTaskPermissions().remove("taskA");
+
+        assertEquals(Map.of("Manage Things", "TestPlugin"), controller.getExtensionPermissionGroups());
+        assertEquals(Map.of("taskA", "Manage Things"), controller.getExtensionTaskPermissions());
+    }
+
+    @Test
+    void getExtensionPermissionGroups_sameDisplayNameFromTwoPlugins_lastRegistrationWinsAndWarns() throws Exception {
+        // The later plugin takes the display name over, so the role editors show it
+        // under that plugin only, and rbac logs a warning naming both plugins.
+        controller.addExtensionPermission(new ExtensionPermission(
+                "First Plugin", "Shared Name", "desc", new String[]{"firstOp"}, new String[]{}));
+        String output = stderrDuring(() -> controller.addExtensionPermission(new ExtensionPermission(
+                "Second Plugin", "Shared Name", "desc", new String[]{"secondOp"}, new String[]{})));
+
+        assertTrue(output.contains("RBAC: plugins 'First Plugin' and 'Second Plugin' both register a permission named 'Shared Name'. "
+                + "The role editors list it under 'Second Plugin', and granting it allows the operations of both."), output);
+        assertEquals("Second Plugin", controller.getExtensionPermissionGroups().get("Shared Name"));
+        // Both plugins' operations still map to the shared permission.
+        givenUserHasRole(2, 5, Set.of("Shared Name"), null);
+        assertTrue(controller.isUserAuthorized(2, op("First Plugin#firstOp"), null, "127.0.0.1", false));
+        assertTrue(controller.isUserAuthorized(2, op("Second Plugin#secondOp"), null, "127.0.0.1", false));
+    }
+
+    @Test
+    void getExtensionPermissionGroups_samePluginRegisteringAgain_noWarning() {
+        ExtensionPermission permission = new ExtensionPermission(
+                "First Plugin", "Shared Name", "desc", new String[]{"firstOp"}, new String[]{});
+        controller.addExtensionPermission(permission);
+        String output = stderrDuring(() -> controller.addExtensionPermission(permission));
+
+        assertFalse(output.contains("both register a permission"), output);
+        assertEquals("First Plugin", controller.getExtensionPermissionGroups().get("Shared Name"));
     }
 
     @Test

@@ -511,7 +511,14 @@ public class RbacAuthorizationController extends AuthorizationController {
         // collision-free across plugins (a null/blank extensionName falls back to bare).
         String extensionName = extensionPermission.getExtensionName();
         if (permissionDisplayName != null && extensionName != null && !extensionName.isEmpty()) {
-            extensionPermissionToPlugin.put(permissionDisplayName, extensionName);
+            // A name another plugin already registered goes to the later plugin, as before;
+            // both plugins' operations stay gated by it. Logged so the clash is visible.
+            String earlier = extensionPermissionToPlugin.put(permissionDisplayName, extensionName);
+            if (earlier != null && !earlier.equals(extensionName)) {
+                log.warn("RBAC: plugins '{}' and '{}' both register a permission named '{}'. The role editors "
+                        + "list it under '{}', and granting it allows the operations of both.",
+                        earlier, extensionName, permissionDisplayName, extensionName);
+            }
         }
         String prefix = (extensionName != null && !extensionName.isEmpty()) ? extensionName + "#" : "";
         String[] operationNames = extensionPermission.getOperationNames();

@@ -286,7 +286,8 @@ public interface RbacServletInterface extends BaseServletInterface {
      * {@code "group/task"} composite. An empty map is returned if no
      * installed plugin has declared task names.</p>
      *
-     * @return immutable snapshot of the current task-permission mappings
+     * @return a copy of the current task-permission mappings; changing it
+     *         does not change what rbac enforces
      * @throws ClientException on internal failure
      */
     @GET
@@ -305,7 +306,8 @@ public interface RbacServletInterface extends BaseServletInterface {
      * plugin's own header instead of a generic bucket. An empty map is
      * returned if no installed plugin has declared permissions.</p>
      *
-     * @return immutable snapshot of permission → plugin-name mappings
+     * @return a copy of the permission → plugin-name mappings; changing it
+     *         does not change what rbac reports
      * @throws ClientException on internal failure
      */
     @GET
