@@ -256,10 +256,10 @@ export const DELIBERATELY_UNMAPPED = [
     'view/doShowSettings',
 
     // The engine's "Administrator" settings tab only reads/writes the CURRENT
-    // user's own client preferences, and the preference operations declare no
-    // permission, so the server allows them for every role. This depends on them
-    // staying unlabelled: the engine asks the authorization controller even for a
-    // user's own preferences (measured on OIE 4.7.0).
+    // user's own client preferences, and the server allows every role its own
+    // preferences (rbac's own-account check; another user's need manageUsers).
+    // That check matters: the engine asks the authorization controller even for
+    // a user's own preferences (measured on OIE 4.7.0).
     'settings_Administrator/doRefresh',
     'settings_Administrator/doSave',
     'settings_Administrator/doSetAdminDefaults',

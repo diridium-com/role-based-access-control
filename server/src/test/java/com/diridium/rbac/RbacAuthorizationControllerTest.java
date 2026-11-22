@@ -227,6 +227,26 @@ class RbacAuthorizationControllerTest {
         }
     }
 
+    @Test
+    void buildMap_everyScanEmpty_stillReportedDegraded() {
+        // rbac's user-preference entries go in after the DEGRADED check, so a scan that found
+        // nothing is still reported, not logged as a healthy map of five entries.
+        java.io.PrintStream stderr = System.err;
+        java.io.ByteArrayOutputStream captured = new java.io.ByteArrayOutputStream();
+        try (MockedStatic<com.mirth.connect.client.core.api.util.OperationUtil> opUtil =
+                Mockito.mockStatic(com.mirth.connect.client.core.api.util.OperationUtil.class)) {
+            opUtil.when(() -> com.mirth.connect.client.core.api.util.OperationUtil
+                    .getOperationNamesForPermission(Mockito.anyString()))
+                    .thenReturn(new String[0]);
+            System.setErr(new java.io.PrintStream(captured, true, java.nio.charset.StandardCharsets.UTF_8));
+            new RbacAuthorizationController();
+        } finally {
+            System.setErr(stderr);
+        }
+        String output = captured.toString(java.nio.charset.StandardCharsets.UTF_8);
+        assertTrue(output.contains("Operation-to-permission map is DEGRADED"), output);
+    }
+
     // ========== isUserAuthorized: no role assigned ==========
 
     @Test
@@ -488,6 +508,37 @@ class RbacAuthorizationControllerTest {
         assertThrows(MirthApiException.class,
                 () -> controller.isUserAuthorized(2, op("updateUser"),
                         java.util.Map.of("userId", 99), "127.0.0.1", false));
+    }
+
+    // ========== isUserAuthorized: user preferences (#55) ==========
+
+    @Test
+    void userPreferenceOps_targetingOther_withoutManageUsers_denied() {
+        givenUserHasRole(2, 5, Set.of("viewChannels"), null);
+        for (String opName : RbacAuthorizationController.USER_PREFERENCE_OPERATIONS) {
+            MirthApiException e = assertThrows(MirthApiException.class,
+                    () -> controller.isUserAuthorized(2, op(opName),
+                            java.util.Map.of("userId", 1), "127.0.0.1", false), opName);
+            assertTrue(e.getResponse().getStatusInfo().getReasonPhrase().contains("manageUsers"), opName);
+        }
+    }
+
+    @Test
+    void userPreferenceOps_targetingOther_withManageUsers_authorized() throws Exception {
+        givenUserHasRole(2, 5, Set.of("manageUsers"), null);
+        for (String opName : RbacAuthorizationController.USER_PREFERENCE_OPERATIONS) {
+            assertTrue(controller.isUserAuthorized(2, op(opName),
+                    java.util.Map.of("userId", 1), "127.0.0.1", false), opName);
+        }
+    }
+
+    @Test
+    void userPreferenceOps_asSelf_authorizedForAnyRole() throws Exception {
+        givenUserHasRole(2, 5, Set.of(), null);
+        for (String opName : RbacAuthorizationController.USER_PREFERENCE_OPERATIONS) {
+            assertTrue(controller.isUserAuthorized(2, op(opName),
+                    java.util.Map.of("userId", 2), "127.0.0.1", false), opName);
+        }
     }
 
     @Test

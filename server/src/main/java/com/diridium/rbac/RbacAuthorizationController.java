@@ -104,6 +104,26 @@ public class RbacAuthorizationController extends AuthorizationController {
             "updateUserPassword"
     ));
 
+    // The engine's user-preference operations. They declare no permission, so
+    // unmapped they fell into allow-unknown and any role could read and write any
+    // user's preferences, the admin's included. Another user's preferences now
+    // need manageUsers, like their user record. A user's own stay open to every
+    // role through isSelfUserOperation, and need to: the engine asks this
+    // controller even for a user's own preferences (measured on OIE 4.7.0).
+    //
+    // These are the only engine operations rbac gives a permission itself; the
+    // engine labels the rest. Once the engine declares a permission on them,
+    // their operation-map entries can go. The own-preferences check stays as
+    // long as the engine asks about a user's own.
+    static final Set<String> USER_PREFERENCE_OPERATIONS = Set.of(
+            "getUserPreferences",
+            "getUserPreference",
+            "setUserPreferences",
+            "setUserPreference",
+            "userNotificationAcknowledged"
+    );
+    private static final String USER_PREFERENCE_PERMISSION = "manageUsers";
+
     // The engine operation that deletes a user. Guarded so the last admin user
     // cannot be removed via the Users panel, which would otherwise leave the
     // system with zero admins (rbac_user_role has no FK to the person table, so
@@ -199,6 +219,11 @@ public class RbacAuthorizationController extends AuthorizationController {
                     failures, corePermissions.size(), operationToPermission.size());
         } else {
             log.info("Built operation-to-permission map with {} entries", operationToPermission.size());
+        }
+        // After the check above, so these entries can't hide a scan that found nothing.
+        // putIfAbsent: if an engine version gives these a permission, that one wins.
+        for (String opName : USER_PREFERENCE_OPERATIONS) {
+            operationToPermission.putIfAbsent(opName, USER_PREFERENCE_PERMISSION);
         }
     }
 
@@ -646,7 +671,8 @@ public class RbacAuthorizationController extends AuthorizationController {
         if (callerUserId == null || operation == null || parameterMap == null) {
             return false;
         }
-        if (!SELF_USER_OPERATIONS.contains(operation.getName())) {
+        if (!SELF_USER_OPERATIONS.contains(operation.getName())
+                && !USER_PREFERENCE_OPERATIONS.contains(operation.getName())) {
             return false;
         }
         Object target = parameterMap.get("userId");
