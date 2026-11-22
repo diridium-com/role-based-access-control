@@ -227,6 +227,26 @@ class RbacAuthorizationControllerTest {
         }
     }
 
+    @Test
+    void buildMap_everyScanEmpty_stillReportedDegraded() {
+        // rbac's user-preference entries go in after the DEGRADED check, so a scan that found
+        // nothing is still reported, not logged as a healthy map of five entries.
+        java.io.PrintStream stderr = System.err;
+        java.io.ByteArrayOutputStream captured = new java.io.ByteArrayOutputStream();
+        try (MockedStatic<com.mirth.connect.client.core.api.util.OperationUtil> opUtil =
+                Mockito.mockStatic(com.mirth.connect.client.core.api.util.OperationUtil.class)) {
+            opUtil.when(() -> com.mirth.connect.client.core.api.util.OperationUtil
+                    .getOperationNamesForPermission(Mockito.anyString()))
+                    .thenReturn(new String[0]);
+            System.setErr(new java.io.PrintStream(captured, true, java.nio.charset.StandardCharsets.UTF_8));
+            new RbacAuthorizationController();
+        } finally {
+            System.setErr(stderr);
+        }
+        String output = captured.toString(java.nio.charset.StandardCharsets.UTF_8);
+        assertTrue(output.contains("Operation-to-permission map is DEGRADED"), output);
+    }
+
     // ========== isUserAuthorized: no role assigned ==========
 
     @Test

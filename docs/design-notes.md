@@ -187,3 +187,15 @@ rbac now reads those labels when its controller is built (`RegisteredOperationLa
 **A label is enforced only when a role can be granted its permission**, a core permission or one an extension registers. A label naming anything else would refuse the operation to everyone but admins, with nothing to tick in the role editors, so that operation stays as it was: allowed, with a warning in the log.
 
 The runtime name depends on each interface's `PLUGIN_POINT` constant, the name the engine's servlets pass to `MirthServlet`. That is a convention, not part of the registration. An interface without the constant is skipped, and an extension whose servlet passes some other name misses the lookup and is allowed as before. Both would go away if the engine handed each extension's labels to the authorization controller itself.
+
+## 2026-11-21: another user's preferences need Manage Users
+
+The engine's user preference operations (`getUserPreferences`, `getUserPreference`, `setUserPreferences`, `setUserPreference` and `userNotificationAcknowledged`) declare no permission in OIE 4.7.0. rbac allowed them as unknown operations, so any role could read and change any user's preferences, the admin's included (issue #55). rbac now requires `manageUsers` for another user's, the permission that guards their user record, and allows every user their own through the same check that lets a user edit their own account and password.
+
+These are the only engine operations rbac gives a permission itself, an exception to the 2026-11-17 entry. The engine can't declare one on them yet without refusing users their own preferences, because it asks the authorization controller even for a user's own (measured on OIE 4.7.0). The entries go in with `putIfAbsent`, so a permission the engine declares later wins, and once it does they can go. The own-preferences check stays as long as the engine asks about a user's own.
+
+The entries are added after the check that reports the operation map as DEGRADED, so an engine scan that found nothing is still reported.
+
+### Tests
+
+Unit tests: another user's preferences refused without `manageUsers` and allowed with it, a user's own allowed for any role, and the DEGRADED report on a scan that found nothing. The e2e suite's `user_preferences` check, on the released engine: a read-only role reads, writes and reads back its own preference, is refused another user's with "Missing permission: manageUsers", the refused write changes nothing, and a role holding `manageUsers` reads another user's.

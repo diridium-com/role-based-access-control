@@ -104,13 +104,17 @@ public class RbacAuthorizationController extends AuthorizationController {
             "updateUserPassword"
     ));
 
-    // The engine's user-preference operations. They declare no permission: the
-    // engine scopes them with @CheckAuthorizedUserId, which asks this controller
-    // only when the id is not the caller's own. Unmapped, that question fell into
-    // allow-unknown, so any role could read and write any user's preferences,
-    // the admin's included (#55). Another user's preferences now need
-    // manageUsers, like their user record; the caller's own stay open to every
-    // role (isSelfUserOperation), in case an engine path asks about them too.
+    // The engine's user-preference operations. They declare no permission, so
+    // unmapped they fell into allow-unknown and any role could read and write any
+    // user's preferences, the admin's included. Another user's preferences now
+    // need manageUsers, like their user record. A user's own stay open to every
+    // role through isSelfUserOperation, and need to: the engine asks this
+    // controller even for a user's own preferences (measured on OIE 4.7.0).
+    //
+    // These are the only engine operations rbac gives a permission itself; the
+    // engine labels the rest. Once the engine declares a permission on them,
+    // their operation-map entries can go. The own-preferences check stays as
+    // long as the engine asks about a user's own.
     static final Set<String> USER_PREFERENCE_OPERATIONS = Set.of(
             "getUserPreferences",
             "getUserPreference",
@@ -208,10 +212,6 @@ public class RbacAuthorizationController extends AuthorizationController {
                 log.error("Failed to map operations for permission '{}'", permissionName, e);
             }
         }
-        // putIfAbsent: if an engine version gives these a permission, that one wins.
-        for (String opName : USER_PREFERENCE_OPERATIONS) {
-            operationToPermission.putIfAbsent(opName, USER_PREFERENCE_PERMISSION);
-        }
         if (failures > 0 || operationToPermission.isEmpty()) {
             log.error("Operation-to-permission map is DEGRADED: {} of {} permission scans failed, "
                     + "{} entries mapped. Operations gated by unmapped permissions will be allowed "
@@ -219,6 +219,11 @@ public class RbacAuthorizationController extends AuthorizationController {
                     failures, corePermissions.size(), operationToPermission.size());
         } else {
             log.info("Built operation-to-permission map with {} entries", operationToPermission.size());
+        }
+        // After the check above, so these entries can't hide a scan that found nothing.
+        // putIfAbsent: if an engine version gives these a permission, that one wins.
+        for (String opName : USER_PREFERENCE_OPERATIONS) {
+            operationToPermission.putIfAbsent(opName, USER_PREFERENCE_PERMISSION);
         }
     }
 

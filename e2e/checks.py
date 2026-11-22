@@ -317,8 +317,7 @@ def cache(r, w):
 # The labelled operations labelled_operations calls as roles that aren't admins. On an engine that doesn't label
 # them (OIE 4.7.0), rbac logs each of these calls as an unknown operation.
 DOCUMENT_WRITER_TEST = "Document Connector Service#testWrite"
-LABEL_PROBE_OPERATIONS = (DOCUMENT_WRITER_TEST, "JMS Connector Service#getTemplates",
-                          "getProperty", "getUserPreferences", "getUserPreference", "setUserPreference")
+LABEL_PROBE_OPERATIONS = (DOCUMENT_WRITER_TEST, "JMS Connector Service#getTemplates", "getProperty")
 
 
 def labelled_operations(r, w):
@@ -327,14 +326,12 @@ def labelled_operations(r, w):
     allows them with an "allowing unknown operation" warning; on an engine that labels them, rbac refuses a role
     without the label's permission. Each refusal check passes in either case and fails on anything else. The
     connector call and getProperty must be both one or both the other: a mix means rbac read the core labels but
-    not the connector ones (or the reverse). Another user's preferences are judged on their own, because the engine
-    labels them separately or not at all. Notes say which the engine is. Calls a role is allowed in both cases are
-    plain checks."""
+    not the connector ones (or the reverse). A note says which the engine is. Calls a role is allowed in both cases
+    are plain checks. A user's preferences are checked in user_preferences: rbac decides those itself."""
     viewer, editor, every, norole = (w.users[k] for k in ("viewer", "channel-a", "every-permission", "no-role"))
-    own, admin_id = w.ids["viewer"], "1"
     test_write = ("POST", "/connectors/doc/_testWrite", w.engine.home)
     test_query = {"channelId": w.channels["A"], "channelName": "rbac e2e A"}
-    seen, seen_preferences = set(), set()
+    seen = set()
 
     def refused_or_unknown(label, api, runtime_name, permission, method, path, body=None, query=None,
                            content_type="application/xml", accept="application/xml", modes=seen):
@@ -368,27 +365,6 @@ def labelled_operations(r, w):
     status, _ = every.request("GET", "/server/property", query=property_query, accept="text/plain")
     r.check("labels: viewServerSettings reads getProperty", status in (200, 204), f"HTTP {status} {every.reason!r}")
 
-    # A role without manageUsers: its own preferences always, another user's only when the engine doesn't label
-    # them. The engine asks rbac even for a user's own preferences (measured on OIE 4.7.0), so a label on these
-    # refuses a user their own, and the first check below fails.
-    expect(r, "labels: read-only reads its own preferences", viewer, "GET", f"/users/{own}/preferences", (200,))
-    expect(r, "labels: read-only writes its own preference", viewer, "PUT", f"/users/{own}/preferences/rbac-e2e",
-           (200, 204), body="own", content_type="text/plain")
-    status, text = viewer.request("GET", f"/users/{own}/preferences/rbac-e2e", accept="text/plain")
-    r.check("labels: read-only's own preference reads back", status == 200 and text.strip() == "own",
-            f"HTTP {status}: {text[:100]}")
-    refused_or_unknown("labels: read-only is refused another user's preferences, or the engine doesn't label them",
-                       viewer, "getUserPreferences", "manageUsers", "GET", f"/users/{admin_id}/preferences",
-                       modes=seen_preferences)
-    refused_or_unknown("labels: read-only is refused writing another user's preference, or the engine doesn't "
-                       "label it", viewer, "setUserPreference", "manageUsers", "PUT",
-                       f"/users/{admin_id}/preferences/rbac-e2e", body="other", content_type="text/plain",
-                       modes=seen_preferences)
-    status, text = w.api.request("GET", f"/users/{admin_id}/preferences/rbac-e2e", accept="text/plain")
-    wrote = status == 200 and text.strip() == "other"
-    r.check("labels: another user's preference changed only where the engine doesn't label the call",
-            wrote == (seen_preferences == {"unlabelled"}), f"HTTP {status}: {text[:100]}")
-
     def described(modes, what):
         if modes == {"labelled"}:
             return f"the engine labels {what} and rbac enforces the labels"
@@ -398,10 +374,31 @@ def labelled_operations(r, w):
 
     r.check("labels: the engine labels the connector call and getProperty both or neither", len(seen) == 1,
             str(sorted(seen)))
-    r.check("labels: the engine labels both preference calls or neither", len(seen_preferences) == 1,
-            str(sorted(seen_preferences)))
     r.note("labels", described(seen, "the connector call and getProperty"))
-    r.note("labels", described(seen_preferences, "another user's preferences"))
+
+
+def user_preferences(r, w):
+    """A user's preferences: their own for any role, another user's only with manageUsers. rbac decides this itself,
+    whatever the engine labels, and a write it refuses changes nothing. The engine asks rbac even for a user's own
+    preferences (measured on OIE 4.7.0), so the own-preference checks fail if rbac's own-account check stops
+    covering them."""
+    viewer, every = w.users["viewer"], w.users["every-permission"]
+    own, admin_id = w.ids["viewer"], "1"
+    expect(r, "preferences: read-only reads its own preferences", viewer, "GET", f"/users/{own}/preferences", (200,))
+    expect(r, "preferences: read-only writes its own preference", viewer, "PUT", f"/users/{own}/preferences/rbac-e2e",
+           (200, 204), body="own", content_type="text/plain")
+    status, text = viewer.request("GET", f"/users/{own}/preferences/rbac-e2e", accept="text/plain")
+    r.check("preferences: read-only's own preference reads back", status == 200 and text.strip() == "own",
+            f"HTTP {status}: {text[:100]}")
+    expect(r, "preferences: read-only is refused another user's preferences", viewer, "GET",
+           f"/users/{admin_id}/preferences", (403,), missing("manageUsers"))
+    expect(r, "preferences: read-only is refused writing another user's preference", viewer, "PUT",
+           f"/users/{admin_id}/preferences/rbac-e2e", (403,), missing("manageUsers"), body="other",
+           content_type="text/plain")
+    status, text = w.api.request("GET", f"/users/{admin_id}/preferences/rbac-e2e", accept="text/plain")
+    r.check("preferences: the refused write changed nothing", text.strip() != "other", f"HTTP {status}: {text[:100]}")
+    expect(r, "preferences: manageUsers reads another user's preferences", every, "GET",
+           f"/users/{admin_id}/preferences", (200,))
 
 
 def unknown_operations(r, engine):
