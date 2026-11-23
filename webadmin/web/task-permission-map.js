@@ -68,7 +68,7 @@ export const TASK_PERMISSIONS = {
     doExportChannel: 'viewChannels', // shared task name: channel + channelEdit groups
     doDeleteChannel: 'manageChannels',
     doCloneChannel: 'manageChannels',
-    doEditChannel: 'manageChannels',
+    doEditChannel: 'viewChannels', // opening the editor only reads the channel; changes ride doSaveChannel
     doEnableChannel: 'manageChannels',
     doDisableChannel: 'manageChannels',
     doViewMessages: 'viewMessages',
@@ -83,9 +83,9 @@ export const TASK_PERMISSIONS = {
     doDisableDestination: 'manageChannels',
     doMoveDestinationUp: 'manageChannels',
     doMoveDestinationDown: 'manageChannels',
-    doEditFilter: 'manageChannels',
-    doEditTransformer: 'manageChannels',
-    doEditResponseTransformer: 'manageChannels',
+    doEditFilter: 'viewChannels', // reading too; every change rides doSaveChannel
+    doEditTransformer: 'viewChannels',
+    doEditResponseTransformer: 'viewChannels',
     doImportConnector: 'manageChannels',
     doExportConnector: 'viewChannels',
     doValidateChannelScripts: 'manageChannels',

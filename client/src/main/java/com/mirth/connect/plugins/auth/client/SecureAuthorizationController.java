@@ -320,7 +320,9 @@ public class SecureAuthorizationController implements AuthorizationController {
         taskPermissionMap.put(TaskConstants.CHANNEL_EXPORT_CHANNEL, "viewChannels");
         taskPermissionMap.put(TaskConstants.CHANNEL_DELETE_CHANNEL, "manageChannels");
         taskPermissionMap.put(TaskConstants.CHANNEL_CLONE, "manageChannels");
-        taskPermissionMap.put(TaskConstants.CHANNEL_EDIT, "manageChannels");
+        // Opening the channel editor only reads the channel, which View Channels already
+        // returns in full; see the filter and transformer entries under Channel Edit.
+        taskPermissionMap.put(TaskConstants.CHANNEL_EDIT, "viewChannels");
         taskPermissionMap.put(TaskConstants.CHANNEL_ENABLE, "manageChannels");
         taskPermissionMap.put(TaskConstants.CHANNEL_DISABLE, "manageChannels");
         taskPermissionMap.put(TaskConstants.CHANNEL_VIEW_MESSAGES, "viewMessages");
@@ -335,9 +337,12 @@ public class SecureAuthorizationController implements AuthorizationController {
         taskPermissionMap.put(TaskConstants.CHANNEL_EDIT_DISABLE_DESTINATION, "manageChannels");
         taskPermissionMap.put(TaskConstants.CHANNEL_EDIT_MOVE_DESTINATION_UP, "manageChannels");
         taskPermissionMap.put(TaskConstants.CHANNEL_EDIT_MOVE_DESTINATION_DOWN, "manageChannels");
-        taskPermissionMap.put(TaskConstants.CHANNEL_EDIT_FILTER, "manageChannels");
-        taskPermissionMap.put(TaskConstants.CHANNEL_EDIT_TRANSFORMER, "manageChannels");
-        taskPermissionMap.put(TaskConstants.CHANNEL_EDIT_RESPONSE_TRANSFORMER, "manageChannels");
+        // Opening the filter and transformer editors is reading too. Every change goes through
+        // Save, Validate or a destination task, which stay on manageChannels, and the server
+        // refuses to save a channel without it.
+        taskPermissionMap.put(TaskConstants.CHANNEL_EDIT_FILTER, "viewChannels");
+        taskPermissionMap.put(TaskConstants.CHANNEL_EDIT_TRANSFORMER, "viewChannels");
+        taskPermissionMap.put(TaskConstants.CHANNEL_EDIT_RESPONSE_TRANSFORMER, "viewChannels");
         taskPermissionMap.put(TaskConstants.CHANNEL_EDIT_IMPORT_CONNECTOR, "manageChannels");
         taskPermissionMap.put(TaskConstants.CHANNEL_EDIT_EXPORT_CONNECTOR, "viewChannels");
         taskPermissionMap.put(TaskConstants.CHANNEL_EDIT_EXPORT, "viewChannels");

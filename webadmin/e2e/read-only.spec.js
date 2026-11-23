@@ -53,7 +53,8 @@ test.describe('P2 read-only role', () => {
         await expect(page.getByRole('button', { name: 'Delete Channel', exact: true })).toHaveCount(0);
         // Other mutations gated on manageChannels are gone too.
         await expect(page.getByRole('button', { name: 'New Channel', exact: true })).toHaveCount(0);
-        await expect(page.getByRole('button', { name: 'Edit Channel', exact: true })).toHaveCount(0);
+        // Opening the editor only reads the channel (viewChannels); saving rides doSaveChannel.
+        await expect(page.getByRole('button', { name: 'Edit Channel', exact: true })).toBeVisible();
 
         await page.getByText('Demo Started', { exact: true }).click({ button: 'right' });
         const menu = page.getByRole('menu');
