@@ -200,6 +200,20 @@ The entries are added after the check that reports the operation map as DEGRADED
 
 Unit tests: another user's preferences refused without `manageUsers` and allowed with it, a user's own allowed for any role, and the DEGRADED report on a scan that found nothing. The e2e suite's `user_preferences` check, on the released engine: a read-only role reads, writes and reads back its own preference, is refused another user's with "Missing permission: manageUsers", the refused write changes nothing, and a role holding `manageUsers` reads another user's.
 
+## 2026-11-22: View Channels roles and the channel editor
+
+rbac decides which buttons and links each Administrator shows from two task maps, one for the Swing Administrator and one for the web Administrator, which name the permission each button needs. Both maps required Manage Channels to open the channel editor and its filter, transformer and response transformer editors. So a role with only View Channels couldn't read a channel's filters or transformers (rbac issue #54). Yet the engine sends that role every channel in full, filter and transformer scripts included, and rbac lets it export a channel.
+
+Opening those editors now needs View Channels in both maps. Saving, validating, adding or removing destinations and importing a connector still need Manage Channels, and the server refuses to save a channel for a role without Manage Channels. A role with Manage Channels but not View Channels sees no channels at all: on OIE 4.7.0 the engine returns an empty list to its `GET /channels` and HTTP 204 when it asks for one channel.
+
+On OIE 4.7.0 with Web Support 1.3.0, a role with View Channels and no Manage Channels opens the channel editor and the filter and transformer editors in both Administrators and can't save. The Swing channel editor has no read-only mode. The user can type in it, Save Changes never appears, and leaving the editor discards the typed changes without a prompt. The web Administrator hides Save Changes in the channel editor, and Add New Rule, Import Filter and Save Channel in the filter editor. When the user leaves with changes, the web Administrator tells them they have no permission to save and that the changes will be discarded. In the web filter editor, a role without View Code Templates also gets the warning "Could not load user code-template libraries; showing built-ins only". The Read-Only preset in the role editors includes View Code Templates, so roles built from it don't get the warning.
+
+The Swing Administrator shows some links that rbac can't hide, because the engine shows them without consulting rbac: Debug Channel and Deploy Channel in the channel editor, and the links in the filter and transformer editors, such as Add New Rule, Import Filter and Validate Filter. The server refuses a deploy from a role without `deployUndeployChannels` with HTTP 403 "Missing permission: deployUndeployChannels". Before this change, a View Channels role could already open the Swing channel editor by double-clicking a channel, because the engine doesn't consult rbac for the double-click either.
+
+### Tests
+
+A unit test checks that a View Channels role may open the four editors and may not save, validate, add or delete a destination, import a connector, or create or delete a channel. The read-only browser test, which drives the web Administrator against a mocked engine, now expects the Edit Channel button. The checks against a real engine described above ran by hand for this change and are not part of CI.
+
 ## 2026-11-23: grants no plugin registers
 
 A role stores a plugin's permission by its display name, because the engine's `ExtensionPermission` has no id. When a plugin renames a permission in a new version, or is removed, the role keeps the old name (rbac issue #64). Measured on OIE 4.7.0: after the Server Log plugin was uninstalled, a role still held "View Server Log". rbac's permission list, which both role editors show, no longer included it, and nothing about it was logged at startup. The role editors keep such a grant when the role is saved, without showing it, so it comes back into use if the plugin is installed again.

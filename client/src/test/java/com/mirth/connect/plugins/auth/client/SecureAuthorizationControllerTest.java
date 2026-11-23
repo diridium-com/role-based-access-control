@@ -118,7 +118,25 @@ class SecureAuthorizationControllerTest {
         SecureAuthorizationController c = withPermissions(Set.of("manageChannels"));
         assertTrue(c.checkTask("group", TaskConstants.CHANNEL_NEW_CHANNEL));
         assertTrue(c.checkTask("group", TaskConstants.CHANNEL_DELETE_CHANNEL));
-        assertTrue(c.checkTask("group", TaskConstants.CHANNEL_EDIT));
+        assertTrue(c.checkTask("group", TaskConstants.CHANNEL_EDIT_SAVE));
+    }
+
+    @Test
+    void checkTask_viewChannels_opensTheEditorsButChangesNothing() throws Exception {
+        SecureAuthorizationController c = withPermissions(Set.of("viewChannels"));
+        assertTrue(c.checkTask(TaskConstants.CHANNEL_KEY, TaskConstants.CHANNEL_EDIT));
+        assertTrue(c.checkTask(TaskConstants.CHANNEL_EDIT_KEY, TaskConstants.CHANNEL_EDIT_FILTER));
+        assertTrue(c.checkTask(TaskConstants.CHANNEL_EDIT_KEY, TaskConstants.CHANNEL_EDIT_TRANSFORMER));
+        assertTrue(c.checkTask(TaskConstants.CHANNEL_EDIT_KEY, TaskConstants.CHANNEL_EDIT_RESPONSE_TRANSFORMER));
+
+        assertFalse(c.checkTask(TaskConstants.CHANNEL_EDIT_KEY, TaskConstants.CHANNEL_EDIT_SAVE));
+        assertFalse(c.checkTask(TaskConstants.CHANNEL_EDIT_KEY, TaskConstants.CHANNEL_EDIT_VALIDATE));
+        assertFalse(c.checkTask(TaskConstants.CHANNEL_EDIT_KEY, TaskConstants.CHANNEL_EDIT_VALIDATE_SCRIPT));
+        assertFalse(c.checkTask(TaskConstants.CHANNEL_EDIT_KEY, TaskConstants.CHANNEL_EDIT_NEW_DESTINATION));
+        assertFalse(c.checkTask(TaskConstants.CHANNEL_EDIT_KEY, TaskConstants.CHANNEL_EDIT_DELETE_DESTINATION));
+        assertFalse(c.checkTask(TaskConstants.CHANNEL_EDIT_KEY, TaskConstants.CHANNEL_EDIT_IMPORT_CONNECTOR));
+        assertFalse(c.checkTask(TaskConstants.CHANNEL_KEY, TaskConstants.CHANNEL_NEW_CHANNEL));
+        assertFalse(c.checkTask(TaskConstants.CHANNEL_KEY, TaskConstants.CHANNEL_DELETE_CHANNEL));
     }
 
     @Test
