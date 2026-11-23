@@ -760,6 +760,32 @@ class RbacAuthorizationControllerTest {
     }
 
     @Test
+    void refusal_roleHoldingTwoUnregisteredPermissions_logsALineForEach() {
+        controller.addExtensionPermission(new ExtensionPermission(
+                "Perm Test", "Use Permission Test", "desc", new String[]{"ping"}, new String[]{}));
+        givenNamedRole(2, 7, "Lab", Set.of("viewChannels", "Use Perm Test", "Old Other Perm"));
+
+        String output = stderrDuring(() -> assertThrows(MirthApiException.class,
+                () -> controller.isUserAuthorized(2, op("Perm Test#ping"), null, "127.0.0.1", false)));
+
+        assertTrue(output.contains(UNREGISTERED_LINE), output);
+        assertTrue(output.contains("RBAC: role 'Lab' holds the permission 'Old Other Perm', which no installed plugin "
+                + "registers."), output);
+    }
+
+    @Test
+    void refusal_userWithNoRole_logsNoUnregisteredGrant() {
+        // removeUser is a gated, non-degradable op, so the no-role user is refused with a 403.
+        when(repo.getUserRoleId(2)).thenReturn(null);
+
+        String output = stderrDuring(() -> assertThrows(MirthApiException.class,
+                () -> controller.isUserAuthorized(2, op("removeUser"), null, "127.0.0.1", false)));
+
+        assertTrue(output.contains("RBAC: User 2 denied for operation 'removeUser'"), output);
+        assertFalse(output.contains("which no installed plugin registers"), output);
+    }
+
+    @Test
     void allowedCall_roleHoldingAnUnregisteredPermission_logsNothing() {
         givenNamedRole(2, 7, "Lab", Set.of("viewChannels", "Use Perm Test"));
 
