@@ -292,3 +292,17 @@ test('the admin flag does not widen anything else, and the same task name elsewh
 test('admin-only tasks fail closed while permissions are not loaded, even for an admin', () => {
     assert.equal(adminController(null, true).checkTask(RBAC_GROUP, 'doExportRoles'), false);
 });
+
+test('View Channels opens the channel, filter and transformer editors and changes nothing', () => {
+    const viewer = controllerFor(new Set(['viewChannels']));
+    for (const [group, task] of [['channel', 'doEditChannel'], ['channelEdit', 'doEditFilter'],
+        ['channelEdit', 'doEditTransformer'], ['channelEdit', 'doEditResponseTransformer']]) {
+        assert.equal(viewer.checkTask(group, task), true, `${group}/${task}`);
+    }
+    for (const [group, task] of [['channelEdit', 'doSaveChannel'], ['channelEdit', 'doValidate'],
+        ['channelEdit', 'doValidateChannelScripts'], ['channelEdit', 'doNewDestination'],
+        ['channelEdit', 'doDeleteDestination'], ['channelEdit', 'doImportConnector'],
+        ['channel', 'doNewChannel'], ['channel', 'doDeleteChannel']]) {
+        assert.equal(viewer.checkTask(group, task), false, `${group}/${task}`);
+    }
+});
