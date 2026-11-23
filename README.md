@@ -92,8 +92,6 @@ So when the engine or an extension declares a permission, RBAC enforces it with 
 
 The exception is the engine's user preference calls (each user's Administrator settings), which declare no permission in OIE 4.7.0. RBAC requires Manage Users for another user's preferences and allows every user their own. Once the engine declares a permission on them, RBAC uses that instead.
 
-A role stores a plugin's permission by its display name, the name the role editors show for it, such as "View Server Log" (Server Log), "View Settings" (Data Pruner) or "View Global Maps" (Global Maps). If a new version of the plugin renames the permission, or the plugin is removed, the role keeps the old name, and that grant does nothing. After a rename, the role's users are refused the plugin's operations until an admin grants the new name, and RBAC logs the role and the old name the first time one of its users is refused after the engine starts. The role editors don't show such a grant, and saving the role keeps it, so it comes back into use if the plugin is installed again. Plugin authors: keep a permission's display name the same across versions.
-
 The engine's plugin-settings calls (`/api/extensions/{name}/properties`) are allowed only under the exact name of an installed extension, and rbac's own settings only to the admin role.
 
 ## License
