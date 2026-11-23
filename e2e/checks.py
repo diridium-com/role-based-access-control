@@ -377,6 +377,28 @@ def labelled_operations(r, w):
     r.note("labels", described(seen, "the connector call and getProperty"))
 
 
+def unregistered_grant(r, w):
+    """A role holding a permission no plugin registers, as after a plugin renames its permission or is removed. rbac
+    logs the role and the permission once, the first time one of the role's users is refused, and not again."""
+    name, perm = "rbac e2e unregistered", "rbac e2e unregistered permission"
+    w.roles["unregistered"] = b.create_role(w.api, name, ["viewDashboard", "viewChannels", perm])
+    user = add_user(w, "unregistered", "unregistered")
+    start = len(w.engine.log())
+    for i in (1, 2):
+        expect(r, f"unregistered grant: refusal {i} for the role holding it", user, "GET", "/server/settings", (403,),
+               missing("viewServerSettings"))
+    line = (f"RBAC: role '{name}' holds the permission '{perm}', which no installed plugin registers. "
+            "If a plugin renamed it, grant the role the new name.")
+    count = w.engine.log()[start:].count(line)
+    r.check("unregistered grant: rbac logs the role and the permission once", count == 1, f"{count} lines")
+    # Remove the role again: an import drops permissions the engine doesn't offer, so the same-engine export and
+    # import later in the scenario would plan this role as an OVERWRITE instead of UNCHANGED.
+    unassigned, _ = b.remove_role(w.api, w.ids["unregistered"])
+    deleted, _ = b.delete_role(w.api, w.roles.pop("unregistered"))
+    r.check("unregistered grant: its role is removed again", unassigned in (200, 204) and deleted in (200, 204),
+            f"unassign HTTP {unassigned}, delete HTTP {deleted}")
+
+
 def user_preferences(r, w):
     """A user's preferences: their own for any role, another user's only with manageUsers. rbac decides this itself,
     whatever the engine labels, and a write it refuses changes nothing. The engine asks rbac even for a user's own

@@ -157,6 +157,10 @@ public class RbacAuthorizationController extends AuthorizationController {
     // plugin's own header (e.g. "Thread Viewer") instead of a generic bucket.
     private final Map<String, String> extensionPermissionToPlugin = new ConcurrentHashMap<>();
 
+    // "<roleId>\n<permission>" for each grant no plugin registers that reportUnregisteredGrants has
+    // already logged, so each is logged once while the engine runs.
+    private final Set<String> reportedUnregisteredGrants = ConcurrentHashMap.newKeySet();
+
     // Cache: userId -> cached auth info
     private final ConcurrentHashMap<Integer, UserAuthCache> cache = new ConcurrentHashMap<>();
 
@@ -330,8 +334,9 @@ public class RbacAuthorizationController extends AuthorizationController {
         boolean authorized = false;
         String deniedPermission = null;
 
+        UserAuthCache userAuth = null;
         try {
-            UserAuthCache userAuth = getUserAuth(userId);
+            userAuth = getUserAuth(userId);
 
             if (userAuth == null) {
                 // No role assigned -> deny
@@ -401,7 +406,32 @@ public class RbacAuthorizationController extends AuthorizationController {
         }
 
         log.warn("RBAC: User {} denied for operation '{}' (requires permission '{}')", userId, operationName, deniedPermission);
+        reportUnregisteredGrants(userAuth);
         throw forbidden("Missing permission: " + deniedPermission);
+    }
+
+    /**
+     * Logs each permission the refused user's role holds that neither the engine nor any
+     * installed plugin registers, once per role and permission while the engine runs. A role
+     * keeps such a grant when a plugin renames its permission or is removed, because grants are
+     * stored by display name. This runs at a refusal, not at startup, because the engine
+     * registers the plugins' permissions only after every plugin's start() has run; a refusal in
+     * the first moments of startup can still log a grant that is in fact registered.
+     */
+    private void reportUnregisteredGrants(UserAuthCache userAuth) {
+        if (userAuth == null || userAuth.isAdmin || userAuth.grantedPermissions == null) {
+            return;
+        }
+        for (String permission : userAuth.grantedPermissions) {
+            if (corePermissions.contains(permission) || extensionPermissionToPlugin.containsKey(permission)
+                    || extensionOperationToPermission.containsValue(permission)) {
+                continue;
+            }
+            if (reportedUnregisteredGrants.add(userAuth.roleId + "\n" + permission)) {
+                log.warn("RBAC: role '{}' holds the permission '{}', which no installed plugin registers. "
+                        + "If a plugin renamed it, grant the role the new name.", userAuth.roleName, permission);
+            }
+        }
     }
 
     /**
@@ -655,6 +685,8 @@ public class RbacAuthorizationController extends AuthorizationController {
 
             UserAuthCache authCache = new UserAuthCache();
             authCache.isAdmin = role.isAdmin();
+            authCache.roleId = roleId;
+            authCache.roleName = role.getName();
             // Defensive copies — the cache must own its state, not share references
             // with Role instances that may be mutated elsewhere.
             authCache.grantedPermissions = role.getPermissions() != null
@@ -788,6 +820,8 @@ public class RbacAuthorizationController extends AuthorizationController {
      */
     private static class UserAuthCache {
         boolean isAdmin;
+        int roleId;
+        String roleName;
         Set<String> grantedPermissions;
         boolean hasChannelRestrictions;
         Set<String> allowedChannelIds;

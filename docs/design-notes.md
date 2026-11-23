@@ -199,3 +199,13 @@ The entries are added after the check that reports the operation map as DEGRADED
 ### Tests
 
 Unit tests: another user's preferences refused without `manageUsers` and allowed with it, a user's own allowed for any role, and the DEGRADED report on a scan that found nothing. The e2e suite's `user_preferences` check, on the released engine: a read-only role reads, writes and reads back its own preference, is refused another user's with "Missing permission: manageUsers", the refused write changes nothing, and a role holding `manageUsers` reads another user's.
+
+## 2026-11-23: grants no plugin registers
+
+A role stores a plugin's permission by its display name, because the engine's `ExtensionPermission` has no id. When a plugin renames a permission in a new version, or is removed, the role keeps the old name (rbac issue #64). Measured on OIE 4.7.0: after the Server Log plugin was uninstalled, a role still held "View Server Log". rbac's permission list, which both role editors show, no longer included it, and nothing about it was logged at startup. The role editors keep such a grant when the role is saved, without showing it, so it comes back into use if the plugin is installed again.
+
+rbac now logs such a grant the first time one of the role's users is refused, once per role and permission until the engine restarts: "RBAC: role 'Lab' holds the permission 'Use Perm Test', which no installed plugin registers. If a plugin renamed it, grant the role the new name." It checks at a refusal because the engine registers the plugins' permissions only after every plugin's `start()` has run (`DefaultExtensionController.startPlugins`), so a check when rbac starts would see none of them. A refusal while the engine is still starting, before the plugins have registered their permissions, can log a false warning for a permission a plugin does register.
+
+### Tests
+
+Three unit tests: a refused user whose role holds an unregistered permission gets the line logged once; a refused user whose role holds only registered permissions gets no line; an allowed call logs no line. An e2e check gives a role a made-up permission; its user is refused twice, and the line appears once.
