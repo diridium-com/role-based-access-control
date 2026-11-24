@@ -73,7 +73,7 @@ public class RbacChannelPlugin implements ChannelPlugin {
             invalidate.run();
         } catch (Exception e) {
             log.warn("RBAC maintenance: could not remove the restrictions to deleted channel '{}' (non-fatal, the"
-                    + " startup sweep will): {}", channelName, e.getMessage());
+                    + " startup sweep will): {}", NameCharacters.forLog(channelName), e.getMessage());
             log.debug("RBAC maintenance: the failure", e);
             return 0;
         }
@@ -88,7 +88,8 @@ public class RbacChannelPlugin implements ChannelPlugin {
             String name = role != null ? role.getName() : "id " + roleId;
             boolean none = role != null && (role.getChannelIds() == null || role.getChannelIds().isEmpty());
             log.info("RBAC maintenance: channel '{}' was deleted, removed its restriction from role '{}'.{}",
-                    channelName, name, none ? " Role '" + name + "' now has no channels." : "");
+                    NameCharacters.forLog(channelName), NameCharacters.forLog(name),
+                    none ? " Role '" + NameCharacters.forLog(name) + "' now has no channels." : "");
         }
         return removed;
     }

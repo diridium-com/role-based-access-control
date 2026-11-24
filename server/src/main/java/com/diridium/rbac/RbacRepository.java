@@ -177,7 +177,7 @@ public class RbacRepository {
             created.setId(roleId);
             return created;
         } catch (Exception e) {
-            log.error("Failed to create role {}", role.getName(), e);
+            log.error("Failed to create role {}", NameCharacters.forLog(role.getName()), e);
             throw new RbacRepositoryException(e);
         } finally {
             if (session != null) {
@@ -283,7 +283,7 @@ public class RbacRepository {
             return SqlConfig.getInstance().getSqlSessionManager()
                     .selectOne(stmt("getRoleIdByName"), name);
         } catch (Exception e) {
-            log.error("Failed to look up role by name '{}'", name, e);
+            log.error("Failed to look up role by name '{}'", NameCharacters.forLog(name), e);
             throw new RbacRepositoryException(e);
         }
     }

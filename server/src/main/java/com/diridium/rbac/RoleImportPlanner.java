@@ -106,6 +106,10 @@ final class RoleImportPlanner {
             ExportedRole fileRole = roles.get(index);
             Integer existingId = findRoleIdByName.apply(fileRole.name());
             Role existing = existingId != null ? getRoleById.apply(existingId) : null;
+            if (existing == null && NameCharacters.isRefused(fileRole.name())) {
+                throw new Refusal(RoleService.UNSAFE_CHARACTERS + " The file's role '"
+                        + NameCharacters.forLog(fileRole.name()) + "' has one in its name.");
+            }
             if (existing != null) {
                 Integer earlier = fileIndexByExistingId.put(existingId, index);
                 if (earlier != null) {

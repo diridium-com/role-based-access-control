@@ -470,6 +470,28 @@ class RoleImportPlannerTest {
         assertNotEquals(before, plan(true, lab).token());
     }
 
+    // ========== names with control characters or line breaks ==========
+
+    @Test
+    void aNewRoleWhoseNameHasALineBreak_refusesTheFile() {
+        Refusal e = assertThrows(Refusal.class, () -> plan(true, fileRole("Lab\nX", List.of("viewChannels"), false)));
+        assertEquals(RoleService.UNSAFE_CHARACTERS + " The file's role 'Lab\\nX' has one in its name.", e.getMessage());
+    }
+
+    @Test
+    void anExistingRoleWhoseNameHasALineBreak_isNotRefused() throws Exception {
+        Role existing = new Role();
+        existing.setId(5);
+        existing.setName("Lab\nX");
+        existing.setPermissions(new java.util.HashSet<>(Set.of("viewChannels")));
+        existing.setChannelIds(new java.util.HashSet<>());
+        roles.put(5, existing);
+
+        Plan plan = plan(true, fileRole("Lab\nX", List.of("viewChannels"), false));
+
+        assertNotEquals(Action.CREATE, plan.rows().get(0).getAction());
+    }
+
     // ========== Helpers ==========
 
     private Plan plan(boolean applyChannels, ExportedRole... fileRoles) throws Refusal {

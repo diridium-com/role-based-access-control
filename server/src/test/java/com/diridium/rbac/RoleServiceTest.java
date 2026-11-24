@@ -385,6 +385,101 @@ class RoleServiceTest {
 
     // ========== Helpers ==========
 
+    // ========== names with control characters or line breaks ==========
+
+    @Test
+    void create_nameWithALineBreak_throws400() {
+        Role input = roleWithName(null, "Lab\nX");
+        MirthApiException e = assertThrows(MirthApiException.class, () -> service.create(input));
+        assertEquals(Status.BAD_REQUEST.getStatusCode(), e.getResponse().getStatus());
+        assertEquals(RoleService.UNSAFE_CHARACTERS, entityText(e));
+        verify(repo, never()).createRole(any());
+    }
+
+    @Test
+    void create_permissionWithAControlCharacter_throws400() {
+        Role input = roleWithName(null, "Lab");
+        input.setPermissions(new HashSet<>(Set.of("viewChannels", "bell\u0007perm")));
+        MirthApiException e = assertThrows(MirthApiException.class, () -> service.create(input));
+        assertEquals(RoleService.UNSAFE_CHARACTERS, entityText(e));
+    }
+
+    @Test
+    void update_keepingAnExistingNameAndPermissionWithALineBreak_isAllowed() {
+        Role existing = roleWithName(42, "Lab\nX");
+        existing.setPermissions(new HashSet<>(Set.of("old\nperm")));
+        Role incoming = roleWithName(42, "Lab\nX");
+        incoming.setPermissions(new HashSet<>(Set.of("old\nperm", "viewChannels")));
+        when(repo.getRoleById(42)).thenReturn(existing);
+
+        service.update(42, incoming);
+
+        verify(repo).updateRole(42, incoming);
+    }
+
+    @Test
+    void update_renamingToANameWithALineBreak_throws400() {
+        when(repo.getRoleById(42)).thenReturn(roleWithName(42, "Lab"));
+        MirthApiException e = assertThrows(MirthApiException.class,
+                () -> service.update(42, roleWithName(42, "Lab\nX")));
+        assertEquals(RoleService.UNSAFE_CHARACTERS, entityText(e));
+        verify(repo, never()).updateRole(anyInt(), any());
+    }
+
+    @Test
+    void update_addingAPermissionWithALineBreak_throws400() {
+        when(repo.getRoleById(42)).thenReturn(roleWithName(42, "Lab"));
+        Role incoming = roleWithName(42, "Lab");
+        incoming.setPermissions(new HashSet<>(Set.of("new\nperm")));
+        MirthApiException e = assertThrows(MirthApiException.class, () -> service.update(42, incoming));
+        assertEquals(RoleService.UNSAFE_CHARACTERS, entityText(e));
+    }
+
+    @Test
+    void create_descriptionWithABell_throws400() {
+        Role input = roleWithName(null, "Lab");
+        input.setDescription("desc\u0007bell");
+        MirthApiException e = assertThrows(MirthApiException.class, () -> service.create(input));
+        assertEquals(Status.BAD_REQUEST.getStatusCode(), e.getResponse().getStatus());
+        assertEquals(RoleService.UNSAFE_DESCRIPTION, entityText(e));
+        verify(repo, never()).createRole(any());
+    }
+
+    @Test
+    void create_descriptionWithLineBreaksAndTabs_isStored() {
+        Role input = roleWithName(null, "Lab");
+        input.setDescription("first line\nsecond\tline");
+        when(repo.findRoleIdByName("Lab")).thenReturn(null);
+        when(repo.createRole(input)).thenReturn(roleWithName(42, "Lab"));
+
+        service.create(input);
+
+        verify(repo).createRole(input);
+    }
+
+    @Test
+    void update_keepingAnExistingDescriptionWithABell_isAllowed() {
+        Role existing = roleWithName(42, "Lab");
+        existing.setDescription("old\u0007bell");
+        Role incoming = roleWithName(42, "Lab");
+        incoming.setDescription("old\u0007bell");
+        when(repo.getRoleById(42)).thenReturn(existing);
+
+        service.update(42, incoming);
+
+        verify(repo).updateRole(42, incoming);
+    }
+
+    @Test
+    void update_changingTheDescriptionToOneWithABell_throws400() {
+        when(repo.getRoleById(42)).thenReturn(roleWithName(42, "Lab"));
+        Role incoming = roleWithName(42, "Lab");
+        incoming.setDescription("new\u0007bell");
+        MirthApiException e = assertThrows(MirthApiException.class, () -> service.update(42, incoming));
+        assertEquals(RoleService.UNSAFE_DESCRIPTION, entityText(e));
+        verify(repo, never()).updateRole(anyInt(), any());
+    }
+
     private static Role roleWithName(Integer id, String name) {
         Role role = new Role();
         role.setId(id);

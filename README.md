@@ -94,6 +94,10 @@ The exception is the engine's user preference calls (each user's Administrator s
 
 The engine's plugin-settings calls (`/api/extensions/{name}/properties`) are allowed only under the exact name of an installed extension, and rbac's own settings only to the admin role.
 
+## If the RBAC tab can't list roles
+
+A role whose name, permission or description contains a control character stops the OIE Administrator and the web Administrator from listing roles. RBAC names it in mirth.log at startup, with its number. Delete it with `curl -k -u admin -H 'X-Requested-With: OpenAPI' -X DELETE https://<engine>:8443/api/extensions/rbac/roles/<number>`, then recreate it in the role editor. Deleting a role also removes it from its users, so assign them the new role.
+
 ## License
 
 MPL-2.0. See [LICENSE](LICENSE).

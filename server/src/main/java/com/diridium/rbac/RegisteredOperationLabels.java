@@ -80,8 +80,8 @@ final class RegisteredOperationLabels {
                     addLabels(Class.forName(provider.getName(), false, RegisteredOperationLabels.class.getClassLoader()),
                             labels);
                 } catch (Exception | LinkageError e) {
-                    log.error("Could not read the permission labels of {}, which {} registers", provider.getName(),
-                            metaData.getName(), e);
+                    log.error("Could not read the permission labels of {}, which {} registers",
+                            NameCharacters.forLog(provider.getName()), NameCharacters.forLog(metaData.getName()), e);
                 }
             }
         }
@@ -103,8 +103,9 @@ final class RegisteredOperationLabels {
             String key = extensionName + "#" + operation.name();
             String earlier = labels.putIfAbsent(key, operation.permission());
             if (earlier != null && !earlier.equals(operation.permission())) {
-                log.warn("Operation {} is labelled both '{}' and '{}'; rbac uses '{}'", key, earlier,
-                        operation.permission(), earlier);
+                log.warn("Operation {} is labelled both '{}' and '{}'; rbac uses '{}'", NameCharacters.forLog(key),
+                        NameCharacters.forLog(earlier), NameCharacters.forLog(operation.permission()),
+                        NameCharacters.forLog(earlier));
             }
         }
     }

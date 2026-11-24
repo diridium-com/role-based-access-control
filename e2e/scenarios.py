@@ -169,6 +169,7 @@ def fresh(r, engine, db, dbname, new_zip, **_):
     k.cache(r, w)
     k.labelled_operations(r, w)
     k.user_preferences(r, w)
+    k.unsafe_names(r, w)
     k.unknown_operations(r, engine)
 
     # Deleting an engine user: the engine tells no plugin, but it asks rbac to authorize the delete first, so

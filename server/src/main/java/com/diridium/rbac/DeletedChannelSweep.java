@@ -97,8 +97,9 @@ final class DeletedChannelSweep {
                 total += count;
                 String name = roleNames.getOrDefault(entry.getKey(), "id " + entry.getKey());
                 String what = count == 1 ? "1 reference to a deleted channel" : count + " references to deleted channels";
-                log.info("RBAC maintenance: removed {} from role '{}'.{}", what, name,
-                        leftByRole.containsKey(entry.getKey()) ? "" : " Role '" + name + "' now has no channels.");
+                log.info("RBAC maintenance: removed {} from role '{}'.{}", what, NameCharacters.forLog(name),
+                        leftByRole.containsKey(entry.getKey()) ? ""
+                                : " Role '" + NameCharacters.forLog(name) + "' now has no channels.");
             }
             return total;
         } catch (Exception e) {

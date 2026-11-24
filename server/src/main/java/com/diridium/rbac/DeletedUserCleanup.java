@@ -109,12 +109,12 @@ final class DeletedUserCleanup {
                     invalidate.accept(userId);
                     removed++;
                     log.info("RBAC maintenance: user '{}' was deleted, removed the assignment to role '{}'.",
-                            p.username(), role);
+                            NameCharacters.forLog(p.username()), NameCharacters.forLog(role));
                 }
             } catch (Exception e) {
                 pending.remove(userId, p);
                 log.warn("RBAC maintenance: could not remove the role assignment of deleted user '{}' (non-fatal,"
-                        + " the startup sweep will): {}", p.username(), e.getMessage());
+                        + " the startup sweep will): {}", NameCharacters.forLog(p.username()), e.getMessage());
             }
         }
         return removed;

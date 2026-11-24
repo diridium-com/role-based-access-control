@@ -144,7 +144,7 @@ public class RbacServlet extends MirthServlet implements RbacServletInterface {
         } catch (MirthApiException e) {
             throw e;
         } catch (Exception e) {
-            log.error("Failed to create role {}", role != null ? role.getName() : null, e);
+            log.error("Failed to create role {}", role != null ? NameCharacters.forLog(role.getName()) : null, e);
             throw new MirthApiException(e);
         }
     }

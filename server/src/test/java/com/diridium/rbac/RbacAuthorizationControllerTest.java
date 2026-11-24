@@ -3,6 +3,7 @@
 
 package com.diridium.rbac;
 
+import static com.diridium.rbac.LogCapture.stderrDuring;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -98,19 +99,6 @@ class RbacAuthorizationControllerTest {
 
     private static Operation op(String name) {
         return new Operation(name, name, ExecuteType.SYNC, false);
-    }
-
-    /** Runs the action and returns what was logged meanwhile (the tests log through slf4j-simple, to stderr). */
-    private static String stderrDuring(Runnable action) {
-        java.io.PrintStream stderr = System.err;
-        java.io.ByteArrayOutputStream captured = new java.io.ByteArrayOutputStream();
-        try {
-            System.setErr(new java.io.PrintStream(captured, true, java.nio.charset.StandardCharsets.UTF_8));
-            action.run();
-        } finally {
-            System.setErr(stderr);
-        }
-        return captured.toString(java.nio.charset.StandardCharsets.UTF_8);
     }
 
     // ========== isUserAuthorized: bypass paths ==========
@@ -716,6 +704,17 @@ class RbacAuthorizationControllerTest {
 
         assertFalse(output.contains("both register a permission"), output);
         assertEquals("First Plugin", controller.getExtensionPermissionGroups().get("Shared Name"));
+    }
+
+    @Test
+    void unknownOperation_nameWithALineBreak_isLoggedEscaped() {
+        givenUserHasRole(2, 5, Set.of("viewChannels"), null);
+
+        String output = stderrDuring(() -> assertDoesNotThrow(
+                () -> assertTrue(controller.isUserAuthorized(2, op("bad\nop"), null, "127.0.0.1", false))));
+
+        assertTrue(output.contains("allowing unknown operation 'bad\\nop'"), output);
+        assertFalse(output.contains("'bad\nop'"), output);
     }
 
     @Test

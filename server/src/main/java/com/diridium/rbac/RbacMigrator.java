@@ -307,7 +307,7 @@ public class RbacMigrator extends Migrator {
         try {
             return Integer.parseInt(raw);
         } catch (NumberFormatException e) {
-            log.warn("RBAC schema_version property '{}' is not an integer; treating as unset", raw);
+            log.warn("RBAC schema_version property '{}' is not an integer; treating as unset", NameCharacters.forLog(raw));
             return null;
         }
     }
