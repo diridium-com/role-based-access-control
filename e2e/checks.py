@@ -377,6 +377,26 @@ def labelled_operations(r, w):
     r.note("labels", described(seen, "the connector call and getProperty"))
 
 
+def unsafe_names(r, w):
+    """A new role name or a new permission with a control character, a line break or a bidirectional control character
+    is refused, and so is a new description with a control character other than a tab or a line break. In a log line
+    such a name could forge a line of its own or read reversed, and a character XML can't carry stops both
+    Administrators from listing roles."""
+    message = "A role name or permission can't contain control characters or line breaks."
+    for label, name, perms in (("a line break in a new role's name", "rbac e2e\nunsafe", ["viewChannels"]),
+                               ("a control character in a new permission", "rbac e2e unsafe permission",
+                                ["viewChannels", "rbac e2e\u0085unsafe"]),
+                               ("a right-to-left override in a new role's name", "rbac e2e \u202eunsafe",
+                                ["viewChannels"])):
+        status, text = w.api.request("POST", b.RBAC + "/roles", b.role_xml(name, perms))
+        r.check(f"unsafe names: {label} is refused", status == 400 and message in text + w.api.reason,
+                f"HTTP {status} {w.api.reason!r}: {text[:150]}")
+    described = "A role description can't contain control characters other than tabs and line breaks."
+    status, text = w.api.request("POST", b.RBAC + "/roles", b.role_xml("rbac e2e unsafe description", ["viewChannels"],
+                                                                       description="rbac e2e\x07bell"))
+    r.check("unsafe names: a bell character in a new description is refused",
+            status == 400 and described in text + w.api.reason, f"HTTP {status} {w.api.reason!r}: {text[:150]}")
+
 def user_preferences(r, w):
     """A user's preferences: their own for any role, another user's only with manageUsers. rbac decides this itself,
     whatever the engine labels, and a write it refuses changes nothing. The engine asks rbac even for a user's own

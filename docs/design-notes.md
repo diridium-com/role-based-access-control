@@ -213,3 +213,25 @@ The Swing Administrator shows some links that rbac can't hide, because the engin
 ### Tests
 
 A unit test checks that a View Channels role may open the four editors and may not save, validate, add or delete a destination, import a connector, or create or delete a channel. The read-only browser test, which drives the web Administrator against a mocked engine, now expects the Edit Channel button. The checks against a real engine described above ran by hand for this change and are not part of CI.
+
+## 2026-11-24: control characters in role names, permissions and descriptions
+
+The engine writes log messages as they are (its pattern is `%m%n`), and rbac logged role, permission, channel, user and plugin names as written, so a name with a line break could add a fake line to mirth.log. Measured on OIE 4.7.0: a role's name held a line break and a fake log line. Deleting one of its users made rbac's log line about removing that user's role assignment print the fake text on its own line. Anyone who can save a role (the admin role, or a role with Manage Roles) could create such a name over REST.
+
+A bidirectional control character changes how a log line reads. Measured on OIE 4.7.0: a role name ending in a right-to-left override (U+202E) and "nimda yb detaerc" made the same log line end in "created by admin" in a browser and in the Administrator's Server Log.
+
+A character XML can't carry also breaks the role list. One role holding a permission with a bell character (U+0007) made the role list answer HTTP 500 to the web Administrator and to the Swing Administrator, whose RBAC tab showed an error and no roles. An export of all roles was refused with HTTP 400. A bell in a role's description did the same. Deleting the role over REST fixed the role list in both Administrators and the export, and also removed the role from its users. XML can carry a line break: an exported role with a line break in its name, imported back, showed no change in the import preview (measured).
+
+rbac writes control characters, line separators and bidirectional control characters in names as `\n`, `\t` or `\u202E` in its log lines. It refuses a new or renamed role name, or a permission newly added to a role, that contains one of these characters or a character XML can't carry, with "A role name or permission can't contain control characters or line breaks." An import that would create a role with such a name is refused with the same text. A new or changed description is refused if it has a control character other than a tab or a line break, or a character XML can't carry: "A role description can't contain control characters other than tabs and line breaks." A description may run over several lines, and rbac doesn't log descriptions. A role's existing name, permissions and description are left alone, so a role that already has a line break in its name keeps working and can still be saved.
+
+At startup rbac logs each role whose name, description or permission holds a character XML can't carry, with its id. Such a role shows up only in the log, since the role list itself fails. The README gives the REST call that deletes it and says to assign its users the recreated role.
+
+rbac didn't copy the engine's rule for channel and alert names (letters, digits, hyphen, underscore and whitespace). The engine checks that rule only in the Swing client (measured: its REST API stored a channel name with a slash and one with a line break). The rule's whitespace class (`\s`) also includes line breaks. The engine's rule would also refuse a role named "Lab (read-only)" or "Équipe Lab", and permission names that plugins register, such as Data Pruner's "Start / Stop".
+
+### Tests
+
+- Unit tests: the escaping and the character tests, the startup line, the refusals on create, rename, added permissions and changed descriptions, updates that keep an existing name, permission or description, the import refusing a new role with such a name but not an existing one, and an operation name's line break written as `\n` in a real log line.
+- `LogNameEscapingTest` reads the server sources and fails for a log line that quotes a placeholder (`'{}'`) without calling `NameCharacters.forLog`.
+- The e2e suite creates, over REST, a role with a line break in its name, one with a right-to-left override in its name, one with a C1 control character (U+0080 to U+009F) in a permission, and one with a bell character in its description. All four are refused.
+- An OIE 4.7.0 engine on a 1.3.0 build without this change, holding roles with line breaks and with bell characters in a permission and in a description, was upgraded to this build. The startup line named the two roles with bell characters, and the README's delete brought the role list and export back.
+- Not tested: how the Swing and web role editors show the refusals.

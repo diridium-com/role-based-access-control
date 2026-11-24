@@ -209,7 +209,7 @@ public class RbacAuthorizationController extends AuthorizationController {
                 }
             } catch (Exception e) {
                 failures++;
-                log.error("Failed to map operations for permission '{}'", permissionName, e);
+                log.error("Failed to map operations for permission '{}'", NameCharacters.forLog(permissionName), e);
             }
         }
         if (failures > 0 || operationToPermission.isEmpty()) {
@@ -370,13 +370,13 @@ public class RbacAuthorizationController extends AuthorizationController {
                         // letting an authenticated user with any role through. Logged as a warning
                         // so operators auditing the server can see what's slipping through.
                         log.warn("RBAC: allowing unknown operation '{}' for user {} (no permission mapping)",
-                                operationName, userId);
+                                NameCharacters.forLog(operationName), userId);
                         authorized = true;
                     }
                 }
             }
         } catch (Exception e) {
-            log.error("Error checking authorization for user {} operation {}", userId, operationName, e);
+            log.error("Error checking authorization for user {} operation {}", userId, NameCharacters.forLog(operationName), e);
             deniedPermission = "unknown (error)";
         }
 
@@ -396,11 +396,12 @@ public class RbacAuthorizationController extends AuthorizationController {
         // the descriptive "Missing permission" reason.
         if (DEGRADABLE_OPERATIONS.contains(operationName)) {
             log.debug("RBAC: User {} not authorized for degradable operation '{}'; returning false "
-                    + "for engine-side graceful degradation", userId, operationName);
+                    + "for engine-side graceful degradation", userId, NameCharacters.forLog(operationName));
             return false;
         }
 
-        log.warn("RBAC: User {} denied for operation '{}' (requires permission '{}')", userId, operationName, deniedPermission);
+        log.warn("RBAC: User {} denied for operation '{}' (requires permission '{}')", userId,
+                NameCharacters.forLog(operationName), NameCharacters.forLog(deniedPermission));
         throw forbidden("Missing permission: " + deniedPermission);
     }
 
@@ -481,7 +482,7 @@ public class RbacAuthorizationController extends AuthorizationController {
             return label;
         }
         log.warn("RBAC: operation '{}' is labelled '{}', which no role can be granted; treating it as having no permission",
-                operationName, label);
+                NameCharacters.forLog(operationName), NameCharacters.forLog(label));
         return null;
     }
 
@@ -517,7 +518,8 @@ public class RbacAuthorizationController extends AuthorizationController {
             if (earlier != null && !earlier.equals(extensionName)) {
                 log.warn("RBAC: plugins '{}' and '{}' both register a permission named '{}'. The role editors "
                         + "list it under '{}', and granting it allows the operations of both.",
-                        earlier, extensionName, permissionDisplayName, extensionName);
+                        NameCharacters.forLog(earlier), NameCharacters.forLog(extensionName),
+                        NameCharacters.forLog(permissionDisplayName), NameCharacters.forLog(extensionName));
             }
         }
         String prefix = (extensionName != null && !extensionName.isEmpty()) ? extensionName + "#" : "";
@@ -526,7 +528,8 @@ public class RbacAuthorizationController extends AuthorizationController {
             for (String opName : operationNames) {
                 String key = prefix + opName;
                 extensionOperationToPermission.put(key, permissionDisplayName);
-                log.debug("Registered extension operation->permission: {} -> {}", key, permissionDisplayName);
+                log.debug("Registered extension operation->permission: {} -> {}", NameCharacters.forLog(key),
+                        NameCharacters.forLog(permissionDisplayName));
             }
         }
 
@@ -534,7 +537,8 @@ public class RbacAuthorizationController extends AuthorizationController {
         if (taskNames != null) {
             for (String taskName : taskNames) {
                 extensionTaskToPermission.put(taskName, permissionDisplayName);
-                log.debug("Registered extension task->permission: {} -> {}", taskName, permissionDisplayName);
+                log.debug("Registered extension task->permission: {} -> {}", NameCharacters.forLog(taskName),
+                        NameCharacters.forLog(permissionDisplayName));
             }
         }
     }

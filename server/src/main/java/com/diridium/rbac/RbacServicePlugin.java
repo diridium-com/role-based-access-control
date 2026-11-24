@@ -92,6 +92,8 @@ public class RbacServicePlugin implements ServicePlugin {
         // stays restricted (to no channel, if none is left), so nothing widens. After init, since
         // the sweep names the roles it touched through the repository.
         DeletedChannelSweep.run();
+        // A role with a character XML can't carry breaks the role list for both Administrators; name it.
+        UnlistableRoles.run();
         log.info("RBAC plugin started");
     }
 

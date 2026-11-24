@@ -3,7 +3,9 @@
 
 package com.diridium.rbac;
 
+import java.util.HashSet;
 import java.util.LinkedHashSet;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Supplier;
 
@@ -73,6 +75,8 @@ class RoleService {
      */
     Role create(Role role) {
         validateInput(role);
+        refuseUnsafeNames(role.getName(), role.getPermissions());
+        refuseUnsafeDescription(role.getDescription());
         role.setAdmin(false);
         impliedRestriction(role);
         if (repo.findRoleIdByName(role.getName()) != null) {
@@ -112,6 +116,16 @@ class RoleService {
         Role existing = repo.getRoleById(roleId);
         if (existing == null) {
             throw new MirthApiException(Status.NOT_FOUND);
+        }
+        // Only what's new is checked: a role keeps an existing name, permission or description that has such a
+        // character.
+        Set<String> added = new HashSet<>(role.getPermissions() != null ? role.getPermissions() : Set.of());
+        if (existing.getPermissions() != null) {
+            added.removeAll(existing.getPermissions());
+        }
+        refuseUnsafeNames(existing.getName().equals(role.getName()) ? null : role.getName(), added);
+        if (!Objects.equals(existing.getDescription(), role.getDescription())) {
+            refuseUnsafeDescription(role.getDescription());
         }
         if (!existing.getName().equals(role.getName())) {
             Integer otherId = repo.findRoleIdByName(role.getName());
@@ -215,6 +229,33 @@ class RoleService {
         }
         if (role.getName() == null || role.getName().isBlank()) {
             throw badRequest("Role name is required");
+        }
+    }
+
+    /** The answer to a new role name or permission {@link NameCharacters#isRefused} rejects. */
+    static final String UNSAFE_CHARACTERS = "A role name or permission can't contain control characters or line breaks.";
+
+    /**
+     * Refuses a new or renamed role name, or a newly added permission, with a control character, a line separator
+     * or a character XML can't carry. In a log line such a name can forge a line of its own, and a character XML
+     * can't carry stops both Administrators from listing roles. {@code newName} is {@code null} when the name
+     * doesn't change.
+     */
+    private static void refuseUnsafeNames(String newName, Set<String> newPermissions) {
+        if (NameCharacters.isRefused(newName)
+                || (newPermissions != null && newPermissions.stream().anyMatch(NameCharacters::isRefused))) {
+            throw badRequest(UNSAFE_CHARACTERS);
+        }
+    }
+
+    /** The answer to a new description {@link NameCharacters#isRefusedInDescription} rejects. */
+    static final String UNSAFE_DESCRIPTION =
+            "A role description can't contain control characters other than tabs and line breaks.";
+
+    /** Refuses a new or changed description that would stop both Administrators from listing roles. */
+    private static void refuseUnsafeDescription(String newDescription) {
+        if (NameCharacters.isRefusedInDescription(newDescription)) {
+            throw badRequest(UNSAFE_DESCRIPTION);
         }
     }
 
