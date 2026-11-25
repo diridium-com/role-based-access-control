@@ -137,6 +137,7 @@
     },
     "adminOnlyTasks": [
         "settings_Role-Based Access Control/doExportRoles",
-        "settings_Role-Based Access Control/doImportRoles"
+        "settings_Role-Based Access Control/doImportRoles",
+        "settings_Role-Based Access Control/doShowOrphanedPermissions"
     ]
 }

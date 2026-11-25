@@ -828,6 +828,19 @@ class RbacAuthorizationControllerTest {
     }
 
     @Test
+    void orphanedPermissionCalls_areRefusedToAnyoneWithoutTheAdminRole() {
+        givenUserHasRole(2, 5, Set.of(RbacServletInterface.PERMISSION_VIEW, RbacServletInterface.PERMISSION_MANAGE), null);
+        for (String[] call : new String[][] {
+                { "getUnregisteredGrants", UnregisteredGrantService.LIST_NEEDS_ADMIN },
+                { "removeUnregisteredGrants", UnregisteredGrantService.REMOVE_NEEDS_ADMIN } }) {
+            MirthApiException e = assertThrows(MirthApiException.class, () -> controller.isUserAuthorized(2,
+                    op(RbacServletInterface.PLUGIN_NAME + "#" + call[0]), null, "127.0.0.1", false));
+            assertEquals(403, e.getResponse().getStatus());
+            assertEquals(call[1], e.getResponse().getStatusInfo().getReasonPhrase());
+        }
+    }
+
+    @Test
     void getExtensionTaskPermissions_empty_returnsEmptyMap() {
         // No extension permissions registered yet
         assertTrue(controller.getExtensionTaskPermissions().isEmpty());

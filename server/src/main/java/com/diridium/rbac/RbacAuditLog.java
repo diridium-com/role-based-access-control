@@ -8,6 +8,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeSet;
 
 import com.mirth.connect.model.ServerEvent;
@@ -135,6 +136,21 @@ class RbacAuditLog {
             channels = String.join(", ", named);
         }
         return "Permissions: " + permissions + ". Channels: " + channels + ".";
+    }
+
+    /**
+     * Dispatches one audit event for the orphaned permissions removed from a role: permissions neither the engine
+     * nor any installed plugin registers.
+     *
+     * @param roleName    the role's name; null is recorded as {@code "(unknown)"}
+     * @param permissions the permissions removed
+     */
+    void orphanedPermissionsRemoved(String roleName, Set<String> permissions) {
+        Map<String, String> attributes = new LinkedHashMap<>();
+        attributes.put("Role", roleName != null ? roleName : "(unknown)");
+        attributes.put("Permissions removed", String.join(", ", new TreeSet<>(permissions)));
+        attributes.put("Action", "Removed orphaned permissions");
+        dispatch(attributes);
     }
 
     private void dispatch(Map<String, String> attributes) {

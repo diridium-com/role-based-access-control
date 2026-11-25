@@ -85,6 +85,10 @@
         INSERT INTO rbac_role_permission (role_id, permission) VALUES (#{roleId}, #{permission})
     </insert>
 
+    <delete id="deletePermission" parameterType="map">
+        DELETE FROM rbac_role_permission WHERE role_id = #{roleId} AND permission = #{permission}
+    </delete>
+
     <!-- ========== Role Channel Restrictions ========== -->
 
     <select id="getChannelIdsForRole" parameterType="int" resultType="String">

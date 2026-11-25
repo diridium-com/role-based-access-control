@@ -56,7 +56,8 @@ public class SecureAuthorizationController implements AuthorizationController {
     // Web twin: "adminOnlyTasks" in webadmin/web/task-permission-map.json.
     private static final Set<String> ADMIN_ONLY_TASKS = Set.of(
             TaskConstants.SETTINGS_KEY_PREFIX + RbacServletInterface.PLUGIN_NAME + "/doExportRoles",
-            TaskConstants.SETTINGS_KEY_PREFIX + RbacServletInterface.PLUGIN_NAME + "/doImportRoles");
+            TaskConstants.SETTINGS_KEY_PREFIX + RbacServletInterface.PLUGIN_NAME + "/doImportRoles",
+            TaskConstants.SETTINGS_KEY_PREFIX + RbacServletInterface.PLUGIN_NAME + "/doShowOrphanedPermissions");
 
     /** Looks up the id of the signed-in user; a seam so tests need no running client. */
     @FunctionalInterface
