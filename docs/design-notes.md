@@ -245,3 +245,15 @@ rbac didn't copy the engine's rule for channel and alert names (letters, digits,
 - The e2e suite creates, over REST, a role with a line break in its name, one with a right-to-left override in its name, one with a C1 control character (U+0080 to U+009F) in a permission, and one with a bell character in its description. All four are refused.
 - An OIE 4.7.0 engine on a 1.3.0 build without this change, holding roles with line breaks and with bell characters in a permission and in a description, was upgraded to this build. The startup line named the two roles with bell characters, and the README's delete brought the role list and export back.
 - Not tested: how the Swing and web role editors show the refusals.
+
+## 2026-11-24: the role editors check names before saving
+
+These were measured on OIE 4.7.0, with the server already refusing control characters in a new role name or description. A role renamed in the Swing Administrator to a name with a tab in it (a pasted name can carry one) made the RBAC tab show the engine's general error dialog, "An unexpected error has occurred", with a stack trace that starts "400 Bad Request". rbac's message was not in it, because the Swing client shows the HTTP status line and rbac sends the message in the response body. A bell character in the description never reached rbac: the Swing client failed to convert the role for sending ("Character reference "&#x7" is an invalid XML character") and showed the same error dialog. The web Administrator showed rbac's message in an error dialog. In both Administrators the editor closed on Apply, and the edits were lost.
+
+Both editors check a new or changed name or description with the server's rule before saving. They show the server's message in a Validation Error dialog, as they do for an empty name, and keep the editor open. A name or description the role already has is not checked, as on the server. The Swing editor calls `NameCharacters` in the shared module, the server's own rule. The web editor has the same rule in `rbac-core.js`, and a Java test and a web test both read `webadmin/web/name-character-cases.txt`, so the two give the same answers.
+
+### Tests
+
+- The case file has 25 strings and the two messages. Both tests also check that a name or description the role already has is not refused.
+- The CI browser tests (`role-editor.spec.js`) check the web editor: a tab in a new name and a bell in a changed description each show the message, the editor stays open, and nothing is sent. The Swing editor's check has no CI test; it was checked only by driving the Swing Administrator on OIE 4.7.0.
+- Both editors were driven on OIE 4.7.0: a tab in the name and a bell in the description each show the message, the editor stays open, and the role is unchanged.
