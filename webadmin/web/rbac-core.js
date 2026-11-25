@@ -262,6 +262,51 @@ export const TITLE_EDIT_ROLE = 'Edit Role';
 export const MSG_NAME_REQUIRED = 'Role name is required.';
 export const TITLE_VALIDATION_ERROR = 'Validation Error';
 
+// RoleEditorDialog.save(): a new or changed name or description with a character the server refuses (title
+// "Validation Error"). The rule is NameCharacters in the shared Java module; name-character-cases.txt holds the two
+// to the same answers.
+export const MSG_NAME_CHARACTERS = "A role name or permission can't contain control characters or line breaks.";
+export const MSG_DESCRIPTION_CHARACTERS =
+    "A role description can't contain control characters other than tabs and line breaks.";
+
+function isIsoControl(c) {
+    return c <= 0x1f || (c >= 0x7f && c <= 0x9f);
+}
+
+function isBidiControl(c) {
+    return c === 0x061c || c === 0x200e || c === 0x200f || (c >= 0x202a && c <= 0x202e) || (c >= 0x2066 && c <= 0x2069);
+}
+
+function isXmlChar(c) {
+    return c === 0x9 || c === 0xa || c === 0xd || (c >= 0x20 && c <= 0xd7ff) || (c >= 0xe000 && c <= 0xfffd)
+        || (c >= 0x10000 && c <= 0x10ffff);
+}
+
+function anyCodePoint(value, refused) {
+    if (value == null) return false;
+    for (const ch of String(value)) {
+        if (refused(ch.codePointAt(0))) return true;
+    }
+    return false;
+}
+
+/** NameCharacters.isRefused: a control character, a line separator, a bidirectional control or what XML can't carry. */
+export function nameRefused(value) {
+    return anyCodePoint(value, (c) => isIsoControl(c) || c === 0x2028 || c === 0x2029 || isBidiControl(c) || !isXmlChar(c));
+}
+
+/** NameCharacters.isRefusedInDescription: a control character other than a tab or line break, or what XML can't carry. */
+export function descriptionRefused(value) {
+    return anyCodePoint(value, (c) => !isXmlChar(c) || (isIsoControl(c) && c !== 0x9 && c !== 0xa && c !== 0xd));
+}
+
+/** NameCharacters.editorRefusal: the message instead of saving, or null. Old values are null for a new role. */
+export function editorRefusal(oldName, oldDescription, name, description) {
+    if (oldName !== name && nameRefused(name)) return MSG_NAME_CHARACTERS;
+    if (oldDescription !== description && descriptionRefused(description)) return MSG_DESCRIPTION_CHARACTERS;
+    return null;
+}
+
 // RoleEditorDialog.save() — refusal to edit an existing role with no permission
 // catalog loaded (title "Permissions Unavailable").
 export const MSG_CATALOG_EMPTY_EDIT =

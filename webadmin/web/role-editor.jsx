@@ -31,7 +31,7 @@ import {
     groupPermissions, orphanPermissionsOf, missingBase, editorChannelIds, editorRestricted,
     editorPermissions, MSG_ADMIN_EVERY_PERMISSION,
     READ_ONLY_PERMISSIONS, permissionWarning, READ_ONLY_TOOLTIP,
-    TITLE_ADD_ROLE, TITLE_EDIT_ROLE, MSG_NAME_REQUIRED, TITLE_VALIDATION_ERROR,
+    TITLE_ADD_ROLE, TITLE_EDIT_ROLE, MSG_NAME_REQUIRED, TITLE_VALIDATION_ERROR, editorRefusal,
     MSG_CATALOG_EMPTY_EDIT, TITLE_PERMISSIONS_UNAVAILABLE,
     missingBaseWarningText, TITLE_MISSING_BASE_PERMISSIONS,
     noChannelsTickedLine, toggleIn
@@ -142,6 +142,15 @@ export function makeRoleEditor(platform) {
             const trimmedName = name.trim();
             if (!trimmedName) {
                 await alertDialog(TITLE_VALIDATION_ERROR, MSG_NAME_REQUIRED);
+                return;
+            }
+
+            // The server refuses these characters in a new or changed name or description. Say so here and
+            // keep the editor open, as Swing does; after Apply the editor is gone and the edits with it.
+            const refusal = editorRefusal(role ? role.name : null, role ? role.description : null,
+                trimmedName, description.trim());
+            if (refusal) {
+                await alertDialog(TITLE_VALIDATION_ERROR, refusal);
                 return;
             }
 

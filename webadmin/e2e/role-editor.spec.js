@@ -15,6 +15,8 @@ import { mockEngineWithRbac } from './mock.js';
 import { rbacFixtures, ADMIN_ROLE, READ_ONLY_ROLE, FULL_PERMISSIONS } from './fixtures.js';
 
 const NO_CHANNELS = 'This role sees no channels until some are ticked.';
+const NAME_CHARACTERS = "A role name or permission can't contain control characters or line breaks.";
+const DESCRIPTION_CHARACTERS = "A role description can't contain control characters other than tabs and line breaks.";
 const KEEPS_ONE = 'This role keeps 1 channel this list does not show.';
 const ADMIN_EVERY = 'The admin role has every permission, including those of plugins installed later.';
 const NONE_ROLE = { ...READ_ONLY_ROLE, id: 5, name: 'Sees None', restricted: true, channelIds: null };
@@ -94,6 +96,34 @@ test.describe('role editor: the admin role shows every permission (issue #28)', 
         await editor.getByRole('button', { name: 'Permissions' }).click();
         await expect(editor.locator('.rbac-perm-grid input[type=checkbox]:checked')).toHaveCount(READ_ONLY_ROLE.permissions.string.length);
         await expect(editor.getByText(ADMIN_EVERY)).toHaveCount(0);
+    });
+});
+
+test.describe('role editor: characters the server refuses', () => {
+    test('a tab in a new name shows the message, keeps the editor open with the name, and sends nothing', async ({ page }) => {
+        const writes = watchWrites(page);
+        await openPanel(page);
+        const editor = await addRole(page, 'Lab\tX');
+        await editor.getByRole('button', { name: 'Apply' }).click();
+        const alert = page.getByRole('dialog', { name: 'Validation Error' });
+        await expect(alert).toContainText(NAME_CHARACTERS);
+        await alert.getByRole('button', { name: 'OK' }).click();
+        await expect(page.locator('.rbac-overlay')).toHaveCount(1);
+        await expect(editor.locator('input[type=text]').first()).toHaveValue('Lab\tX');
+        expect(writes).toEqual([]);
+    });
+
+    test('a bell in a changed description shows the message, keeps the editor open, and sends nothing', async ({ page }) => {
+        const writes = watchWrites(page);
+        await openPanel(page);
+        const editor = await editRole(page, 'Read Only');
+        await editor.locator('input[type=text]').nth(1).fill('desc' + String.fromCharCode(7) + 'bell');
+        await editor.getByRole('button', { name: 'Apply' }).click();
+        const alert = page.getByRole('dialog', { name: 'Validation Error' });
+        await expect(alert).toContainText(DESCRIPTION_CHARACTERS);
+        await alert.getByRole('button', { name: 'OK' }).click();
+        await expect(page.locator('.rbac-overlay')).toHaveCount(1);
+        expect(writes).toEqual([]);
     });
 });
 

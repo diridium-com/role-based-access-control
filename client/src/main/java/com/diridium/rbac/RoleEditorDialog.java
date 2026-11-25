@@ -479,6 +479,16 @@ public class RoleEditorDialog extends JDialog {
             return;
         }
 
+        // The server refuses these characters in a new or changed name or description. Say so here and keep the
+        // editor open: the panel's error dialog would show only "400 Bad Request", and the edits would be lost
+        // (measured on OIE 4.7.0).
+        String refusal = NameCharacters.editorRefusal(existingRole != null ? existingRole.getName() : null,
+                existingRole != null ? existingRole.getDescription() : null, name, descriptionField.getText().trim());
+        if (refusal != null) {
+            JOptionPane.showMessageDialog(this, refusal, "Validation Error", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
         // Refuse to save an existing role when no permission catalog was available: with
         // no checkboxes rendered, the collected set would be empty and Apply would wipe
         // the role's permissions. The panel guards against this too; this is a backstop.

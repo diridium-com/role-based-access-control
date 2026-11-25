@@ -233,7 +233,7 @@ class RoleService {
     }
 
     /** The answer to a new role name or permission {@link NameCharacters#isRefused} rejects. */
-    static final String UNSAFE_CHARACTERS = "A role name or permission can't contain control characters or line breaks.";
+    static final String UNSAFE_CHARACTERS = NameCharacters.NAME_MESSAGE;
 
     /**
      * Refuses a new or renamed role name, or a newly added permission, with a control character, a line separator
@@ -249,8 +249,7 @@ class RoleService {
     }
 
     /** The answer to a new description {@link NameCharacters#isRefusedInDescription} rejects. */
-    static final String UNSAFE_DESCRIPTION =
-            "A role description can't contain control characters other than tabs and line breaks.";
+    static final String UNSAFE_DESCRIPTION = NameCharacters.DESCRIPTION_MESSAGE;
 
     /** Refuses a new or changed description that would stop both Administrators from listing roles. */
     private static void refuseUnsafeDescription(String newDescription) {

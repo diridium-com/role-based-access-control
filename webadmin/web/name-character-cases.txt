@@ -1,0 +1,32 @@
+# Strings the Swing role editor, the web role editor and the server must answer the same way. Read by
+# NameCharacterCasesTest (client module, Java) and name-characters.test.mjs (web).
+# One case per line: field (name or description), expected (refused or allowed), then the value after one space.
+# In a value, \u and four hex digits stand for that character, so this file stays plain ASCII.
+# The two message lines give the text both editors show for a refused name and a refused description.
+message name A role name or permission can't contain control characters or line breaks.
+message description A role description can't contain control characters other than tabs and line breaks.
+name allowed Lab
+name allowed Lab (read-only)
+name allowed \u00c9quipe Lab
+name allowed \u05e2\u05d1\u05e8\u05d9\u05ea
+name allowed Start / Stop
+name refused Lab\u0009X
+name refused Lab\u000aX
+name refused Lab\u000dX
+name refused Lab\u0007X
+name refused Lab\u007fX
+name refused Lab\u0085X
+name refused Lab\u2028X
+name refused Lab\u2029X
+name refused Lab\u202eX
+name refused Lab\u2066X
+name refused Lab\u200fX
+name refused Lab\u061cX
+name refused Lab\ufffeX
+description allowed first line\u000asecond\u0009line
+description allowed first line\u000d\u000asecond
+description allowed \u202eright to left
+description refused desc\u0007bell
+description refused desc\u0000nul
+description refused desc\u0085next
+description refused desc\ufffex
