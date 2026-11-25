@@ -214,6 +214,16 @@ The Swing Administrator shows some links that rbac can't hide, because the engin
 
 A unit test checks that a View Channels role may open the four editors and may not save, validate, add or delete a destination, import a connector, or create or delete a channel. The read-only browser test, which drives the web Administrator against a mocked engine, now expects the Edit Channel button. The checks against a real engine described above ran by hand for this change and are not part of CI.
 
+## 2026-11-23: grants no plugin registers
+
+A role stores a plugin's permission by its display name, because the engine's `ExtensionPermission` has no id. When a plugin renames a permission in a new version, or is removed, the role keeps the old name (rbac issue #64). Measured on OIE 4.7.0: after the Server Log plugin was uninstalled, a role still held "View Server Log". rbac's permission list, which both role editors show, no longer included it, and nothing about it was logged at startup. The role editors keep such a grant when the role is saved, without showing it, so it comes back into use if the plugin is installed again.
+
+rbac logs such a grant the first time one of the role's users is refused for a missing permission, once per role and permission until the engine restarts: "RBAC: role 'Lab' holds the permission 'Use Perm Test', which no installed plugin registers. If a plugin renamed it, grant the role the new name." rbac does the check when a user is refused, because the engine registers the plugins' permissions only after every plugin's `start()` has run (`DefaultExtensionController.startPlugins`), so a check when rbac starts would see none of them. A refusal while the engine is still starting, before the plugins have registered their permissions, can log a false warning for a permission a plugin does register.
+
+### Tests
+
+Unit tests: a refused user whose role holds an unregistered permission gets the line once; a role holding two gets a line for each; two roles holding the same one each get a line; a line break in the names is written as `\n`; there is no line for a role whose permissions are all registered, for a user with no role, or on an allowed call. An e2e check gives a role a made-up permission; its user is refused twice, and the line appears once.
+
 ## 2026-11-24: control characters in role names, permissions and descriptions
 
 The engine writes log messages as they are (its pattern is `%m%n`), and rbac logged role, permission, channel, user and plugin names as written, so a name with a line break could add a fake line to mirth.log. Measured on OIE 4.7.0: a role's name held a line break and a fake log line. Deleting one of its users made rbac's log line about removing that user's role assignment print the fake text on its own line. Anyone who can save a role (the admin role, or a role with Manage Roles) could create such a name over REST.

@@ -19,9 +19,11 @@ import transfer_checks as tk
 from oie import Api
 
 PASSWORD = "Rbac-e2e-" + b.new_id()[:12] + "!"
-# rbac writes these at WARN on purpose: every refusal, the blocked deletion of the last admin user, and, on an engine
-# that doesn't label them, the operations the label checks call as a role without the label's permission.
+# rbac writes these at WARN on purpose: every refusal, the blocked deletion of the last admin user, the made-up grant
+# the unregistered-grant check gives a role, and, on an engine that doesn't label them, the operations the label checks
+# call as a role without the label's permission.
 EXPECTED_WARN = (r"RBAC: User \d+ denied for operation", r"RBAC: blocked deletion of the last admin user",
+                 r"RBAC: role 'rbac e2e unregistered' holds the permission 'rbac e2e unregistered permission'",
                  r"RBAC: allowing unknown operation '(" + "|".join(re.escape(op) for op in k.LABEL_PROBE_OPERATIONS)
                  + r")'")
 
@@ -170,6 +172,7 @@ def fresh(r, engine, db, dbname, new_zip, **_):
     k.labelled_operations(r, w)
     k.user_preferences(r, w)
     k.unsafe_names(r, w)
+    k.unregistered_grant(r, w)
     k.unknown_operations(r, engine)
 
     # Deleting an engine user: the engine tells no plugin, but it asks rbac to authorize the delete first, so
