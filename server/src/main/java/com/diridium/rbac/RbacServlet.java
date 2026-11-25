@@ -3,6 +3,8 @@
 
 package com.diridium.rbac;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -26,6 +28,7 @@ import com.mirth.connect.server.controllers.ChannelController;
 import com.mirth.connect.server.controllers.ConfigurationController;
 import com.mirth.connect.server.controllers.ControllerFactory;
 import com.mirth.connect.server.controllers.DefaultAuthorizationController;
+import com.mirth.connect.server.controllers.ExtensionController;
 
 public class RbacServlet extends MirthServlet implements RbacServletInterface {
 
@@ -34,6 +37,7 @@ public class RbacServlet extends MirthServlet implements RbacServletInterface {
     private final RbacRepository repo;
     private final RoleService roleService;
     private final RoleTransferService transferService;
+    private final UnregisteredGrantService unregisteredGrants;
 
     /**
      * The engine instantiates one of these per REST request. Resolves
@@ -56,6 +60,7 @@ public class RbacServlet extends MirthServlet implements RbacServletInterface {
             this.repo = null;
             this.roleService = null;
             this.transferService = null;
+            this.unregisteredGrants = null;
             return;
         }
         this.repo = RbacRepository.getInstance();
@@ -73,6 +78,8 @@ public class RbacServlet extends MirthServlet implements RbacServletInterface {
         this.transferService = new RoleTransferService(repo, auditLog, this::invalidateCache,
                 this::getAllPermissions, RbacServlet::allChannelNames, RbacServlet::rbacVersion,
                 () -> ConfigurationController.getInstance().getServerVersion());
+        this.unregisteredGrants = new UnregisteredGrantService(repo, auditLog, this::invalidateCache,
+                PermissionUtil::getAllCorePermissions, this::pluginPermissions, RbacServlet::disabledPlugins);
     }
 
     /**
@@ -221,6 +228,42 @@ public class RbacServlet extends MirthServlet implements RbacServletInterface {
         }
     }
 
+    // ========== Orphaned permissions ==========
+
+    /**
+     * {@inheritDoc}
+     * <p>Delegates to {@link UnregisteredGrantService#list}.</p>
+     */
+    @Override
+    public UnregisteredGrants getUnregisteredGrants() throws ClientException {
+        requireMigrationOk();
+        try {
+            return unregisteredGrants.list(callerIsAdmin());
+        } catch (MirthApiException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Failed to list orphaned permissions", e);
+            throw new MirthApiException(e);
+        }
+    }
+
+    /**
+     * {@inheritDoc}
+     * <p>Delegates to {@link UnregisteredGrantService#remove}.</p>
+     */
+    @Override
+    public int removeUnregisteredGrants(UnregisteredGrants grants) throws ClientException {
+        requireMigrationOk();
+        try {
+            return unregisteredGrants.remove(callerIsAdmin(), grants);
+        } catch (MirthApiException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Failed to remove orphaned permissions", e);
+            throw new MirthApiException(e);
+        }
+    }
+
     // ========== User-Role Assignment ==========
 
     /**
@@ -359,7 +402,26 @@ public class RbacServlet extends MirthServlet implements RbacServletInterface {
         return all;
     }
 
-    /** Whether the caller holds the admin role, which export and import need. */
+    /** The permissions installed, enabled plugins register; empty when rbac's controller isn't the engine's. */
+    private Set<String> pluginPermissions() {
+        RbacAuthorizationController rbac = getRbacController();
+        return rbac != null ? rbac.getExtensionPermissionNames() : new LinkedHashSet<>();
+    }
+
+    /** The names of the installed plugins that are disabled, sorted. */
+    private static List<String> disabledPlugins() {
+        ExtensionController extensions = ControllerFactory.getFactory().createExtensionController();
+        List<String> names = new ArrayList<>();
+        for (PluginMetaData metaData : extensions.getPluginMetaData().values()) {
+            if (!extensions.isExtensionEnabled(metaData.getName())) {
+                names.add(metaData.getName());
+            }
+        }
+        Collections.sort(names, String.CASE_INSENSITIVE_ORDER);
+        return names;
+    }
+
+    /** Whether the caller holds the admin role, which export, import and the orphaned permissions need. */
     private boolean callerIsAdmin() {
         Role role = repo.getUserRole(getCurrentUserId());
         return role != null && role.isAdmin();

@@ -58,6 +58,7 @@ test('adminOnlyTasks equals ADMIN_ONLY_TASKS exactly, in the same order', () => 
     assert.deepEqual(artifact.adminOnlyTasks, [
         'settings_Role-Based Access Control/doExportRoles',
         'settings_Role-Based Access Control/doImportRoles',
+        'settings_Role-Based Access Control/doShowOrphanedPermissions',
     ]);
 });
 

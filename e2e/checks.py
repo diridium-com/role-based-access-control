@@ -5,6 +5,7 @@
 admin's session, the test users' sessions and ids, the roles and the channels the scenario made."""
 
 import types
+import xml.etree.ElementTree as ET
 import urllib.parse
 
 import rbac as b
@@ -419,6 +420,48 @@ def unregistered_grant(r, w):
     deleted, _ = b.delete_role(w.api, w.roles.pop("unregistered"))
     r.check("unregistered grant: its role is removed again", unassigned in (200, 204) and deleted in (200, 204),
             f"unassign HTTP {unassigned}, delete HTTP {deleted}")
+
+
+def orphaned_permissions(r, w):
+    """The admin-only Orphaned Permissions list and removal. A role holding a permission no plugin registers is
+    listed, nothing the engine or a plugin registers is, a removal takes only what is still orphaned, and a View Roles
+    and Manage Roles holder who is not the admin role is refused both calls."""
+    name, perm = "rbac e2e orphaned", "rbac e2e orphaned permission"
+    rid = b.create_role(w.api, name, ["viewDashboard", "viewChannels", perm])
+    status, text = w.api.request("GET", b.RBAC + "/roles/_unregistered")
+    rows = set()
+    if status == 200:
+        rows = {(g.findtext("roleId"), g.findtext("permission"))
+                for g in ET.fromstring(text).iter("com.diridium.rbac.UnregisteredGrant")}
+    r.check("orphaned permissions: the admin's list has the made-up grant", (str(rid), perm) in rows,
+            f"HTTP {status}: {sorted(rows)[:5]}")
+    registered = {p for _, p in rows} & b.available_permissions(w.api)
+    r.check("orphaned permissions: nothing the engine or a plugin registers is listed", not registered,
+            f"listed: {sorted(registered)}")
+
+    removal = ("<com.diridium.rbac.UnregisteredGrants><grants>"
+               + "".join(f"<com.diridium.rbac.UnregisteredGrant><roleId>{rid}</roleId><permission>{p}</permission>"
+                         "</com.diridium.rbac.UnregisteredGrant>" for p in (perm, "viewDashboard"))
+               + "</grants></com.diridium.rbac.UnregisteredGrants>")
+    w.roles["orphan_manager"] = b.create_role(w.api, "rbac e2e roles manager",
+                                              ["viewDashboard", "viewChannels", "View Roles", "Manage Roles"])
+    manager = add_user(w, "orphanmanager", "orphan_manager")
+    expect(r, "orphaned permissions: a View Roles and Manage Roles holder is refused the list", manager, "GET",
+           b.RBAC + "/roles/_unregistered", (403,), "Listing orphaned permissions needs the admin role.")
+    expect(r, "orphaned permissions: and the removal", manager, "POST", b.RBAC + "/roles/_unregistered/_remove",
+           (403,), "Removing orphaned permissions needs the admin role.", body=removal)
+
+    status, text = w.api.request("POST", b.RBAC + "/roles/_unregistered/_remove", removal)
+    removed = ET.fromstring(text).text if status == 200 and text.strip() else None
+    held = b.roles(w.api)[rid]["permissions"]
+    r.check("orphaned permissions: the removal takes the made-up grant and leaves the engine's",
+            status == 200 and removed == "1" and held == {"viewDashboard", "viewChannels"},
+            f"HTTP {status} removed={removed!r} role now holds {sorted(held)}")
+
+    unassigned, _ = b.remove_role(w.api, w.ids["orphanmanager"])
+    deleted = [b.delete_role(w.api, x)[0] for x in (rid, w.roles.pop("orphan_manager"))]
+    r.check("orphaned permissions: its roles are removed again", unassigned in (200, 204)
+            and all(d in (200, 204) for d in deleted), f"unassign HTTP {unassigned}, delete HTTP {deleted}")
 
 
 def user_preferences(r, w):

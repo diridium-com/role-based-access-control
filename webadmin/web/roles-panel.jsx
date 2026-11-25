@@ -12,9 +12,10 @@
  * no save()), and says so up front via the italic notice.
  *
  * Task pane = Refresh (settings_Role-Based Access Control/doRefresh →
- * "View Roles") plus Export Roles and Import Roles, shown to the admin role
- * only (the controller answers doExportRoles/doImportRoles from the admin
- * flag; see role-transfer.jsx); the Add/Edit/Delete and Assign/Remove buttons are gated on
+ * "View Roles") plus Export Roles, Import Roles and Orphaned Permissions,
+ * shown to the admin role only (the controller answers doExportRoles,
+ * doImportRoles and doShowOrphanedPermissions from the admin flag; see
+ * role-transfer.jsx and orphaned-permissions.jsx); the Add/Edit/Delete and Assign/Remove buttons are gated on
  * checkTask(…, 'doSave') → "Manage Roles" (the Config Map Add Row precedent).
  * The assignments table and its Assign and Remove are user-assignments.jsx;
  * this panel loads its data with everything else.
@@ -26,7 +27,8 @@
 import {
     IMMEDIATE_NOTICE, ROLE_COLUMNS,
     MSG_CATALOG_NOT_LOADED, MSG_CHANNELS_NOT_LOADED, MSG_SELECT_ROLE_EDIT, MSG_SELECT_ROLE_DELETE,
-    MSG_ADMIN_ROLE_CANNOT_DELETE, deleteRoleConfirmText, TITLE_CONFIRM_DELETE, lookUpRoleNames
+    MSG_ADMIN_ROLE_CANNOT_DELETE, deleteRoleConfirmText, TITLE_CONFIRM_DELETE, lookUpRoleNames,
+    TASK_ORPHANED_PERMISSIONS, TASK_ORPHANED_PERMISSIONS_TOOLTIP
 } from './rbac-core.js';
 import {
     TASK_EXPORT_ROLES, TASK_EXPORT_ROLES_TOOLTIP, TASK_IMPORT_ROLES, TASK_IMPORT_ROLES_TOOLTIP
@@ -35,6 +37,7 @@ import { mapEntries } from './rbac-api.js';
 import { makeRoleEditor } from './role-editor.jsx';
 import { makeRoleTransfer } from './role-transfer.jsx';
 import { makeUserAssignments } from './user-assignments.jsx';
+import { makeOrphanedPermissions } from './orphaned-permissions.jsx';
 
 const RBAC_GROUP = 'settings_Role-Based Access Control';
 
@@ -44,6 +47,7 @@ export function registerRolesPanel(platform, api) {
     const RoleEditor = makeRoleEditor(platform);
     const { startExport, startImport, TransferDialogs } = makeRoleTransfer(platform, api);
     const UserAssignments = makeUserAssignments(platform, api);
+    const { startOrphaned, OrphanedPermissionsDialog } = makeOrphanedPermissions(platform, api);
 
     function RolesPanel({ setTasks }) {
         const [roles, setRoles] = React.useState([]);
@@ -57,6 +61,7 @@ export function registerRolesPanel(platform, api) {
         const [selectedRoleId, setSelectedRoleId] = React.useState(null);
         const [editor, setEditor] = React.useState(null);         // { role: Role|null } while open
         const [transfer, setTransfer] = React.useState(null);     // export/import dialog value while open
+        const [orphaned, setOrphaned] = React.useState(null);     // the orphaned-permissions list while open
         const [loading, setLoading] = React.useState(true);
 
         const channelMapRef = React.useRef(null); // the export task reads the channel names, null when not loaded
@@ -129,7 +134,9 @@ export function registerRolesPanel(platform, api) {
                 ui.taskButton(TASK_EXPORT_ROLES, 'export', async () => setTransfer(await startExport(channelMapRef.current)),
                     { task: 'doExportRoles', group: RBAC_GROUP, title: TASK_EXPORT_ROLES_TOOLTIP }),
                 ui.taskButton(TASK_IMPORT_ROLES, 'import', async () => setTransfer(await startImport()),
-                    { task: 'doImportRoles', group: RBAC_GROUP, title: TASK_IMPORT_ROLES_TOOLTIP })
+                    { task: 'doImportRoles', group: RBAC_GROUP, title: TASK_IMPORT_ROLES_TOOLTIP }),
+                ui.taskButton(TASK_ORPHANED_PERMISSIONS, 'trash', async () => setOrphaned(await startOrphaned()),
+                    { task: 'doShowOrphanedPermissions', group: RBAC_GROUP, title: TASK_ORPHANED_PERMISSIONS_TOOLTIP })
             ]);
         }, [load, setTasks]);
 
@@ -270,6 +277,13 @@ export function registerRolesPanel(platform, api) {
                     transfer={transfer}
                     onClose={() => setTransfer(null)}
                     onImported={() => { setTransfer(null); load(); }} />
+
+                {orphaned ? (
+                    <OrphanedPermissionsDialog
+                        initial={orphaned}
+                        onClose={() => setOrphaned(null)}
+                        onRemoved={() => load()} />
+                ) : null}
             </div>
         );
     }

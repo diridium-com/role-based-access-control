@@ -63,12 +63,15 @@ public class RbacAuthorizationController extends AuthorizationController {
             "getServerId"                  // Server identification
     ));
 
-    // rbac's own operations that only the admin role may call, by composite name, with the
-    // reason a refusal gives. They are registered under View Roles and Manage Roles so they are
-    // never unknown, and refused here for anyone else, so the audit records the refusal.
+    // rbac's own operations that only the admin role may call (role export and import, and the
+    // orphaned-permissions list and removal), by composite name, with the reason a refusal gives.
+    // They are registered under View Roles and Manage Roles so they are never unknown, and refused
+    // here for anyone else, so the audit records the refusal.
     private static final Map<String, String> ADMIN_ONLY_OPERATIONS = Map.of(
             RbacServletInterface.PLUGIN_NAME + "#exportRoles", RoleTransferService.EXPORT_NEEDS_ADMIN,
-            RbacServletInterface.PLUGIN_NAME + "#importRoles", RoleTransferService.IMPORT_NEEDS_ADMIN);
+            RbacServletInterface.PLUGIN_NAME + "#importRoles", RoleTransferService.IMPORT_NEEDS_ADMIN,
+            RbacServletInterface.PLUGIN_NAME + "#getUnregisteredGrants", UnregisteredGrantService.LIST_NEEDS_ADMIN,
+            RbacServletInterface.PLUGIN_NAME + "#removeUnregisteredGrants", UnregisteredGrantService.REMOVE_NEEDS_ADMIN);
 
     // Core engine read operations annotated @DontCheckAuthorized: the engine servlet calls
     // isUserAuthorized() itself and, when it returns false, degrades gracefully (empty list,

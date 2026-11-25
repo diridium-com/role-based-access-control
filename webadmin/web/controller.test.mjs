@@ -267,8 +267,9 @@ const adminController = (permissions, isAdmin) =>
     createController({ getPermissions: () => permissions, getIsAdmin: () => isAdmin });
 
 test('admin-only tasks answer the admin flag, whatever the permissions', () => {
-    assert.deepEqual(ADMIN_ONLY_TASKS, [`${RBAC_GROUP}/doExportRoles`, `${RBAC_GROUP}/doImportRoles`]);
-    for (const task of ['doExportRoles', 'doImportRoles']) {
+    assert.deepEqual(ADMIN_ONLY_TASKS,
+        [`${RBAC_GROUP}/doExportRoles`, `${RBAC_GROUP}/doImportRoles`, `${RBAC_GROUP}/doShowOrphanedPermissions`]);
+    for (const task of ['doExportRoles', 'doImportRoles', 'doShowOrphanedPermissions']) {
         const all = new Set(['View Roles', 'Manage Roles']);
         assert.equal(adminController(all, true).checkTask(RBAC_GROUP, task), true, `${task} admin`);
         assert.equal(adminController(all, false).checkTask(RBAC_GROUP, task), false, `${task} Manage Roles holder`);

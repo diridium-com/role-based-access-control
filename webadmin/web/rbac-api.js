@@ -222,6 +222,29 @@ export function roleXml(role, { includeId = false } = {}) {
 
 /* ---- REST client (the servlet endpoints) --------------------------------- */
 
+const GRANTS_FQCN = 'com.diridium.rbac.UnregisteredGrants';
+const GRANT_FQCN = 'com.diridium.rbac.UnregisteredGrant';
+
+/* The orphaned permissions (com.diridium.rbac.UnregisteredGrants): the grants as {roleId,
+   roleName, permission}, and the names of the installed plugins that are disabled. */
+export function normalizeUnregisteredGrants(raw) {
+    if (raw && typeof raw === 'object' && raw[GRANTS_FQCN] !== undefined) raw = raw[GRANTS_FQCN];
+    if (!raw || typeof raw !== 'object') raw = {};
+    return {
+        grants: beanList(raw.grants, GRANT_FQCN).map((g) => ({
+            roleId: Number(g.roleId), roleName: text(g.roleName), permission: text(g.permission)
+        })),
+        disabledPlugins: [...stringSet(raw.disabledPlugins)]
+    };
+}
+
+/* The removal request: each grant's role id and permission. */
+export function unregisteredGrantsXml(grants) {
+    const items = grants.map((g) => `<${GRANT_FQCN}><roleId>${Number(g.roleId)}</roleId>`
+        + `<permission>${escapeXml(g.permission)}</permission></${GRANT_FQCN}>`).join('');
+    return `<${GRANTS_FQCN}><grants>${items}</grants></${GRANTS_FQCN}>`;
+}
+
 export function makeApi(api) {
     // Roles come back {list:{'com.diridium.rbac.Role':[...]}}; tolerate an
     // aliased 'role' root too (schi precedent for FQCN/alias drift).
@@ -257,6 +280,10 @@ export function makeApi(api) {
                 params: { dryRun, applyChannels, matchChannelsByName, pick, planToken },
                 contentType: 'text/plain'
             })),
+        // Orphaned permissions (admin only): the list, and the removal of the picked ones.
+        getUnregisteredGrants: async () => normalizeUnregisteredGrants(await api.get(`${EXT}/roles/_unregistered`)),
+        removeUnregisteredGrants: (grants) =>
+            api.postXml(`${EXT}/roles/_unregistered/_remove`, unregisteredGrantsXml(grants)),
         getExtensionTaskPermissions: async () =>
             Object.fromEntries(mapEntries(await api.get(`${EXT}/task-permissions`))),
         // Permission display name -> publishing plugin name; drives the

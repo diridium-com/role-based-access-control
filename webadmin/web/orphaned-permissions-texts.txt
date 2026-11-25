@@ -1,0 +1,12 @@
+# The Orphaned Permissions texts, which the Swing and the web Administrator must show the same way. Read by
+# OrphanedPermissionsTextsTest (client module, Java) and orphaned-permissions.test.mjs (web).
+# One text per line: a key, one space, then the text. In a "disabled" line the part before " => " is the disabled
+# plugins, comma-separated; in a "confirmation" line it is the number of permissions and the number of roles.
+title Orphaned Permissions
+tooltip Remove orphaned permissions.
+intro These permissions are orphaned, usually because a plugin changed or was removed. Engine permissions are never listed here.
+empty No role holds an orphaned permission.
+disabled Data Pruner, Server Log => Disabled plugins: Data Pruner, Server Log. Their permissions may appear in this list.
+confirmation 3 2 => Remove 3 orphaned permissions from 2 roles?
+confirmation 1 1 => Remove 1 orphaned permission from 1 role?
+confirmation 2 1 => Remove 2 orphaned permissions from 1 role?

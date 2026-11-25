@@ -297,12 +297,14 @@ class SecureAuthorizationControllerTest {
         setField(admin, "adminRole", true);
         assertTrue(admin.checkTask(RBAC_GROUP, "doExportRoles"));
         assertTrue(admin.checkTask(RBAC_GROUP, "doImportRoles"));
+        assertTrue(admin.checkTask(RBAC_GROUP, "doShowOrphanedPermissions"));
 
         // Holding every permission (View and Manage Roles) is not the admin role.
         SecureAuthorizationController notAdmin = withPermissions(
                 Set.of(RbacServletInterface.PERMISSION_VIEW, RbacServletInterface.PERMISSION_MANAGE));
         assertFalse(notAdmin.checkTask(RBAC_GROUP, "doExportRoles"));
         assertFalse(notAdmin.checkTask(RBAC_GROUP, "doImportRoles"));
+        assertFalse(notAdmin.checkTask(RBAC_GROUP, "doShowOrphanedPermissions"));
     }
 
     @Test

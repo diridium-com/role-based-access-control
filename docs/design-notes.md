@@ -257,3 +257,20 @@ Both editors check a new or changed name or description with the server's rule b
 - The case file has 25 strings and the two messages. Both tests also check that a name or description the role already has is not refused.
 - The CI browser tests (`role-editor.spec.js`) check the web editor: a tab in a new name and a bell in a changed description each show the message, the editor stays open, and nothing is sent. The Swing editor's check has no CI test; it was checked only by driving the Swing Administrator on OIE 4.7.0.
 - Both editors were driven on OIE 4.7.0: a tab in the name and a bell in the description each show the message, the editor stays open, and the role is unchanged.
+
+## 2026-11-25: the Orphaned Permissions dialog
+
+A role keeps a plugin's permission after the plugin renames it or is removed, and such a grant does nothing (see the 2026-11-23 entry, "grants no plugin registers"). An admin can list and remove them with the Orphaned Permissions task in the RBAC tab, in both Administrators. The dialog only removes grants; granting a renamed permission's new name stays in the role editor.
+
+The engine's own permissions are never listed or removed. rbac reads them from the engine's `Permissions` class, and if that read fails it lists nothing rather than every grant. The engine registers the plugins' permissions after every plugin has started, and rbac lists nothing before that. To know whether they are registered, rbac checks for its own View Roles permission. Removal checks each grant again on the server and deletes the picked ones in one transaction.
+
+A disabled plugin registers no permissions, so its grants are listed too. Measured on OIE 4.7.0: with Data Pruner disabled, the engine still listed it among the installed plugins and reported it disabled, and its three permissions left rbac's list. The dialog names the disabled plugins above the table. It has no column naming each grant's plugin: rbac doesn't remember which plugin registered a permission, so every row would say "unknown".
+
+The list and removal are admin-only, like role export and import.
+
+### Tests
+
+- Unit tests: only grants neither the engine nor a plugin registers are listed; nothing is listed when the engine's permissions can't be read or the plugins' aren't registered yet; a removal takes only requested grants that are still orphaned and audits each role; anyone without the admin role is refused; the dialog's singular and plural texts; the admin-only task in both task maps.
+- Browser tests: who sees the task, the list with the disabled plugins, Remove Selected and Remove All with their confirmations, and an empty list.
+- The e2e suite: a made-up grant is listed and no registered permission is, a View Roles and Manage Roles holder who is not the admin is refused both calls, and a removal takes the made-up grant and leaves the engine permission.
+- Both dialogs, driven on OIE 4.7.0 with a role still holding "Use Perm Test", the permission of a throwaway test plugin that doesn't ship, after the plugin's version 2 renamed it: both listed it, and the web dialog removed a made-up grant while that role kept its engine permissions.

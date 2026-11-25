@@ -86,6 +86,8 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
         initComponents();
         addTask("doExportRoles", "Export Roles", "Export roles to a file.", "", new ImageIcon(Frame.class.getResource("images/report_go.png")));
         addTask("doImportRoles", "Import Roles", "Import roles from a file.", "", new ImageIcon(Frame.class.getResource("images/report_disk.png")));
+        addTask("doShowOrphanedPermissions", OrphanedPermissionsDialog.TITLE, OrphanedPermissionsDialog.TOOLTIP, "",
+                new ImageIcon(Frame.class.getResource("images/plugin_delete.png")));
     }
 
     /** Task callback: Export Roles. */
@@ -93,6 +95,9 @@ public class RbacSettingsPanel extends AbstractSettingsPanel {
 
     /** Task callback: Import Roles. */
     public void doImportRoles() { transfer.importRoles(); }
+
+    /** Task callback: Orphaned Permissions. */
+    public void doShowOrphanedPermissions() { OrphanedPermissionsDialog.open(parent, this::doRefresh); }
 
     private void initComponents() {
         setLayout(new BorderLayout());

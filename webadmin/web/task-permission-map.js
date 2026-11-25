@@ -238,6 +238,7 @@ export const GROUP_TASK_PERMISSIONS = {
 export const ADMIN_ONLY_TASKS = [
     'settings_Role-Based Access Control/doExportRoles',
     'settings_Role-Based Access Control/doImportRoles',
+    'settings_Role-Based Access Control/doShowOrphanedPermissions',
 ];
 
 /**

@@ -407,3 +407,26 @@ export const TITLE_ASSIGN_ROLE = 'Assign Role';
 export const ASSIGN_PREVIEW_HEADER = 'Review the access this role grants before assigning:';
 export const ASSIGN_PREVIEW_FOOTER = 'This assignment takes effect immediately.';
 export const TITLE_CONFIRM_ASSIGNMENT = 'Confirm Role Assignment';
+
+// OrphanedPermissionsDialog: the admin-only Orphaned Permissions task and dialog, the
+// permissions roles hold that neither the engine nor any installed plugin registers.
+export const TASK_ORPHANED_PERMISSIONS = 'Orphaned Permissions';
+export const TASK_ORPHANED_PERMISSIONS_TOOLTIP = 'Remove orphaned permissions.';
+export const ORPHANED_INTRO = 'These permissions are orphaned, usually because a plugin changed or was removed. '
+    + 'Engine permissions are never listed here.';
+export const ORPHANED_EMPTY = 'No role holds an orphaned permission.';
+export const ORPHANED_COLUMNS = ['Role', 'Permission'];
+
+/** OrphanedPermissionsDialog.disabledLine: the line naming the disabled plugins, or null when none is. */
+export function orphanedDisabledLine(plugins) {
+    return plugins && plugins.length
+        ? `Disabled plugins: ${plugins.join(', ')}. Their permissions may appear in this list.`
+        : null;
+}
+
+/** OrphanedPermissionsDialog.confirmation: "Remove 3 orphaned permissions from 2 roles?". */
+export function orphanedConfirmation(grants) {
+    const roles = new Set(grants.map((g) => String(g.roleId))).size;
+    return `Remove ${grants.length} orphaned permission${grants.length === 1 ? '' : 's'} from `
+        + `${roles} role${roles === 1 ? '' : 's'}?`;
+}

@@ -6,9 +6,11 @@ package com.diridium.rbac;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 
 import org.apache.ibatis.session.SqlSession;
 import org.slf4j.Logger;
@@ -262,6 +264,41 @@ public class RbacRepository {
             throw e;
         } catch (Exception e) {
             log.error("Failed to import {} role(s); nothing was written", writes.size(), e);
+            throw new RbacRepositoryException(e);
+        } finally {
+            if (session != null) {
+                session.close();
+            }
+        }
+    }
+
+    /**
+     * Removes permissions from roles in one transaction: all of them, or none if a statement fails. Each is deleted
+     * by role and name.
+     *
+     * @param removeByRole role id to the permission names to remove
+     * @return role id to the names that were removed; a role that held none of them is left out
+     * @throws RbacRepositoryException on persistence failure, after which nothing was removed
+     */
+    Map<Integer, Set<String>> removePermissions(Map<Integer, Set<String>> removeByRole) {
+        SqlSession session = null;
+        try {
+            session = SqlConfig.getInstance().getSqlSessionManager().openSession(false);
+            Map<Integer, Set<String>> removed = new LinkedHashMap<>();
+            for (Map.Entry<Integer, Set<String>> entry : removeByRole.entrySet()) {
+                for (String permission : entry.getValue()) {
+                    Map<String, Object> params = new HashMap<>();
+                    params.put("roleId", entry.getKey());
+                    params.put("permission", permission);
+                    if (session.delete(stmt("deletePermission"), params) > 0) {
+                        removed.computeIfAbsent(entry.getKey(), id -> new TreeSet<>()).add(permission);
+                    }
+                }
+            }
+            session.commit();
+            return removed;
+        } catch (Exception e) {
+            log.error("Failed to remove orphaned permissions from {} role(s); nothing was removed", removeByRole.size(), e);
             throw new RbacRepositoryException(e);
         } finally {
             if (session != null) {

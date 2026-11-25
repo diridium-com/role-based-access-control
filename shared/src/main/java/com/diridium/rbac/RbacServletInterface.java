@@ -185,6 +185,40 @@ public interface RbacServletInterface extends BaseServletInterface {
             @Param("pick") @Parameter(description = "For an apply, the positions in the file of the roles to write") @QueryParam("pick") List<Integer> pick,
             @Param("planToken") @Parameter(description = "For an apply, the token from the preview") @QueryParam("planToken") String planToken) throws ClientException;
 
+    // ========== Orphaned permissions ==========
+
+    /**
+     * Lists the permissions roles hold that neither the engine nor any installed plugin registers (the
+     * Administrators call them orphaned), and the installed plugins that are disabled, whose permissions aren't
+     * registered either. The engine's own permissions are never listed. Only a user holding the admin role may
+     * list them.
+     *
+     * @return the orphaned permissions, by role name, and the disabled plugins
+     * @throws ClientException 403 for a user without the admin role, 503 while rbac can't tell which permissions
+     *                         are registered
+     */
+    @GET
+    @Path("/roles/_unregistered")
+    @Operation(summary = "Returns the orphaned permissions roles hold, and the disabled plugins")
+    @MirthOperation(name = "getUnregisteredGrants", display = "Get orphaned permissions", permission = PERMISSION_VIEW, type = ExecuteType.ASYNC, auditable = false)
+    UnregisteredGrants getUnregisteredGrants() throws ClientException;
+
+    /**
+     * Removes orphaned permissions from their roles, in one transaction. Each one is removed only if it is still
+     * orphaned, so the engine's own permissions are never removed. Only a user holding the admin role may remove
+     * them.
+     *
+     * @param grants the role and permission pairs to remove
+     * @return how many were removed
+     * @throws ClientException 403 for a user without the admin role, 503 while rbac can't tell which permissions
+     *                         are registered
+     */
+    @POST
+    @Path("/roles/_unregistered/_remove")
+    @Operation(summary = "Removes orphaned permissions from their roles")
+    @MirthOperation(name = "removeUnregisteredGrants", display = "Remove orphaned permissions", permission = PERMISSION_MANAGE, type = ExecuteType.SYNC)
+    int removeUnregisteredGrants(@Param("grants") @Parameter(description = "The orphaned permissions to remove", required = true) UnregisteredGrants grants) throws ClientException;
+
     // ========== User-Role Assignment ==========
 
     /**
